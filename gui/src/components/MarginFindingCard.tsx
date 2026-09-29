@@ -32,6 +32,8 @@ interface MarginFindingCardProps {
   onToggleFix: (shown: boolean) => void
   /** Ouvre la saisie d'une remarque ; absent quand aucune remarque ne peut viser ces lignes. */
   onAddNote?: () => void
+  /** Carte mise en évidence après un clic dans l'index des constats. */
+  highlighted?: boolean
 }
 
 /** Libellé de l'interrupteur du correctif, selon le mode d'affichage et son état. */
@@ -46,7 +48,7 @@ function toggleLabel(mode: FixMode, shown: boolean): string {
  * L'interrupteur est inactif en mode `off` et quand le correctif en recouvre
  * un autre déjà affiché.
  */
-export function MarginFindingCard({ analysis, entry, fix, mode, onToggleFix, onAddNote }: MarginFindingCardProps) {
+export function MarginFindingCard({ analysis, entry, fix, mode, onToggleFix, onAddNote, highlighted }: MarginFindingCardProps) {
   const setFindingStatus = useAnalysisStore((state) => state.setFindingStatus)
   const copy = useAnalysisStore((state) => state.copy)
   const saving = useAnalysisStore((state) => state.saving)
@@ -63,8 +65,9 @@ export function MarginFindingCard({ analysis, entry, fix, mode, onToggleFix, onA
 
   return (
     <article
-      className={`margin-card is-${finding.status}${shown ? ' is-fix-shown' : ''}`}
+      className={`margin-card is-${finding.status}${shown ? ' is-fix-shown' : ''}${highlighted ? ' is-target' : ''}`}
       id={`finding-${finding.id}`}
+      data-finding-card={finding.id}
       style={{ '--severity': severity.color } as CSSProperties}
     >
       <header className="margin-card-head">

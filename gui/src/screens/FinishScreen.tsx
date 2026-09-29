@@ -78,7 +78,7 @@ export function FinishScreen({ analysis }: { analysis: Analysis }) {
     <div className="page page-narrow">
       <h1 className="page-title page-title-small">Terminer la revue</h1>
       <p className="page-meta">
-        {reviewed} / {plural(analysis.files.length, 'fichier revu', 'fichiers revus')} · {plural(findingIds.length, 'constat')} et{' '}
+        {reviewed} / {plural(analysis.files.length, 'fichier revu', 'fichiers revus')} · {plural(findingIds.length, 'constat ouvert', 'constats ouverts')} et{' '}
         {plural(noteIds.length, 'remarque')} à transmettre
       </p>
 

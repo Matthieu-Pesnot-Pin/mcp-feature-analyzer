@@ -121,18 +121,22 @@ function DiffLegend({ mode }: { mode: FixMode }) {
   return (
     <div className="diff-legend">
       <span className="legend-item">
-        <span className="legend-swatch" style={{ background: '#11201a', borderColor: '#2c6b3a' }} />
+        <span className="legend-swatch is-add" />
         Ajouté par la feature
+      </span>
+      <span className="legend-item">
+        <span className="legend-swatch is-del" />
+        Supprimé par la feature
       </span>
       {mode === 'before-after' && (
         <span className="legend-item">
-          <span className="legend-swatch" style={{ background: '#2a1618', borderColor: '#6b2a2d' }} />
+          <span className="legend-swatch is-replaced" />
           Lignes remplacées par le correctif
         </span>
       )}
       {mode !== 'off' && (
         <span className="legend-item">
-          <span className="legend-swatch" style={{ background: '#1a1c35', borderColor: '#36407a' }} />
+          <span className="legend-swatch is-proposed" />
           {mode === 'applied' ? 'Correctif appliqué' : 'Correctif proposé'}
         </span>
       )}

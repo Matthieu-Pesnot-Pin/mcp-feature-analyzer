@@ -74,8 +74,8 @@ export function SummaryTab({ analysis }: { analysis: Analysis }) {
       )}
 
       <div className="section-head">
-        <h2 className="section-title">Constats</h2>
-        <div className="pill-row">
+        <h2 className="section-title">Constats ouverts</h2>
+        <div className="pill-row" title="Constats ouverts par gravité, exigences manquantes comprises">
           {counts
             .filter(({ count }) => count > 0)
             .map(({ severity, count }) => (
@@ -111,7 +111,7 @@ export function SummaryTab({ analysis }: { analysis: Analysis }) {
         )}
         {analysis.findings.length > 0 && (
           <a className="list-footer-link" href={hrefs.feature(analysis.id, 'findings')}>
-            Voir les {analysis.findings.length} constats
+            Voir les {analysis.findings.length} constats, tous statuts confondus
           </a>
         )}
       </section>

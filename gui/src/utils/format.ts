@@ -27,6 +27,20 @@ export function formatDateTime(iso: string): string {
   return `${day} à ${time}`
 }
 
+/**
+ * Date courte sur une ligne : « 14:32 » le jour même, « 29/09 14:32 » dans
+ * l'année, « 29/09/2025 » au-delà.
+ */
+export function formatShortDateTime(iso: string, now = new Date()): string {
+  const date = new Date(iso)
+  const time = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  if (date.toDateString() === now.toDateString()) return time
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} ${time}`
+  }
+  return date.toLocaleDateString('fr-FR')
+}
+
 /** « 1 fichier », « 3 fichiers ». */
 export function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return `${count} ${count > 1 ? pluralForm : singular}`
@@ -37,15 +51,40 @@ export function severityCount(severity: Severity, count: number): string {
   return plural(count, SEVERITY_STYLES[severity].label.toLowerCase())
 }
 
+/** Qualificatif d'un constat selon sa gravité, au singulier et au pluriel. */
+const SEVERITY_QUALIFIERS: Record<Severity, [string, string]> = {
+  critical: ['critique', 'critiques'],
+  major: ['majeur', 'majeurs'],
+  minor: ['mineur', 'mineurs'],
+  trivial: ['de détail', 'de détail'],
+}
+
+/** « 1 constat mineur ouvert », « 3 constats de détail ouverts ». */
+export function openFindingsLabel(severity: Severity, count: number): string {
+  const [singular, pluralForm] = SEVERITY_QUALIFIERS[severity]
+  return count > 1 ? `${count} constats ${pluralForm} ouverts` : `${count} constat ${singular} ouvert`
+}
+
+/**
+ * Nom de fichier découpé pour une ellipse au milieu : `head` se tronque,
+ * `tail` (extension et `keep` caractères avant elle) reste toujours visible.
+ */
+export function middleEllipsisParts(name: string, keep = 4): { head: string; tail: string } {
+  const dot = name.lastIndexOf('.')
+  const extension = dot > 0 ? name.length - dot : 0
+  const cut = Math.max(0, name.length - extension - keep)
+  return { head: name.slice(0, cut), tail: name.slice(cut) }
+}
+
 /** Ref affichée : un sha complet est abrégé à 7 caractères, un nom de branche ou de tag reste entier. */
 export function refLabel(ref: string): string {
   return /^[0-9a-f]{40}$/.test(ref) ? ref.slice(0, 7) : ref
 }
 
-/** Référence affichée d'une analyse : la ref de tête en mode `branch`, « working tree » sinon. */
+/** Référence affichée d'une analyse : la ref de tête en mode `branch`, « Copie de travail » sinon. */
 export function headLabel(analysis: Pick<AnalysisSummary, 'id' | 'mode' | 'head'>): string {
-  if (analysis.mode === 'working_tree') return 'working tree'
-  if (analysis.head === null) throw new Error(`L'analyse ${analysis.id} est en mode branch sans ref de tête.`)
+  if (analysis.mode === 'working_tree') return MODE_LABELS.working_tree
+  if (analysis.head === null) throw new Error(`L'analyse ${analysis.id} est en mode branche sans ref de tête.`)
   return refLabel(analysis.head)
 }
 

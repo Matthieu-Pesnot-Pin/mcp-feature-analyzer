@@ -15,18 +15,24 @@ const TAB_LABELS: Record<FeatureTab, string> = {
   diagrams: 'Schémas',
 }
 
-/** Compteur affiché à côté du nom d'un onglet ; null pour aucun. */
-function tabCount(analysis: Analysis, tab: FeatureTab): number | null {
-  if (tab === 'files') return analysis.files.length
-  if (tab === 'findings') return analysis.findings.length
-  if (tab === 'diagrams') return analysis.diagrams.length
+/** Compteur affiché à côté du nom d'un onglet, avec son libellé ; null pour aucun. */
+function tabCount(analysis: Analysis, tab: FeatureTab): { count: number; title: string } | null {
+  if (tab === 'files') return { count: analysis.files.length, title: plural(analysis.files.length, 'fichier modifié', 'fichiers modifiés') }
+  if (tab === 'findings') {
+    const open = analysis.findings.filter((finding) => finding.status === 'open').length
+    return {
+      count: open,
+      title: `${plural(open, 'constat ouvert', 'constats ouverts')}, exigences manquantes comprises · ${analysis.findings.length} au total`,
+    }
+  }
+  if (tab === 'diagrams') return { count: analysis.diagrams.length, title: plural(analysis.diagrams.length, 'schéma') }
   return null
 }
 
-/** Mode et refs de l'analyse : « Branche feat/x vers master », « Copie de travail vs HEAD ». */
+/** Mode et refs de l'analyse : « Branche feat/x vers master », « Copie de travail par rapport à HEAD ». */
 function refsDescription(analysis: Analysis): string {
   if (analysis.mode === 'branch') return `${MODE_LABELS.branch} ${headLabel(analysis)} vers ${refLabel(analysis.base)}`
-  return `${MODE_LABELS.working_tree} vs HEAD`
+  return `${MODE_LABELS.working_tree} par rapport à HEAD`
 }
 
 /** Écran Feature : en-tête de l'analyse, onglets et contenu de l'onglet `tab`. */
@@ -60,11 +66,16 @@ export function FeatureScreen({ analysis, tab }: { analysis: Analysis; tab: Feat
 
       <nav className="tabs" aria-label="Sections de l'analyse">
         {FEATURE_TABS.map((entry) => {
-          const count = tabCount(analysis, entry)
+          const counter = tabCount(analysis, entry)
           return (
-            <a key={entry} href={hrefs.feature(analysis.id, entry)} className={`tab${entry === tab ? ' is-active' : ''}`}>
+            <a
+              key={entry}
+              href={hrefs.feature(analysis.id, entry)}
+              className={`tab${entry === tab ? ' is-active' : ''}`}
+              title={counter?.title}
+            >
               {TAB_LABELS[entry]}
-              {count !== null && <span className="tab-count">{count}</span>}
+              {counter !== null && <span className="tab-count">{counter.count}</span>}
             </a>
           )
         })}

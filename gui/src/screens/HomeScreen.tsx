@@ -3,7 +3,7 @@ import { REVIEW_PROGRESS_STYLES } from '@shared/labels'
 import { Icon } from '../components/Icon'
 import { ReviewStateBadge, SeverityDot } from '../components/Pills'
 import { useAnalysisStore } from '../store/useAnalysisStore'
-import { plural, refsLabel, relativeTime } from '../utils/format'
+import { openFindingsLabel, plural, refsLabel, relativeTime } from '../utils/format'
 import { hrefs } from '../utils/router'
 import {
   applyHomeFilter,
@@ -46,7 +46,14 @@ function AnalysisRow({ analysis }: { analysis: AnalysisSummary }) {
         {findings.length === 0 ? (
           <span className="home-row-none">Aucun constat ouvert</span>
         ) : (
-          findings.map(({ severity, count }) => <SeverityDot key={severity} severity={severity} count={count} />)
+          findings.map(({ severity, count }) => (
+            <SeverityDot
+              key={severity}
+              severity={severity}
+              count={count}
+              title={`${openFindingsLabel(severity, count)}, exigences manquantes comprises`}
+            />
+          ))
         )}
       </span>
       <span className="home-row-state">

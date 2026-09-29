@@ -40,13 +40,28 @@ export function KindTag({ kind }: { kind: FindingKind }) {
   return <span className="tag tag-gap">{FINDING_KIND_LABELS[kind]}</span>
 }
 
-/** Pastille ronde de couleur de gravité suivie d'un nombre. */
-export function SeverityDot({ severity, count }: { severity: Severity; count: number }) {
+/**
+ * Pastille ronde de couleur de gravité suivie d'un nombre, avec son libellé en
+ * infobulle ; `href` en fait un lien.
+ */
+export function SeverityDot({ severity, count, title, href }: { severity: Severity; count: number; title: string; href?: string }) {
   const color = SEVERITY_STYLES[severity].color
-  return (
-    <span className="severity-dot" style={{ color }} title={`${count} constat(s) ${SEVERITY_STYLES[severity].label.toLowerCase()}(s) ouvert(s)`}>
+  const content = (
+    <>
       <span className="severity-dot-mark" style={{ background: color }} />
       {count}
+    </>
+  )
+  if (href) {
+    return (
+      <a className="severity-dot is-link" href={href} style={{ color }} title={title} aria-label={title}>
+        {content}
+      </a>
+    )
+  }
+  return (
+    <span className="severity-dot" style={{ color }} title={title}>
+      {content}
     </span>
   )
 }

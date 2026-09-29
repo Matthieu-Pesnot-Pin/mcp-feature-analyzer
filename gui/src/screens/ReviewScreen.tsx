@@ -5,7 +5,7 @@ import { FindingCard } from '../components/FindingCard'
 import { Icon } from '../components/Icon'
 import { SeverityDot } from '../components/Pills'
 import { useAnalysisStore } from '../store/useAnalysisStore'
-import { splitPath } from '../utils/format'
+import { middleEllipsisParts, openFindingsLabel, plural, splitPath } from '../utils/format'
 import { hrefs, navigate } from '../utils/router'
 import { DiffView, type ComposerTarget } from './DiffView'
 import { FindingsMargin } from './FindingsMargin'
@@ -18,10 +18,26 @@ import {
   numberedFindingsOfFile,
   resolveFixDisplays,
   shownLineNumbers,
+  type NumberedFinding,
 } from './review-diff-model'
 import { firstFileToReview, openFindingCounts, unlocatedFindings } from './review-model'
 
-/** Panneau gauche : progression de la revue et liste des fichiers, un intertitre par dossier. */
+/** Nom de fichier tronqué au milieu : le début se coupe, l'extension et la fin du nom restent visibles. */
+function MiddleEllipsis({ name }: { name: string }) {
+  const { head, tail } = middleEllipsisParts(name)
+  return (
+    <span className="middle-ellipsis">
+      <span className="middle-ellipsis-head">{head}</span>
+      <span className="middle-ellipsis-tail">{tail}</span>
+    </span>
+  )
+}
+
+/**
+ * Panneau gauche : progression de la revue et liste des fichiers, un intertitre
+ * par dossier. Chaque pastille de gravité ouvre le fichier sur son premier
+ * constat ouvert de cette gravité.
+ */
 function FilesPanel({ analysis, currentPath }: { analysis: Analysis; currentPath: string }) {
   const reviewed = analysis.files.filter((file) => file.reviewed).length
   const progress = analysis.files.length === 0 ? 0 : (reviewed / analysis.files.length) * 100
@@ -51,23 +67,54 @@ function FilesPanel({ analysis, currentPath }: { analysis: Analysis; currentPath
                   {folder || './'}
                 </span>
               )}
-              <a
-                href={hrefs.review(analysis.id, file.path)}
-                className={`files-item${current ? ' is-current' : ''}${file.reviewed ? ' is-reviewed' : ''}`}
-                title={file.path}
-                aria-current={current ? 'page' : undefined}
-              >
-                <Icon name={icon} color={color} />
-                <span className="files-item-name">{splitPath(file.path).name}</span>
-                {openFindingCounts(analysis, file.path).map(({ severity, count }) => (
-                  <SeverityDot key={severity} severity={severity} count={count} />
+              <div className={`files-item${current ? ' is-current' : ''}${file.reviewed ? ' is-reviewed' : ''}`}>
+                <a
+                  href={hrefs.review(analysis.id, file.path)}
+                  className="files-item-link"
+                  title={file.path}
+                  aria-current={current ? 'page' : undefined}
+                >
+                  <Icon name={icon} color={color} />
+                  <span className="files-item-name">
+                    <MiddleEllipsis name={splitPath(file.path).name} />
+                  </span>
+                </a>
+                {openFindingCounts(analysis, file.path).map(({ severity, count, firstLine }) => (
+                  <SeverityDot
+                    key={severity}
+                    severity={severity}
+                    count={count}
+                    href={hrefs.review(analysis.id, file.path, firstLine)}
+                    title={`${openFindingsLabel(severity, count)} — ${count > 1 ? 'aller au premier' : 'y aller'}`}
+                  />
                 ))}
-              </a>
+              </div>
             </Fragment>
           )
         })}
       </nav>
     </aside>
+  )
+}
+
+/** Bandeau repliable des exigences manquantes et constats sans emplacement, au-dessus du diff. */
+function GapBanner({ analysis }: { analysis: Analysis }) {
+  const collapsed = useAnalysisStore((state) => state.gapsCollapsed)
+  const setCollapsed = useAnalysisStore((state) => state.setGapsCollapsed)
+  const gaps = unlocatedFindings(analysis)
+  if (gaps.length === 0) return null
+  const open = gaps.filter((finding) => finding.status === 'open').length
+
+  return (
+    <section className={`gap-banner${collapsed ? ' is-collapsed' : ''}`}>
+      <button type="button" className="gap-banner-toggle block-title" aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>
+        <Icon name={collapsed ? 'chevron-right' : 'chevron-down'} color="#646b7b" />
+        <Icon name="triangle-alert" color="#e3a33b" />
+        {plural(gaps.length, 'exigence manquante', 'exigences manquantes')}
+        {open !== gaps.length && <span className="gap-banner-count">· {plural(open, 'ouverte')}</span>}
+      </button>
+      {!collapsed && gaps.map((finding) => <FindingCard key={finding.id} analysis={analysis} finding={finding} />)}
+    </section>
   )
 }
 
@@ -162,6 +209,8 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const setComposer = (target: ComposerTarget) => setComposerState(target && path !== null ? { path, line: target.line } : null)
   // Choix du relecteur d'afficher ou non le correctif de chaque constat dans le code.
   const [fixChoices, setFixChoices] = useState<Record<string, boolean>>({})
+  // Constat amené à l'écran depuis l'index ; `seq` relance le défilement sur un même constat.
+  const [reveal, setReveal] = useState<{ path: string; findingId: string; line: number; seq: number } | null>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const centerRef = useRef<HTMLDivElement>(null)
 
@@ -186,15 +235,20 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const target = line === null ? null : lineAnchorOf(line, removed)
   const targetSelector = target === null ? null : anchorSelector(target)
 
-  // Élément ciblé centré à l'écran ; sans ligne, retour en haut du fichier.
+  const revealedId = reveal !== null && reveal.path === path && reveal.line === line ? reveal.findingId : null
+  const revealSeq = reveal?.seq ?? 0
+
+  // Élément ciblé centré à l'écran, puis carte du constat amené depuis l'index ; sans ligne, retour en haut du fichier.
   useEffect(() => {
-    if (!fileDiff) return
+    const body = bodyRef.current
+    if (!fileDiff || !body) return
     if (targetSelector === null) {
-      bodyRef.current?.scrollTo({ top: 0 })
+      body.scrollTo({ top: 0 })
       return
     }
-    bodyRef.current?.querySelector(targetSelector)?.scrollIntoView({ block: 'center' })
-  }, [fileDiff, targetSelector, path])
+    body.querySelector(targetSelector)?.scrollIntoView({ block: 'center' })
+    if (revealedId !== null) body.querySelector(`[data-finding-card="${CSS.escape(revealedId)}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [fileDiff, targetSelector, path, revealedId, revealSeq])
 
   if (path === null) {
     return (
@@ -204,12 +258,15 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
     )
   }
 
-  const gaps = analysis.files[0]?.path === path ? unlocatedFindings(analysis) : []
   const hunks = fileDiff ? buildDiffRows(fileDiff, numbered, fixes, fixMode) : []
   const shownLines = fileDiff ? shownLineNumbers(fileDiff) : failed ? new Set<number>() : null
   const lineNotes = lineNotesOfFile(analysis, path)
   const notedLines = new Set(lineNotes.map((note) => note.location.line))
   const setFixShown = (findingId: string, shown: boolean) => setFixChoices((choices) => ({ ...choices, [findingId]: shown }))
+  const revealFinding = (entry: NumberedFinding) => {
+    setReveal((previous) => ({ path, findingId: entry.finding.id, line: entry.startLine, seq: (previous?.seq ?? 0) + 1 }))
+    navigate(hrefs.review(analysis.id, path, entry.startLine))
+  }
 
   return (
     <div className="review">
@@ -227,17 +284,7 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
             <div className="review-body" ref={bodyRef}>
               <div className="review-columns">
                 <div className="review-center" ref={centerRef}>
-                  {gaps.length > 0 && (
-                    <section className="gap-banner">
-                      <h3 className="block-title">
-                        <Icon name="triangle-alert" color="#e3a33b" />
-                        Exigences manquantes et constats sans emplacement
-                      </h3>
-                      {gaps.map((finding) => (
-                        <FindingCard key={finding.id} analysis={analysis} finding={finding} />
-                      ))}
-                    </section>
-                  )}
+                  <GapBanner analysis={analysis} />
 
                   {!file.contentAvailable && !file.binary && file.status !== 'deleted' && (
                     <p className="diff-notice">
@@ -277,6 +324,9 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
                   setComposer={setComposer}
                   onToggleFix={setFixShown}
                   scopeRef={centerRef}
+                  scrollRef={bodyRef}
+                  onReveal={revealFinding}
+                  revealedId={revealedId}
                 />
               </div>
             </div>

@@ -31,6 +31,7 @@ import {
   openSeverityByPath,
   overflows,
   panBy,
+  presentDotSeverities,
   presentStatuses,
   viewBoxOf,
   zoomAround,
@@ -85,9 +86,10 @@ export function DiagramsTab({ analysis }: { analysis: Analysis }) {
               className={`diagram-pick${active ? ' is-active' : ''}`}
               aria-pressed={active}
               onClick={() => setSelectedId(entry.id)}
+              title={entry.title}
             >
               <Icon name={DIAGRAM_KIND_ICONS[entry.kind]} color={active ? '#8b97ff' : '#646b7b'} />
-              {entry.title}
+              <span className="diagram-pick-title">{entry.title}</span>
               {issues !== null && issues > 0 && (
                 <span className="diagram-pick-issues" title={`${issues} croisement(s) de liens ou traversée(s) de nœud : l'agent doit revoir ce schéma`}>
                   croisements
@@ -96,7 +98,6 @@ export function DiagramsTab({ analysis }: { analysis: Analysis }) {
             </button>
           )
         })}
-        <span className="spacer" />
         <span className="diagram-meta">Dessiné par l'agent · {relativeTime(diagram.updatedAt)}</span>
       </div>
       <DiagramView key={diagram.id} analysis={analysis} diagram={diagram} />
@@ -138,7 +139,7 @@ function DiagramCanvas({ analysis, diagram, layout }: { analysis: Analysis; diag
   const severities = useMemo(() => openSeverityByPath(analysis), [analysis])
   const boxById = useMemo(() => new Map(layout.nodes.map((box) => [box.id, box])), [layout])
   const statuses = presentStatuses(diagram.nodes)
-  const hasDots = diagram.nodes.some((node) => node.location && severities.has(node.location.path))
+  const dotSeverities = presentDotSeverities(diagram.nodes, severities)
   const markerId = `arrow-${diagram.id}`
   const arrows = diagram.kind === 'flow'
 
@@ -319,10 +320,21 @@ function DiagramCanvas({ analysis, diagram, layout }: { analysis: Analysis; diag
               </span>
             )
           })}
-          {hasDots && (
+          {dotSeverities.length > 0 && (
             <span className="legend-item">
-              <span className="legend-dot" style={{ background: SEVERITY_STYLES.critical.color }} />
-              Constat ouvert
+              <span className="legend-dots">
+                {dotSeverities.map((severity) => (
+                  <span
+                    key={severity}
+                    className="legend-dot"
+                    style={{ background: SEVERITY_STYLES[severity].color }}
+                    title={SEVERITY_STYLES[severity].label}
+                  />
+                ))}
+              </span>
+              {dotSeverities.length === 1
+                ? `Constat ouvert (${SEVERITY_STYLES[dotSeverities[0]].label.toLowerCase()})`
+                : 'Constat ouvert (couleur de la gravité la plus haute)'}
             </span>
           )}
         </div>

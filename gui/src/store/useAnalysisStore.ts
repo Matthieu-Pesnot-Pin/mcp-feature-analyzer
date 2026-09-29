@@ -48,11 +48,14 @@ interface AnalysisState {
   collapsedProjects: ReadonlySet<string>
   /** Affichage des correctifs dans le diff de l'écran Revue, commun à tous les fichiers. */
   fixMode: FixMode
+  /** Bandeau des exigences manquantes replié sur l'écran Revue, pour tous les fichiers. */
+  gapsCollapsed: boolean
 
   setConnected: (connected: boolean) => void
   setHomeFilter: (filter: HomeFilter) => void
   toggleProject: (project: string) => void
   setFixMode: (mode: FixMode) => void
+  setGapsCollapsed: (collapsed: boolean) => void
   loadConfig: () => Promise<void>
   setListing: (listing: AnalysisListing) => void
   loadAnalyses: () => Promise<void>
@@ -125,6 +128,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     homeFilter: 'to_review',
     collapsedProjects: new Set(),
     fixMode: 'before-after',
+    gapsCollapsed: false,
 
     setConnected: (connected) => set({ connected }),
 
@@ -138,6 +142,8 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     },
 
     setFixMode: (fixMode) => set({ fixMode }),
+
+    setGapsCollapsed: (gapsCollapsed) => set({ gapsCollapsed }),
 
     loadConfig: async () => {
       try {

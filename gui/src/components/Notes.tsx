@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Note } from '@shared/schemas/analysis.schema'
 import { useAnalysisStore } from '../store/useAnalysisStore'
-import { formatDateTime } from '../utils/format'
+import { formatDateTime, formatShortDateTime } from '../utils/format'
 import { Icon } from './Icon'
 import { NotePill } from './Pills'
 
@@ -15,8 +15,8 @@ export function NoteCard({ note }: { note: Note }) {
     <div className="note-card">
       <div className="note-head">
         <NotePill fixed={false} />
-        <span className="note-meta">
-          {where} · {formatDateTime(note.createdAt)}
+        <span className="note-meta" title={`${where} · ${formatDateTime(note.createdAt)}`}>
+          {where} · {formatShortDateTime(note.createdAt)}
         </span>
         <button type="button" className="link-button muted" disabled={saving} onClick={() => void deleteNote(note.id)}>
           <Icon name="trash" size={13} />

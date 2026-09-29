@@ -1,5 +1,5 @@
 import type { Analysis, Diagram, DiagramKind, DiagramNode, NodeStatus, Severity } from '@shared/schemas/analysis.schema'
-import { NODE_STATUSES } from '@shared/schemas/analysis.schema'
+import { NODE_STATUSES, SEVERITIES } from '@shared/schemas/analysis.schema'
 import { layoutDiagram, type DiagramLayout, type Point } from '@shared/diagram-layout'
 import { diagramQuality } from '@shared/diagram-quality'
 import { compareSeverity } from '@shared/severity'
@@ -27,6 +27,16 @@ export function openSeverityByPath(analysis: Analysis): Map<string, Severity> {
     if (!current || compareSeverity(finding.severity, current) < 0) result.set(finding.location.path, finding.severity)
   }
   return result
+}
+
+/**
+ * Gravités des pastilles de constat dessinées sur les nœuds du schéma, de la
+ * plus grave à la moins grave. `severities` donne la gravité la plus haute des
+ * constats ouverts de chaque fichier.
+ */
+export function presentDotSeverities(nodes: DiagramNode[], severities: ReadonlyMap<string, Severity>): Severity[] {
+  const present = new Set(nodes.flatMap((node) => (node.location && severities.has(node.location.path) ? [severities.get(node.location.path)!] : [])))
+  return SEVERITIES.filter((severity) => present.has(severity))
 }
 
 /** Entrées de la légende : les statuts présents dans le schéma, dans l'ordre des statuts. */

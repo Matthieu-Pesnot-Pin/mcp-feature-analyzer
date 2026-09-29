@@ -3,6 +3,7 @@ import type { Analysis, FindingStatus, Severity } from '@shared/schemas/analysis
 import { FINDING_STATUSES, SEVERITIES } from '@shared/schemas/analysis.schema'
 import { FINDING_STATUS_LABELS, SEVERITY_STYLES } from '@shared/labels'
 import { sortBySeverity } from '@shared/severity'
+import { plural } from '../utils/format'
 import { FindingRow } from './FindingRow'
 
 function toggle<T>(set: ReadonlySet<T>, value: T): Set<T> {
@@ -34,6 +35,7 @@ export function FindingsTab({ analysis }: { analysis: Analysis }) {
                 aria-pressed={active}
                 className={`chip${active ? ' is-active' : ''}`}
                 style={active ? { color: SEVERITY_STYLES[severity].color, background: SEVERITY_STYLES[severity].background } : undefined}
+                title={`${plural(count, 'constat')} de gravité « ${SEVERITY_STYLES[severity].label} », tous statuts confondus`}
                 onClick={() => setSeverities(toggle(severities, severity))}
               >
                 {SEVERITY_STYLES[severity].label} <span className="chip-count">{count}</span>
@@ -52,6 +54,7 @@ export function FindingsTab({ analysis }: { analysis: Analysis }) {
                 key={status}
                 aria-pressed={active}
                 className={`chip${active ? ' is-active is-neutral' : ''}`}
+                title={`${plural(count, 'constat')} au statut « ${FINDING_STATUS_LABELS[status]} »`}
                 onClick={() => setStatuses(toggle(statuses, status))}
               >
                 {FINDING_STATUS_LABELS[status]} <span className="chip-count">{count}</span>

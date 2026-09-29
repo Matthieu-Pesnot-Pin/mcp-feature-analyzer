@@ -2,7 +2,7 @@ import type { Analysis } from '@shared/schemas/analysis.schema'
 import { FILE_STATUS_LABELS } from '@shared/labels'
 import { Icon } from '../components/Icon'
 import { SeverityDot } from '../components/Pills'
-import { splitPath } from '../utils/format'
+import { openFindingsLabel, splitPath } from '../utils/format'
 import { hrefs } from '../utils/router'
 import { openFindingCounts } from './review-model'
 
@@ -36,7 +36,7 @@ export function FilesTab({ analysis }: { analysis: Analysis }) {
               {file.binary && <span className="tag">Binaire</span>}
               <span className="spacer" />
               {openFindingCounts(analysis, file.path).map(({ severity, count }) => (
-                <SeverityDot key={severity} severity={severity} count={count} />
+                <SeverityDot key={severity} severity={severity} count={count} title={`${openFindingsLabel(severity, count)} dans ce fichier`} />
               ))}
               <span className="file-row-counts mono">
                 <span className="count-add">+{file.additions}</span>

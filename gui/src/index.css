@@ -28,7 +28,15 @@
   --add: #3fb950;
   --del: #f0625a;
   --add-bg: #11201a;
+  --add-border: #2c6b3a;
   --del-bg: #241517;
+  --del-border: #6b2a2d;
+  /* Lignes que le correctif proposé remplacerait : teinte ambre, distincte du rouge des suppressions. */
+  --replaced-bg: #2a2010;
+  --replaced-border: #6b5424;
+  --replaced-strike: #d09a4a;
+  --proposed-bg: #1a1c35;
+  --proposed-border: #36407a;
   --ok: #3fb950;
   --danger: #f0625a;
   --warning: #e3a33b;
@@ -363,6 +371,20 @@ code {
   width: 6px;
   height: 6px;
   border-radius: 50%;
+}
+
+.severity-dot.is-link {
+  height: 22px;
+  margin: 0 -3px;
+  padding: 0 5px;
+  border-radius: 6px;
+}
+
+.severity-dot.is-link:hover,
+.severity-dot.is-link:focus-visible {
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px currentColor;
+  outline: none;
 }
 
 /* --- Coquille ------------------------------------------------------------- */
@@ -1250,10 +1272,20 @@ code {
   gap: 10px;
   height: 32px;
   margin: 0 12px;
-  padding: 0 12px;
+  padding: 0 12px 0 0;
   border-radius: 8px;
   font-size: 13px;
   color: var(--text-soft);
+}
+
+.files-item-link {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  align-self: stretch;
+  min-width: 0;
+  padding-left: 12px;
 }
 
 .files-item svg {
@@ -1275,11 +1307,26 @@ code {
 }
 
 .files-item-name {
+  display: flex;
   flex: 1;
+  min-width: 0;
+}
+
+/* Ellipse au milieu : le début du nom se tronque, la fin et l'extension restent visibles. */
+.middle-ellipsis {
+  display: flex;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.middle-ellipsis-head {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.middle-ellipsis-tail {
+  flex-shrink: 0;
 }
 
 .review-main {
@@ -1382,6 +1429,24 @@ code {
   margin-bottom: 0;
 }
 
+.gap-banner.is-collapsed {
+  margin-bottom: 12px;
+}
+
+.gap-banner-toggle {
+  align-self: flex-start;
+  height: 26px;
+}
+
+.gap-banner-toggle:hover {
+  color: var(--text);
+}
+
+.gap-banner-count {
+  font-weight: 400;
+  color: var(--faint);
+}
+
 .diff-message {
   padding: 28px 24px;
   background: var(--panel);
@@ -1461,18 +1526,18 @@ code {
 }
 
 .diff-line.is-replaced {
-  background: #2a1618;
+  background: var(--replaced-bg);
 }
 
 .diff-line.is-replaced .diff-code {
-  color: #9a8584;
+  color: #a0957f;
   text-decoration: line-through;
-  text-decoration-color: #c0605b;
+  text-decoration-color: var(--replaced-strike);
   text-decoration-thickness: 1.2px;
 }
 
 .diff-line.is-proposed {
-  background: #1a1c35;
+  background: var(--proposed-bg);
 }
 
 .diff-line.is-proposed::after {
@@ -1500,8 +1565,8 @@ code {
   gap: 8px;
   min-height: 26px;
   padding: 0 14px 0 13px;
-  background: #1a1c35;
-  border-top: 1px solid #36407a;
+  background: var(--proposed-bg);
+  border-top: 1px solid var(--proposed-border);
   font-size: 11.5px;
 }
 
@@ -1540,6 +1605,27 @@ code {
   flex-wrap: wrap;
   gap: 8px 36px;
   padding: 14px 16px 16px;
+}
+
+.legend-swatch.is-add {
+  background: var(--add-bg);
+  border-color: var(--add-border);
+}
+
+.legend-swatch.is-del {
+  background: var(--del-bg);
+  border-color: var(--del-border);
+}
+
+/* Trait horizontal : rappelle le texte barré des lignes remplacées. */
+.legend-swatch.is-replaced {
+  background: linear-gradient(var(--replaced-strike), var(--replaced-strike)) center / 8px 1.5px no-repeat, var(--replaced-bg);
+  border-color: var(--replaced-border);
+}
+
+.legend-swatch.is-proposed {
+  background: var(--proposed-bg);
+  border-color: var(--proposed-border);
 }
 
 /* Reste visible en haut de la zone de défilement de la revue. */
@@ -1702,6 +1788,55 @@ button.diff-num:hover {
   color: var(--faint);
 }
 
+.margin-index {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 2px;
+  margin-top: 10px;
+}
+
+.margin-index-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 7px 0 3px;
+  border-radius: 12px;
+  font-size: 11.5px;
+}
+
+.margin-index-item:hover,
+.margin-index-item:focus-visible {
+  background: var(--surface-raised);
+  outline: none;
+}
+
+.margin-index-item.is-muted {
+  opacity: 0.45;
+}
+
+/* Reste collée en bas de la zone de défilement tant que des cartes sont plus bas. */
+.margin-more {
+  position: sticky;
+  bottom: 12px;
+  z-index: 4;
+  display: flex;
+  width: fit-content;
+  margin: 12px auto 0;
+  padding: 5px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface-raised);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.margin-more:hover {
+  color: var(--text);
+  border-color: var(--accent-strong);
+}
+
 .margin-track {
   position: relative;
 }
@@ -1760,6 +1895,10 @@ button.diff-num:hover {
 
 .margin-card.is-fix-shown {
   border-color: #36407a;
+}
+
+.margin-card.is-target {
+  box-shadow: 0 0 0 1px rgba(109, 124, 255, 0.55);
 }
 
 .margin-card.is-ignored,
@@ -2083,8 +2222,12 @@ button.diff-num:hover {
 
 .note-meta {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
   font-size: 11.5px;
   color: var(--faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .note-text {
@@ -2381,8 +2524,9 @@ button.diff-num:hover {
 
 .diagram-picker {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
   min-height: 30px;
   margin-bottom: 18px;
 }
@@ -2395,9 +2539,16 @@ button.diff-num:hover {
   padding: 0 14px 0 12px;
   border: 1px solid transparent;
   border-radius: 8px;
+  max-width: 100%;
   font-size: 12.5px;
   color: var(--muted);
   white-space: nowrap;
+}
+
+.diagram-pick-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .diagram-pick:hover {
@@ -2412,6 +2563,7 @@ button.diff-num:hover {
 }
 
 .diagram-meta {
+  margin-left: auto;
   font-size: 11.5px;
   color: var(--faint);
   white-space: nowrap;
@@ -2511,6 +2663,11 @@ button.diff-num:hover {
   width: 6px;
   height: 6px;
   border-radius: 50%;
+}
+
+.legend-dots {
+  display: inline-flex;
+  gap: 3px;
 }
 
 .diagram-hint {
