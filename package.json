@@ -1,0 +1,56 @@
+{
+  "name": "@imenam/mcp-feature-analyzer",
+  "version": "1.0.0",
+  "description": "MCP server that helps a human review a feature developed by an AI agent: summary, changed files, frozen diff, findings ranked by severity, diagrams, and structured feedback the agent reads back.",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "test": "node --test \"dist/test/*.test.js\"",
+    "generate-version": "node scripts/generate-version.js",
+    "build:backend": "npm run generate-version && tsc",
+    "build:gui": "cd gui && npm install && npm run build",
+    "build": "npm run build:backend && npm run build:gui",
+    "start": "node dist/src/index.js",
+    "prepublishOnly": "npm run build",
+    "release": "npm version patch && npm publish && git push --follow-tags"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "code-review",
+    "diff",
+    "review",
+    "ai",
+    "agent"
+  ],
+  "type": "module",
+  "bin": {
+    "mcp-feature-analyzer": "dist/src/index.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Imena",
+  "license": "ISC",
+  "directories": {
+    "test": "test"
+  },
+  "files": [
+    "dist/src",
+    "dist/shared",
+    "gui/dist",
+    "README.md",
+    "scripts"
+  ],
+  "dependencies": {
+    "@hono/node-server": "^2.1.3",
+    "@imenam/mcp-gui-interface": "^1.0.12",
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "dotenv": "^18.0.4",
+    "hono": "^4.13.11",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2"
+  }
+}

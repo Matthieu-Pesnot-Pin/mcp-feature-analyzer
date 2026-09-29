@@ -1,0 +1,386 @@
+import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
+import { Hono } from "hono";
+import { streamSSE, type SSEStreamingApi } from "hono/streaming";
+import { ProxyClient, createLogger, setupLogging } from "@imenam/mcp-gui-interface";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
+
+import { IPCMessageSchema, PUSHED_EVENT_TYPES, type IPCMessage } from "../shared/schemas/ipc.schema.js";
+import { resolveLogDir } from "./core/log-dir.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function findProjectRoot(startDir: string): string {
+  let current = startDir;
+  while (current !== path.dirname(current)) {
+    if (fs.existsSync(path.join(current, "gui")) || fs.existsSync(path.join(current, "package.json"))) return current;
+    current = path.dirname(current);
+  }
+  return startDir;
+}
+
+const rootDir = findProjectRoot(__dirname);
+const absoluteStaticRoot = path.resolve(path.join(rootDir, "gui/dist"));
+const configuredAppPath = process.env.APP_PATH || "/feature-analyzer";
+
+/**
+ * Chemin réellement monté par le proxy. Il diffère de `configuredAppPath` quand
+ * `APP_PATH_PREFIX` est défini : le client partagé préfixe alors le chemin et
+ * renvoie le chemin final dans `result.path`. Le `<base href>` suit ce chemin.
+ */
+let effectiveAppPath = configuredAppPath;
+
+/**
+ * Deux façons d'exposer la GUI, résolues une seule fois au chargement :
+ *   - `proxy`      : PROXY_URL est défini, le proxy attribue le port et monte
+ *                    la GUI sous APP_PATH ;
+ *   - `standalone` : pas de PROXY_URL mais APP_PORT est défini — la GUI écoute
+ *                    directement sur ce port, servie à la racine.
+ * PROXY_URL prime quand les deux sont renseignés.
+ */
+type GuiMode =
+  | { kind: "proxy"; proxyUrl: string }
+  | { kind: "standalone"; port: number }
+  | { kind: "disabled"; reason: string };
+
+function resolveGuiMode(): GuiMode {
+  const proxyUrl = process.env.PROXY_URL?.trim();
+  if (proxyUrl) return { kind: "proxy", proxyUrl };
+
+  const rawPort = process.env.APP_PORT?.trim();
+  if (!rawPort) {
+    return { kind: "disabled", reason: "PROXY_URL et APP_PORT non définis" };
+  }
+
+  const port = Number(rawPort);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return { kind: "disabled", reason: `APP_PORT invalide (${rawPort}) — attendu : entier entre 1 et 65535` };
+  }
+  return { kind: "standalone", port };
+}
+
+const guiMode = resolveGuiMode();
+const isStandalone = guiMode.kind === "standalone";
+
+setupLogging({ processLabel: "mcp-feature-analyzer:GUI", logDir: resolveLogDir(rootDir) });
+const logger = createLogger("mcp-feature-analyzer:GUI");
+
+process.on("uncaughtException", (err) => {
+  logger.error(`Uncaught Exception: ${err.message}`);
+  logger.error(err.stack || "No stack trace");
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  logger.error(`Unhandled Rejection: ${reason}`);
+  process.exit(1);
+});
+
+// Le master peut disparaître sans que l'évènement `disconnect` ne parvienne au
+// worker (cas Windows). Deux garde-fous : le canal IPC, fermé dès que le parent
+// meurt, et le PID parent, moins fiable car les PID sont recyclés sous Windows.
+const parentPid = process.ppid;
+const parentCheckInterval = setInterval(() => {
+  if (!process.connected) {
+    logger.info("IPC channel to the MCP master is closed. Exiting.");
+    clearInterval(parentCheckInterval);
+    process.exit(0);
+    return;
+  }
+  try {
+    process.kill(parentPid, 0);
+  } catch {
+    logger.info(`Parent process (PID ${parentPid}) is gone. Exiting.`);
+    clearInterval(parentCheckInterval);
+    process.exit(0);
+  }
+}, 2000);
+
+const app = new Hono();
+let proxyClient: ProxyClient | null = null;
+const sseStreams = new Set<SSEStreamingApi>();
+const pendingRequests = new Map<string, (message: IpcResponse) => void>();
+
+/** Réponse d'une requête IPC : le message du master, ou une erreur locale (timeout, IPC absent). */
+type IpcResponse = Pick<IPCMessage, "data" | "error">;
+
+function safeSend(message: IPCMessage): boolean {
+  if (process.send && process.connected) {
+    try {
+      return process.send(message);
+    } catch (err: any) {
+      logger.error(`[IPC] Failed to send message: ${err.message}`);
+      return false;
+    }
+  }
+  return false;
+}
+
+/** Requête IPC vers le master. Ne rejette jamais : un timeout devient une réponse d'erreur. */
+function ipcRequest(type: string, data?: unknown, timeout = 5000): Promise<IpcResponse> {
+  const correlationId = Math.random().toString(36).substring(2, 12);
+  const message: IPCMessage = { type, correlationId, data, timestamp: new Date().toISOString() };
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (pendingRequests.has(correlationId)) {
+        pendingRequests.delete(correlationId);
+        resolve({ error: `IPC request ${type} timed out after ${timeout}ms` });
+      }
+    }, timeout);
+
+    pendingRequests.set(correlationId, (msg) => {
+      clearTimeout(timer);
+      resolve(msg);
+    });
+
+    if (!safeSend(message)) {
+      clearTimeout(timer);
+      pendingRequests.delete(correlationId);
+      resolve({ error: "IPC channel to the MCP master is not available" });
+    }
+  });
+}
+
+const PUSHED_EVENTS = new Set<string>(PUSHED_EVENT_TYPES);
+
+function setupIpcHandlers() {
+  process.on("error", (err: any) => {
+    if (err.code === "ERR_IPC_CHANNEL_CLOSED") return;
+    logger.error(`Process error: ${err.message}`);
+  });
+
+  process.on("disconnect", () => {
+    logger.warn("IPC disconnected from MCP master. GUI worker exits; EventSource clients show Disconnected.");
+    process.exit(0);
+  });
+
+  process.on("message", (raw: unknown) => {
+    const parsed = IPCMessageSchema.safeParse(raw);
+    if (!parsed.success) {
+      logger.warn(`Invalid IPC message ignored: ${parsed.error.message}`);
+      return;
+    }
+    const msg = parsed.data;
+
+    if (msg.correlationId && pendingRequests.has(msg.correlationId)) {
+      const resolve = pendingRequests.get(msg.correlationId)!;
+      pendingRequests.delete(msg.correlationId);
+      resolve(msg);
+      return;
+    }
+
+    if (PUSHED_EVENTS.has(msg.type)) {
+      for (const stream of sseStreams) {
+        stream.writeSSE({ data: JSON.stringify(msg), event: "message" }).catch(() => sseStreams.delete(stream));
+      }
+      return;
+    }
+
+    logger.debug(`Unhandled IPC message type: ${msg.type}`);
+  });
+}
+
+// --- Routes HTTP ------------------------------------------------------------
+
+app.get("/proxy/health", (c) => {
+  const memory = process.memoryUsage();
+  return c.json({
+    status: "ok",
+    proxy: proxyClient ? proxyClient.getStatus() : isStandalone ? "standalone" : "error",
+    uptime: process.uptime(),
+    memory: { rss: memory.rss, heapUsed: memory.heapUsed },
+    ipc: process.connected ? "connected" : "disconnected",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get("/api/events", (c) =>
+  streamSSE(c, async (stream) => {
+    const clientId = Math.random().toString(36).slice(2, 11);
+    sseStreams.add(stream);
+    logger.info(`SSE /api/events: client connected (id=${clientId})`);
+
+    stream.onAbort(() => {
+      sseStreams.delete(stream);
+      logger.info(`SSE /api/events: stream closed (id=${clientId}).`);
+    });
+
+    if (!safeSend({ type: "GET_INITIAL_STATE", timestamp: new Date().toISOString() })) {
+      logger.warn(`SSE /api/events: GET_INITIAL_STATE not sent (id=${clientId}) — IPC unavailable.`);
+    }
+
+    try {
+      await stream.writeSSE({ data: "connected", event: "ping" });
+    } catch (err: any) {
+      logger.warn(`SSE /api/events: initial writeSSE failed (id=${clientId}): ${err?.message ?? err}`);
+      sseStreams.delete(stream);
+      return;
+    }
+
+    while (!stream.aborted) {
+      await stream.sleep(30000);
+      try {
+        await stream.writeSSE({ data: "ping", event: "ping" });
+      } catch (err: any) {
+        logger.warn(`SSE /api/events: keepalive ping failed (id=${clientId}): ${err?.message ?? err}`);
+        sseStreams.delete(stream);
+        break;
+      }
+    }
+  })
+);
+
+app.post("/api/client-diagnostics", async (c) => {
+  try {
+    logger.warn(`Client diagnostics (SSE/EventSource): ${JSON.stringify(await c.req.json())}`);
+  } catch (e: any) {
+    logger.warn(`Client diagnostics: invalid JSON body (${e?.message ?? e})`);
+  }
+  return c.json({ ok: true });
+});
+
+app.get("/api/config", async (c) => {
+  const result = await ipcRequest("GET_CONFIG");
+  if (result.error) return c.json({ error: result.error }, 500);
+  return c.json(result.data);
+});
+
+// Fichiers statiques de la SPA
+app.use("/assets/*", serveStatic({ root: path.relative(process.cwd(), absoluteStaticRoot) }));
+
+function getHtmlBaseHref(appPath: string): string {
+  const normalized = appPath.startsWith("/") ? appPath : `/${appPath}`;
+  return normalized.endsWith("/") ? normalized : `${normalized}/`;
+}
+
+// Fallback SPA
+app.get("/*", (c, next) => {
+  const urlPath = c.req.path;
+  if (urlPath.startsWith("/api") || urlPath.startsWith("/proxy") || urlPath.startsWith("/assets")) return next();
+
+  const indexPath = path.join(absoluteStaticRoot, "index.html");
+  if (!fs.existsSync(indexPath)) {
+    return c.text(`GUI build not found at ${absoluteStaticRoot}. Run "npm run build:gui" in the package.`, 404);
+  }
+  // ?__direct=1 : accès au worker sur son port local, sans le proxy — le
+  // préfixe de montage ne préfixe alors pas les assets. En mode standalone la
+  // GUI est servie à la racine : même règle.
+  const baseHref = isStandalone || c.req.query("__direct") === "1" ? "/" : getHtmlBaseHref(effectiveAppPath);
+  const html = fs.readFileSync(indexPath, "utf8").replace("<head>", `<head>\n    <base href="${baseHref}" />`);
+  return c.html(html);
+});
+
+/**
+ * Lance Hono sur `port` et prévient le master. `publicUrl` est l'URL que
+ * l'utilisateur ouvre : via le proxy, ou directement en localhost.
+ */
+function listen(port: number, publicUrl: string, isProxied: boolean) {
+  const serverInstance = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, (info) => {
+    logger.info(`Feature Analyzer GUI listening on port ${info.port}`);
+    safeSend(
+      IPCMessageSchema.parse({
+        type: "READY",
+        data: { port: info.port, isProxied, url: publicUrl },
+        timestamp: new Date().toISOString(),
+      })
+    );
+  });
+
+  serverInstance.on("error", (err: any) => {
+    if (err.code === "EADDRINUSE") {
+      // Sortie avec le code 0 : le master ne relance pas de worker supplémentaire.
+      logger.error(`Port ${port} already in use — another GUI instance is running.`);
+      safeSend(
+        IPCMessageSchema.parse({
+          type: "ALREADY_RUNNING",
+          data: { url: publicUrl },
+          timestamp: new Date().toISOString(),
+        })
+      );
+      process.exit(0);
+    }
+    logger.error(`Server error: ${err.message}`);
+    process.exit(1);
+  });
+}
+
+/** Sans proxy : la GUI écoute sur APP_PORT et est servie à la racine. */
+function startStandalone(port: number) {
+  const publicUrl = `http://localhost:${port}`;
+  logger.info(`Standalone mode (no PROXY_URL): serving GUI on ${publicUrl}`);
+
+  setupIpcHandlers();
+  listen(port, publicUrl, false);
+}
+
+async function startServer() {
+  if (guiMode.kind === "disabled") {
+    process.stderr.write(`[GUI] ${guiMode.reason} — arrêt.\n`);
+    process.exit(0);
+  }
+
+  if (guiMode.kind === "standalone") {
+    startStandalone(guiMode.port);
+    return;
+  }
+
+  const proxyUrl = guiMode.proxyUrl;
+  const appPath = configuredAppPath;
+  const appName = process.env.APP_NAME || "Feature Analyzer";
+
+  logger.info(`Starting server with proxyUrl=${proxyUrl}`);
+  proxyClient = new ProxyClient(proxyUrl);
+
+  let result;
+  try {
+    // APP_GROUP place la GUI dans une section repliable du proxy (facultatif).
+    result = await proxyClient.register({ path: appPath, name: appName, group: process.env.APP_GROUP });
+  } catch (e: any) {
+    process.stderr.write("[GUI] Enregistrement proxy échoué — arrêt.\n");
+    logger.error(`Proxy registration error: ${e.message}`);
+    process.exit(1);
+  }
+
+  if (result.error === "HTTP 409") {
+    logger.info("Another GUI instance already registered.");
+    safeSend(
+      IPCMessageSchema.parse({
+        type: "ALREADY_RUNNING",
+        data: { url: `${proxyUrl}${appPath}` },
+        timestamp: new Date().toISOString(),
+      })
+    );
+    process.exit(0);
+  }
+
+  if (!result.success) {
+    process.stderr.write("[GUI] Enregistrement proxy échoué — arrêt.\n");
+    logger.error(`Proxy registration failed: ${result.error}`);
+    process.exit(1);
+  }
+
+  const finalPort = result.port;
+  effectiveAppPath = result.path ?? appPath;
+  const publicUrl = result.url || `${proxyUrl}${effectiveAppPath}`;
+  logger.info(`Registered with proxy. Public URL: ${publicUrl}, Local Port: ${finalPort}`);
+
+  const cleanupProxy = async () => {
+    if (proxyClient) await proxyClient.unregister();
+    process.exit(0);
+  };
+  process.on("SIGTERM", cleanupProxy);
+  process.on("SIGINT", cleanupProxy);
+
+  setupIpcHandlers();
+
+  listen(finalPort, publicUrl, true);
+}
+
+startServer().catch((err: any) => {
+  logger.error(`Failed to start GUI Worker: ${err.message}`);
+  if (err.stack) logger.error(err.stack);
+  process.exit(1);
+});

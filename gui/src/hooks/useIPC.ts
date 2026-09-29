@@ -1,0 +1,78 @@
+import { useEffect } from 'react'
+import type { IPCMessage } from '@shared/schemas/ipc.schema'
+import { useAnalysisStore } from '../store/useAnalysisStore'
+
+const TAG = '[mcp-feature-analyzer]'
+
+function readyStateLabel(state: number): string {
+  if (state === EventSource.CONNECTING) return 'CONNECTING'
+  if (state === EventSource.OPEN) return 'OPEN'
+  if (state === EventSource.CLOSED) return 'CLOSED'
+  return `UNKNOWN(${state})`
+}
+
+/**
+ * Canal descendant serveur -> GUI : état initial au chargement, puis
+ * évènements poussés par le maître MCP quand l'agent modifie une analyse.
+ */
+export function useIPC() {
+  useEffect(() => {
+    const sseUrl = 'api/events'
+    const eventSource = new EventSource(sseUrl)
+    let lastDiagnosticsAt = 0
+
+    eventSource.onopen = () => {
+      useAnalysisStore.getState().setConnected(true)
+      void useAnalysisStore.getState().loadConfig()
+    }
+
+    eventSource.onerror = () => {
+      const state = eventSource.readyState
+      const label = readyStateLabel(state)
+      const hint =
+        state === EventSource.CONNECTING
+          ? 'Browser is reconnecting (server unreachable, proxy timeout, or network issue)'
+          : state === EventSource.CLOSED
+            ? 'Connection permanently closed (HTTP error, server stopped, or proxy reset)'
+            : 'Stream was OPEN when error fired: transient glitch or browser quirk'
+
+      console.error(`${TAG} SSE onerror — readyState=${label} (${state}). ${hint}`)
+      useAnalysisStore.getState().setConnected(false)
+
+      const now = Date.now()
+      if (now - lastDiagnosticsAt < 8000) return
+      lastDiagnosticsAt = now
+
+      void fetch('api/client-diagnostics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mcp: 'mcp-feature-analyzer',
+          kind: 'EventSource_error',
+          sseUrl,
+          readyState: state,
+          readyStateLabel: label,
+          hint,
+          time: new Date().toISOString(),
+        }),
+      }).catch(() => {
+        console.warn(`${TAG} Could not POST client-diagnostics (server probably down)`)
+      })
+    }
+
+    eventSource.onmessage = (event) => {
+      let message: IPCMessage
+      try {
+        message = JSON.parse(event.data)
+      } catch {
+        return // ping / connected : messages non-JSON attendus
+      }
+
+      if (message.type === 'INITIAL_STATE') {
+        void useAnalysisStore.getState().loadConfig()
+      }
+    }
+
+    return () => eventSource.close()
+  }, [])
+}
