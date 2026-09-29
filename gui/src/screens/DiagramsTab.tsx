@@ -21,11 +21,13 @@ import {
   DIAGRAM_KIND_ICONS,
   ZOOM_STEP,
   canvasHeight,
+  clampViewport,
   diamondPoints,
   fileIconOf,
   fitViewport,
   linkPath,
   openSeverityByPath,
+  overflows,
   panBy,
   presentStatuses,
   viewBoxOf,
@@ -139,8 +141,9 @@ function DiagramCanvas({ analysis, diagram, layout }: { analysis: Analysis; diag
   const fitted = areaWidth > 0 ? fitViewport(layout, areaWidth, height) : null
   const viewport = view && view.key === fitKey ? view.viewport : fitted
   const setViewport = (change: (current: Viewport) => Viewport) => {
-    if (viewport) setView({ key: fitKey, viewport: change(viewport) })
+    if (viewport) setView({ key: fitKey, viewport: clampViewport(change(viewport), layout, areaWidth, height) })
   }
+  const pannable = viewport !== null && overflows(layout, viewport, areaWidth, height)
 
   // Molette : zoom autour du pointeur (écouteur non passif pour bloquer le défilement de la page).
   const onWheel = useEffectEvent((event: WheelEvent) => {
@@ -177,7 +180,7 @@ function DiagramCanvas({ analysis, diagram, layout }: { analysis: Analysis; diag
       state.moved = true
       event.currentTarget.setPointerCapture(event.pointerId)
     }
-    setView({ key: fitKey, viewport: panBy(state.origin, dx, dy) })
+    setView({ key: fitKey, viewport: clampViewport(panBy(state.origin, dx, dy), layout, areaWidth, height) })
   }
   const onPointerUp = (event: PointerEvent<SVGSVGElement>) => {
     const state = drag.current
@@ -283,6 +286,12 @@ function DiagramCanvas({ analysis, diagram, layout }: { analysis: Analysis; diag
           )}
         </div>
         <span className="spacer" />
+        {pannable && (
+          <span className="diagram-hint">
+            <Icon name="move" color="#646b7b" size={12} />
+            Glisser pour parcourir le schéma
+          </span>
+        )}
         <div className="icon-button-group diagram-zoom">
           <button type="button" className="icon-button" title="Zoom arrière" aria-label="Zoom arrière" onClick={() => zoomCenter(1 / ZOOM_STEP)}>
             <Icon name="minus" color="#9aa1b1" />

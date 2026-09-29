@@ -65,8 +65,9 @@ export function useIPC() {
       let message: IPCMessage
       try {
         message = JSON.parse(event.data)
-      } catch {
-        return // ping / connected : messages non-JSON attendus
+      } catch (err) {
+        console.error(`${TAG} SSE message is not JSON, ignored: ${(err as Error).message}`, event.data)
+        return
       }
 
       // La liste poussée ne signale pas les analyses illisibles : elle est relue par l'API.

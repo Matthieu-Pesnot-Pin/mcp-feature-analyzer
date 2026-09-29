@@ -150,14 +150,20 @@ function nodeSize(node: DiagramNode, measure: TextMeasure): Size {
 
 /** Marge autour du schéma. */
 export const LAYOUT_PADDING = 24;
-/** Écart horizontal minimal entre deux rangs d'un flux. */
-const RANK_GAP = 56;
+/** Écart horizontal minimal entre deux rangs d'un flux : longueur d'une flèche droite. */
+const RANK_GAP = 40;
 /** Écart vertical entre deux nœuds d'un même rang ou d'une même colonne. */
 const NODE_GAP = 36;
 /** Écart vertical autour d'un point de passage d'un lien long. */
 const DUMMY_GAP = 18;
 /** Écart minimal entre deux couloirs verticaux de liens dans un intervalle de rangs. */
 const CHANNEL_SPACING = 12;
+/** Écart vertical entre un nœud et la branche suspendue sous lui. */
+const HANG_GAP = 36;
+/** Distance horizontale minimale entre un nœud suspendu qui déborde de son rang et un nœud d'un autre rang. */
+const HANG_CLEARANCE = 24;
+/** Marge verticale autour d'un lien ou d'un nœud qu'un nœud suspendu ne doit pas recouvrir. */
+const LINK_CLEARANCE = 16;
 /** Décalage du couloir d'un lien de retour par rapport au bord du rang. */
 const BACK_OFFSET = 14;
 /** Distance entre le bas du schéma et le premier couloir des liens de retour. */
@@ -356,12 +362,16 @@ interface RawLayout {
   center: Point | null;
 }
 
-/** Élément d'un rang : un nœud réel, ou un point de passage (`node` null) d'un lien long. */
+/**
+ * Élément d'un rang : un nœud réel avec sa branche suspendue, ou un point de passage (`node` null)
+ * d'un lien long. `above` est la distance entre le haut de l'élément et l'ordonnée de ses liens horizontaux.
+ */
 interface RankItem {
   node: number | null;
   rank: number;
   width: number;
   height: number;
+  above: number;
 }
 
 function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measure: TextMeasure): RawLayout {
@@ -403,8 +413,47 @@ function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measu
     }
   }
 
-  // Rangs : plus long chemin depuis les sources, sur le graphe sans liens de retour.
-  const forward = links.map((link, k) => ({ ...link, k })).filter((link) => link.u !== link.v && !back[link.k]);
+  // Branches suspendues : une branche secondaire sans jonction, ou le nœud terminal d'une chaîne,
+  // descend verticalement sous le nœud qui la précède au lieu d'occuper un rang de plus.
+  const fwdSuccs: number[][] = Array.from({ length: count }, () => []);
+  const fwdPreds: number[][] = Array.from({ length: count }, () => []);
+  const looped = new Array<boolean>(count).fill(false);
+  links.forEach((link, k) => {
+    if (link.u === link.v || back[k]) {
+      looped[link.u] = true;
+      looped[link.v] = true;
+      return;
+    }
+    if (!fwdSuccs[link.u].includes(link.v)) fwdSuccs[link.u].push(link.v);
+    if (!fwdPreds[link.v].includes(link.u)) fwdPreds[link.v].push(link.u);
+  });
+  /** Chaîne linéaire issue de `start` (un prédécesseur, au plus un successeur, sans cycle), ou null. */
+  const chainFrom = (start: number): number[] | null => {
+    const chain: number[] = [];
+    for (let node = start; ; node = fwdSuccs[node][0]) {
+      if (fwdPreds[node].length !== 1 || looped[node] || fwdSuccs[node].length > 1) return null;
+      chain.push(node);
+      if (fwdSuccs[node].length === 0) return chain;
+    }
+  };
+  const hanging: number[][] = Array.from({ length: count }, () => []);
+  const hung = new Array<boolean>(count).fill(false);
+  for (let node = 0; node < count; node++) {
+    const succs = fwdSuccs[node];
+    let chain: number[] | null = null;
+    for (let i = 1; i < succs.length && chain === null; i++) chain = chainFrom(succs[i]);
+    if (chain === null && succs.length === 1 && fwdPreds[node].length > 0 && fwdSuccs[succs[0]].length === 0) {
+      chain = chainFrom(succs[0]);
+    }
+    if (chain === null) continue;
+    hanging[node] = chain;
+    for (const member of chain) hung[member] = true;
+  }
+  for (let node = 0; node < count; node++) if (hung[node]) hanging[node] = [];
+  const spine = [...diagram.nodes.keys()].filter((node) => !hung[node]);
+
+  // Rangs : plus long chemin depuis les sources, sur le graphe sans liens de retour ni branches suspendues.
+  const forward = links.map((link, k) => ({ ...link, k })).filter((link) => link.u !== link.v && !back[link.k] && !hung[link.v]);
   const preds: number[][] = Array.from({ length: count }, () => []);
   const succs: number[][] = Array.from({ length: count }, () => []);
   for (const link of forward) {
@@ -413,7 +462,7 @@ function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measu
   }
   const rank = new Array<number>(count).fill(0);
   const remaining = preds.map((list) => list.length);
-  const ready = [...diagram.nodes.keys()].filter((node) => remaining[node] === 0);
+  const ready = spine.filter((node) => remaining[node] === 0);
   while (ready.length > 0) {
     ready.sort((a, b) => visitOrder[a] - visitOrder[b]);
     const node = ready.shift()!;
@@ -423,20 +472,28 @@ function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measu
     }
   }
   // Une source se place juste avant son premier successeur.
-  for (let node = 0; node < count; node++) {
+  for (const node of spine) {
     if (preds[node].length === 0 && succs[node].length > 0) {
       rank[node] = Math.min(...succs[node].map((next) => rank[next])) - 1;
     }
   }
-  const rankCount = Math.max(...rank) + 1;
+  const rankCount = Math.max(...spine.map((node) => rank[node])) + 1;
+  hanging.forEach((chain, node) => chain.forEach((member) => (rank[member] = rank[node])));
 
-  // Points de passage des liens qui sautent des rangs.
-  const items: RankItem[] = diagram.nodes.map((_, node) => ({ node, rank: rank[node], ...sizes[node] }));
+  // Éléments des rangs : un nœud porte sa branche suspendue ; ses liens horizontaux partent à `above` de son bord haut.
+  const stackHeight = (node: number) => hanging[node].reduce((total, member) => total + HANG_GAP + sizes[member].height, sizes[node].height);
+  const items: RankItem[] = diagram.nodes.map((_, node) => ({
+    node,
+    rank: rank[node],
+    width: sizes[node].width,
+    height: stackHeight(node),
+    above: sizes[node].height / 2,
+  }));
   const chains = new Map<number, number[]>();
   for (const link of forward) {
     const chain = [link.u];
     for (let r = rank[link.u] + 1; r < rank[link.v]; r++) {
-      items.push({ node: null, rank: r, width: 0, height: 0 });
+      items.push({ node: null, rank: r, width: 0, height: 0, above: 0 });
       chain.push(items.length - 1);
     }
     chain.push(link.v);
@@ -453,7 +510,7 @@ function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measu
 
   // Ordre dans chaque rang : barycentre des voisins, en conservant le meilleur ordre rencontré.
   let layers: number[][] = Array.from({ length: rankCount }, () => []);
-  stableSortBy([...diagram.nodes.keys()], (node) => visitOrder[node]).forEach((node) => layers[rank[node]].push(node));
+  stableSortBy(spine, (node) => visitOrder[node]).forEach((node) => layers[rank[node]].push(node));
   for (let item = count; item < items.length; item++) layers[items[item].rank].push(item);
   const position = new Array<number>(items.length).fill(0);
   const refresh = () => layers.forEach((layer) => layer.forEach((item, index) => (position[item] = index)));
@@ -509,12 +566,16 @@ function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measu
   }
   const hopWeight = (a: number, b: number) => (aligned.has(`${a}>${b}`) || aligned.has(`${b}>${a}`) ? ALIGN_WEIGHT : 1);
 
-  // Placement vertical : passes alternées vers l'aval et vers l'amont.
+  // Placement vertical : passes alternées vers l'aval et vers l'amont. `port[item]` est l'ordonnée
+  // de ses liens horizontaux ; `shift` passe du port au centre de l'élément empilé.
+  const above = (item: number) => items[item].above;
+  const below = (item: number) => items[item].height - items[item].above;
+  const shift = (item: number) => items[item].height / 2 - items[item].above;
   const gapsOf = (layer: number[]) =>
     layer.slice(0, -1).map((item, index) => (items[item].node === null || items[layer[index + 1]].node === null ? DUMMY_GAP : NODE_GAP));
-  const center = new Array<number>(items.length).fill(0);
+  const port = new Array<number>(items.length).fill(0);
   for (const layer of layers) {
-    stackCenters(layer.map((item) => items[item].height), gapsOf(layer)).forEach((value, index) => (center[layer[index]] = value));
+    stackCenters(layer.map((item) => items[item].height), gapsOf(layer)).forEach((value, index) => (port[layer[index]] = value - shift(layer[index])));
   }
   for (let pass = 0; pass < PLACEMENT_PASSES; pass++) {
     const mode = pass === PLACEMENT_PASSES - 1 ? "both" : pass % 2 === 0 ? "down" : "up";
@@ -525,13 +586,13 @@ function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measu
       const weights: number[] = [];
       for (const item of layer) {
         const neighbours = mode === "down" ? itemPreds[item] : mode === "up" ? itemSuccs[item] : [...itemPreds[item], ...itemSuccs[item]];
-        const values = neighbours.map((other) => ({ value: center[other], weight: hopWeight(item, other) }));
+        const values = neighbours.map((other) => ({ value: port[other], weight: hopWeight(item, other) }));
         const mean = weightedMean(values);
-        desired.push(mean ?? center[item]);
+        desired.push((mean ?? port[item]) + shift(item));
         weights.push(mean === null ? FREE_WEIGHT : values.reduce((sum, entry) => sum + entry.weight, 0));
       }
       placeStack(layer.map((item) => items[item].height), gapsOf(layer), desired, weights).forEach(
-        (value, index) => (center[layer[index]] = value)
+        (value, index) => (port[layer[index]] = value - shift(layer[index]))
       );
     }
   }
@@ -540,24 +601,34 @@ function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measu
   for (let r = 1; r < rankCount; r++) {
     const layer = layers[r];
     const gaps = gapsOf(layer);
-    const half = (item: number) => items[item].height / 2;
     layer.forEach((item, index) => {
       const partner = itemPreds[item].find((other) => aligned.has(`${other}>${item}`));
-      if (partner === undefined || Math.abs(center[partner] - center[item]) > SNAP_DISTANCE) return;
-      center[item] = center[partner];
+      if (partner === undefined || Math.abs(port[partner] - port[item]) > SNAP_DISTANCE) return;
+      port[item] = port[partner];
       for (let j = index + 1; j < layer.length; j++) {
-        const minimum = center[layer[j - 1]] + half(layer[j - 1]) + gaps[j - 1] + half(layer[j]);
-        if (center[layer[j]] < minimum) center[layer[j]] = minimum;
+        const minimum = port[layer[j - 1]] + below(layer[j - 1]) + gaps[j - 1] + above(layer[j]);
+        if (port[layer[j]] < minimum) port[layer[j]] = minimum;
       }
       for (let j = index - 1; j >= 0; j--) {
-        const maximum = center[layer[j + 1]] - half(layer[j + 1]) - gaps[j] - half(layer[j]);
-        if (center[layer[j]] > maximum) center[layer[j]] = maximum;
+        const maximum = port[layer[j + 1]] - above(layer[j + 1]) - gaps[j] - below(layer[j]);
+        if (port[layer[j]] > maximum) port[layer[j]] = maximum;
       }
     });
   }
 
+  // Ordonnées des boîtes : un nœud du flux principal centré sur son port, sa branche suspendue empilée dessous.
+  const boxY = new Array<number>(count).fill(0);
+  for (const node of spine) {
+    boxY[node] = port[node] - sizes[node].height / 2;
+    let bottom = boxY[node] + sizes[node].height;
+    for (const member of hanging[node]) {
+      boxY[member] = bottom + HANG_GAP;
+      bottom = boxY[member] + sizes[member].height;
+    }
+  }
+
   // Couloirs verticaux des liens coudés, par intervalle entre deux rangs.
-  const isElbow = (a: number, b: number) => Math.abs(center[a] - center[b]) >= STRAIGHT_TOLERANCE;
+  const isElbow = (a: number, b: number) => Math.abs(port[a] - port[b]) >= STRAIGHT_TOLERANCE;
   const channels: number[][] = Array.from({ length: rankCount }, () => []);
   for (const chain of chains.values()) {
     for (let i = 1; i < chain.length; i++) {
@@ -565,7 +636,7 @@ function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measu
       if (isElbow(a, chain[i]) && !channels[items[a].rank].includes(a)) channels[items[a].rank].push(a);
     }
   }
-  channels.forEach((list, r) => (channels[r] = stableSortBy(list, (item) => center[item])));
+  channels.forEach((list, r) => (channels[r] = stableSortBy(list, (item) => port[item])));
   const channelFraction = (r: number, item: number) => (channels[r].indexOf(item) + 1) / (channels[r].length + 1);
 
   // Largeur des intervalles : couloirs et libellés doivent y tenir.
@@ -582,16 +653,83 @@ function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measu
     gapWidth[r] = Math.max(gapWidth[r], needed);
   }
 
-  const rankWidth = layers.map((layer) => Math.max(0, ...layer.map((item) => items[item].width)));
-  const rankLeft: number[] = [];
-  let left = 0;
-  for (let r = 0; r < rankCount; r++) {
-    rankLeft.push(left);
-    left += rankWidth[r] + gapWidth[r];
+  // Tranches verticales occupées par des liens de part et d'autre de chaque rang :
+  // `occupied[b]` pour la frontière `b`, entre les rangs `b - 1` et `b`.
+  const occupied: Array<Array<[number, number]>> = Array.from({ length: rankCount + 1 }, () => []);
+  for (const chain of chains.values()) {
+    for (let i = 1; i < chain.length; i++) {
+      const [a, b] = [chain[i - 1], chain[i]];
+      occupied[items[a].rank + 1].push([Math.min(port[a], port[b]), Math.max(port[a], port[b])]);
+    }
   }
+  links.forEach((link, k) => {
+    if (link.u === link.v) occupied[rank[link.u] + 1].push([boxY[link.u] - LOOP_SIZE, port[link.u]]);
+    else if (back[k]) {
+      occupied[rank[link.u] + 1].push([port[link.u], Infinity]);
+      occupied[rank[link.v]].push([port[link.v], Infinity]);
+    }
+  });
+  const crossesLinks = (boundary: number, top: number, bottom: number) =>
+    occupied[boundary].some(([low, high]) => low - LINK_CLEARANCE < bottom && high + LINK_CLEARANCE > top);
+
+  // Emprise horizontale de chaque nœud autour de l'axe de son rang. Un nœud suspendu inclut le
+  // libellé du lien vertical qui l'atteint, à droite de ce lien, dans l'écart au-dessus de lui.
+  interface Extent {
+    rank: number;
+    top: number;
+    bottom: number;
+    left: number;
+    right: number;
+    hung: boolean;
+  }
+  const extents: Extent[] = diagram.nodes.map((_, node) => {
+    const half = sizes[node].width / 2;
+    if (!hung[node]) return { rank: rank[node], top: boxY[node], bottom: boxY[node] + sizes[node].height, left: half, right: half, hung: false };
+    const labels = links.filter((link) => link.v === node && link.label).map((link) => LABEL_OFFSET + measure(link.label!, LINK_LABEL_FONT) + LABEL_MARGIN);
+    return {
+      rank: rank[node],
+      top: boxY[node] - HANG_GAP,
+      bottom: boxY[node] + sizes[node].height,
+      left: half,
+      right: Math.max(half, ...labels),
+      hung: true,
+    };
+  });
+
+  // Demi-largeurs des rangs : celle des nœuds du flux principal, élargie là où un nœud suspendu
+  // plus large croiserait un lien ; ailleurs, il déborde sur l'intervalle voisin.
+  const halfLeft = layers.map((layer) => Math.max(0, ...layer.map((item) => items[item].width / 2)));
+  const halfRight = [...halfLeft];
+  for (const extent of extents) {
+    if (!extent.hung) continue;
+    if (crossesLinks(extent.rank, extent.top, extent.bottom)) halfLeft[extent.rank] = Math.max(halfLeft[extent.rank], extent.left);
+    if (crossesLinks(extent.rank + 1, extent.top, extent.bottom)) halfRight[extent.rank] = Math.max(halfRight[extent.rank], extent.right);
+  }
+
+  // Axe de chaque rang : après l'intervalle qui le sépare du précédent, et assez loin de tout nœud
+  // suspendu qui déborde à la même hauteur.
+  const byRank: Extent[][] = Array.from({ length: rankCount }, () => []);
+  extents.forEach((extent) => byRank[extent.rank].push(extent));
+  const axis: number[] = [];
+  for (let r = 0; r < rankCount; r++) {
+    let x = r === 0 ? halfLeft[0] : axis[r - 1] + halfRight[r - 1] + gapWidth[r - 1] + halfLeft[r];
+    for (const current of byRank[r]) {
+      for (let earlier = 0; earlier < r; earlier++) {
+        for (const other of byRank[earlier]) {
+          if (!current.hung && !other.hung) continue;
+          if (current.top >= other.bottom + LINK_CLEARANCE || other.top >= current.bottom + LINK_CLEARANCE) continue;
+          x = Math.max(x, axis[earlier] + other.right + HANG_CLEARANCE + current.left);
+        }
+      }
+    }
+    axis.push(x);
+  }
+  const rankLeft = (r: number) => axis[r] - halfLeft[r];
+  const rankRight = (r: number) => axis[r] + halfRight[r];
+
   const boxes: Box[] = diagram.nodes.map((_, node) => ({
-    x: rankLeft[rank[node]] + (rankWidth[rank[node]] - sizes[node].width) / 2,
-    y: center[node] - sizes[node].height / 2,
+    x: axis[rank[node]] - sizes[node].width / 2,
+    y: boxY[node],
     width: sizes[node].width,
     height: sizes[node].height,
   }));
@@ -606,8 +744,8 @@ function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measu
     if (back[k]) {
       const start = rightMid(boxes[link.u]);
       const end = leftMid(boxes[link.v]);
-      const outX = rankLeft[rank[link.u]] + rankWidth[rank[link.u]] + BACK_OFFSET;
-      const inX = rankLeft[rank[link.v]] - BACK_OFFSET;
+      const outX = rankRight(rank[link.u]) + BACK_OFFSET;
+      const inX = rankLeft(rank[link.v]) - BACK_OFFSET;
       const channelY = bottom + BACK_CHANNEL_GAP + BACK_CHANNEL_SPACING * backIndex++;
       return {
         from,
@@ -616,6 +754,23 @@ function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measu
         labelPosition: { x: (outX + inX) / 2, y: channelY - LABEL_OFFSET },
         labelAnchor: "middle",
         back: true,
+      };
+    }
+
+    if (hung[link.v]) {
+      const x = axis[rank[link.v]];
+      const top = boxes[link.u].y + boxes[link.u].height;
+      const end = boxes[link.v].y;
+      return {
+        from,
+        to,
+        points: [
+          { x, y: top },
+          { x, y: end },
+        ],
+        labelPosition: { x: x + LABEL_OFFSET, y: (top + end) / 2 },
+        labelAnchor: "start",
+        back: false,
       };
     }
 
@@ -628,10 +783,10 @@ function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measu
       const b = chain[i];
       const exit = points[points.length - 1];
       const real = items[b].node !== null;
-      const entry = real ? leftMid(boxes[b]) : { x: rankLeft[items[b].rank], y: center[b] };
+      const entry = real ? leftMid(boxes[b]) : { x: rankLeft(items[b].rank), y: port[b] };
       if (isElbow(a, b)) {
         const r = items[a].rank;
-        const channelX = rankLeft[r] + rankWidth[r] + gapWidth[r] * channelFraction(r, a);
+        const channelX = rankRight(r) + gapWidth[r] * channelFraction(r, a);
         points.push({ x: channelX, y: exit.y }, { x: channelX, y: entry.y });
         labelPosition = { x: channelX + LABEL_OFFSET, y: (exit.y + entry.y) / 2 };
         labelAnchor = "start";
@@ -640,7 +795,7 @@ function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measu
         labelAnchor = "middle";
       }
       points.push(entry);
-      if (!real) points.push({ x: rankLeft[items[b].rank] + rankWidth[items[b].rank], y: center[b] });
+      if (!real) points.push({ x: rankRight(items[b].rank), y: port[b] });
     }
     return { from, to, points: simplify(points), labelPosition, labelAnchor, back: false };
   });

@@ -38,13 +38,16 @@ export interface ComputedSnapshot {
   diff: FileDiff[];
 }
 
-/** Lance git sans shell, dans `cwd`, et renvoie stdout (texte UTF-8 ou octets bruts). */
-function runGit(cwd: string, args: string[], encoding: "utf-8"): Promise<string>;
-function runGit(cwd: string, args: string[], encoding: "buffer"): Promise<Buffer>;
-function runGit(cwd: string, args: string[], encoding: "utf-8" | "buffer"): Promise<string | Buffer> {
+/**
+ * Lance git sans shell, dans `cwd`, et renvoie stdout (texte UTF-8 ou octets bruts).
+ * `input` est écrit sur l'entrée standard de la commande.
+ */
+function runGit(cwd: string, args: string[], encoding: "utf-8", input?: string): Promise<string>;
+function runGit(cwd: string, args: string[], encoding: "buffer", input?: string): Promise<Buffer>;
+function runGit(cwd: string, args: string[], encoding: "utf-8" | "buffer", input?: string): Promise<string | Buffer> {
   const fullArgs = ["-c", "core.quotepath=false", ...args];
   return new Promise((resolve, reject) => {
-    execFile(
+    const child = execFile(
       "git",
       fullArgs,
       { cwd, maxBuffer: GIT_MAX_BUFFER, encoding: encoding === "buffer" ? "buffer" : "utf8", windowsHide: true },
@@ -62,6 +65,7 @@ function runGit(cwd: string, args: string[], encoding: "utf-8" | "buffer"): Prom
         resolve(stdout);
       }
     );
+    child.stdin?.end(input ?? "");
   });
 }
 
@@ -175,19 +179,59 @@ function toEntry(parsed: ParsedFileDiff, newContent: string | null): { entry: Fi
   };
 }
 
+/**
+ * Contenu des fichiers `paths` dans le commit `commit`, en deux commandes git
+ * quel que soit leur nombre : `ls-tree` donne l'objet de chaque chemin, puis
+ * `cat-file --batch` lit tous les objets d'un coup.
+ */
+async function readCommitFiles(repoPath: string, commit: string, paths: string[]): Promise<Map<string, Buffer>> {
+  const contents = new Map<string, Buffer>();
+  if (paths.length === 0) return contents;
+
+  const blobs = new Map<string, string>();
+  for (const entry of (await runGit(repoPath, ["ls-tree", "-r", "-z", "--full-tree", commit], "utf-8")).split("\0")) {
+    if (entry === "") continue;
+    const tab = entry.indexOf("\t");
+    const [, type, sha] = entry.slice(0, tab).split(" ");
+    if (type === "blob") blobs.set(entry.slice(tab + 1), sha);
+  }
+  const shas = paths.map((filePath) => {
+    const sha = blobs.get(filePath);
+    if (sha === undefined) {
+      throw new GitError(`"${filePath}" is in the diff but is not a file of commit ${commit} (submodule or unreadable entry).`);
+    }
+    return sha;
+  });
+
+  const output = await runGit(repoPath, ["cat-file", "--batch"], "buffer", shas.join("\n") + "\n");
+  let offset = 0;
+  paths.forEach((filePath, index) => {
+    const headerEnd = output.indexOf(0x0a, offset);
+    if (headerEnd === -1) throw new GitError(`git cat-file --batch ended before the content of "${filePath}".`);
+    const header = output.subarray(offset, headerEnd).toString("utf-8");
+    const [sha, type, size] = header.split(" ");
+    if (sha !== shas[index] || type !== "blob" || size === undefined) {
+      throw new GitError(`Unexpected git cat-file --batch header "${header}" for "${filePath}".`);
+    }
+    const start = headerEnd + 1;
+    contents.set(filePath, output.subarray(start, start + Number(size)));
+    offset = start + Number(size) + 1;
+  });
+  return contents;
+}
+
 async function branchSnapshot(repoPath: string, base: string, head: string) {
   const baseCommit = await resolveCommit(repoPath, base, "base");
   const headCommit = await resolveCommit(repoPath, head, "head");
   const output = await runGit(repoPath, [...DIFF_ARGS, `${baseCommit}...${headCommit}`, "--"], "utf-8");
 
-  const results: Array<{ entry: FileEntry; diff: FileDiff }> = [];
-  for (const parsed of parseUnifiedDiff(output)) {
-    let content: string | null = null;
-    if (parsed.status !== "deleted" && !parsed.binary) {
-      content = snapshotText(await runGit(repoPath, ["show", `${headCommit}:${parsed.path}`], "buffer"));
-    }
-    results.push(toEntry(parsed, content));
-  }
+  const parsedFiles = parseUnifiedDiff(output);
+  const withContent = parsedFiles.filter((parsed) => parsed.status !== "deleted" && !parsed.binary).map((parsed) => parsed.path);
+  const contents = await readCommitFiles(repoPath, headCommit, withContent);
+  const results = parsedFiles.map((parsed) => {
+    const content = contents.get(parsed.path);
+    return toEntry(parsed, content === undefined ? null : snapshotText(content));
+  });
   return { baseCommit, headCommit, results };
 }
 

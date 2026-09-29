@@ -1,12 +1,11 @@
 import { summarize, type AnalysisStore } from "../core/analysis-store.js";
 import type { Analysis, Note } from "../../shared/schemas/analysis.schema.js";
-import { fileLine, fileTotals, findingLine, severityCountsLabel, snapshotLabel, sortBySeverity } from "./format.js";
+import { sortBySeverity } from "../../shared/severity.js";
+import { fileLine, fileTotals, findingLine, noteLocationLabel, severityCountsLabel, snapshotLabel } from "./format.js";
 import { rejectUnknownFields, requireString, textResult, type Args, type ToolResult } from "./types.js";
 
 function noteLine(note: Note): string {
-  let where = "whole analysis";
-  if (note.location) where = note.location.line === null ? note.location.path : `${note.location.path}:${note.location.line}`;
-  return `${note.id} — ${where} — ${note.text.replace(/\n/g, " / ")}`;
+  return `${note.id} — ${noteLocationLabel(note)} — ${note.text.replace(/\n/g, " / ")}`;
 }
 
 function reviewLines(analysis: Analysis): string[] {

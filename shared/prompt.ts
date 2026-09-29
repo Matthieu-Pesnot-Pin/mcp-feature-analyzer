@@ -1,5 +1,6 @@
 import type { Analysis, Finding, Note, ReviewDecision, Severity } from "./schemas/analysis.schema.js";
-import { compareSeverity } from "./severity.js";
+import { sortBySeverity } from "./severity.js";
+import { lineRange, noteLocationText } from "./text.js";
 
 /** Points retenus pour le prompt et décision du relecteur. */
 export interface PromptSelection {
@@ -39,8 +40,7 @@ function refsLabel(analysis: Analysis): string {
 function findingLocation(finding: Finding): string | null {
   const location = finding.location;
   if (!location) return null;
-  const lines = location.startLine === location.endLine ? `${location.startLine}` : `${location.startLine}-${location.endLine}`;
-  return `${location.path}:${lines}`;
+  return `${location.path}:${lineRange(location.startLine, location.endLine)}`;
 }
 
 function findingBlock(number: number, finding: Finding): string[] {
@@ -58,10 +58,7 @@ function findingBlock(number: number, finding: Finding): string[] {
 }
 
 function noteBlock(number: number, note: Note): string[] {
-  let where = "";
-  if (note.location) {
-    where = note.location.line === null ? `${note.location.path} — ` : `${note.location.path}:${note.location.line} — `;
-  }
+  const where = note.location ? `${noteLocationText(note.location)} — ` : "";
   const [first, ...rest] = note.text.split("\n");
   return [`${number}. [Reviewer note] ${where}${first}`, ...rest.map((line) => (line === "" ? "" : `${INDENT}${line}`))];
 }
@@ -81,10 +78,7 @@ function pick<T extends { id: string }>(items: T[], ids: string[], label: string
  * à un constat remplace son corps, ses lignes actuelles et son correctif.
  */
 export function buildAgentPrompt(analysis: Analysis, selection: PromptSelection): string {
-  const findings = pick(analysis.findings, selection.findingIds, "finding")
-    .map((finding, index) => ({ finding, index }))
-    .sort((a, b) => compareSeverity(a.finding.severity, b.finding.severity) || a.index - b.index)
-    .map((entry) => entry.finding);
+  const findings = sortBySeverity(pick(analysis.findings, selection.findingIds, "finding"));
   const notes = pick(analysis.notes, selection.noteIds, "note");
 
   const out: string[] = [`Review feedback on "${analysis.title}" (${refsLabel(analysis)}).`];

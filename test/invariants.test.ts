@@ -167,3 +167,12 @@ test("snapshot fields cannot change outside a snapshot refresh, reviewed flags c
   tampered.files.pop();
   assert.throws(() => assertSnapshotFieldsUnchanged(before, tampered), /Cannot change headCommit, files of analysis/);
 });
+
+test("the refs match the mode of the analysis", () => {
+  const branch = sampleAnalysis({ mode: "branch", base: "master", head: null, headCommit: null });
+  assert.deepEqual(findInvariantViolations(branch), ["a branch analysis needs a head ref and a head commit"]);
+  const workingTree = sampleAnalysis({ mode: "working_tree", base: "master", head: "feat", headCommit: "abc1234" });
+  assert.deepEqual(findInvariantViolations(workingTree), ['a working_tree analysis has base "HEAD" and no head ref nor head commit']);
+  const consistent = sampleAnalysis({ mode: "working_tree", base: "HEAD", head: null, headCommit: null });
+  assert.deepEqual(findInvariantViolations(consistent), []);
+});

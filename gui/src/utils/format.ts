@@ -1,5 +1,6 @@
 import type { Analysis, AnalysisSummary, Finding, Note, Severity } from '@shared/schemas/analysis.schema'
 import { SEVERITY_STYLES } from '@shared/labels'
+import { lineRange } from '@shared/text'
 
 /** Sépare un chemin en dossier (barre finale comprise) et nom de fichier. */
 export function splitPath(path: string): { folder: string; name: string } {
@@ -36,22 +37,23 @@ export function severityCount(severity: Severity, count: number): string {
   return plural(count, SEVERITY_STYLES[severity].label.toLowerCase())
 }
 
-/** Référence affichée d'une analyse : la ref de tête, ou « working tree ». */
-export function headLabel(analysis: Pick<AnalysisSummary, 'mode' | 'head'>): string {
-  return analysis.mode === 'branch' ? (analysis.head ?? 'HEAD') : 'working tree'
+/** Ref affichée : un sha complet est abrégé à 7 caractères, un nom de branche ou de tag reste entier. */
+export function refLabel(ref: string): string {
+  return /^[0-9a-f]{40}$/.test(ref) ? ref.slice(0, 7) : ref
 }
 
-/** Refs d'une analyse : « feat/x vers master » ou « copie de travail vs HEAD ». */
-export function refsLabel(analysis: Pick<AnalysisSummary, 'mode' | 'base' | 'head'>): string {
-  return analysis.mode === 'branch' ? `${analysis.head ?? 'HEAD'} vers ${analysis.base}` : 'copie de travail vs HEAD'
+/** Référence affichée d'une analyse : la ref de tête en mode `branch`, « working tree » sinon. */
+export function headLabel(analysis: Pick<AnalysisSummary, 'id' | 'mode' | 'head'>): string {
+  if (analysis.mode === 'working_tree') return 'working tree'
+  if (analysis.head === null) throw new Error(`L'analyse ${analysis.id} est en mode branch sans ref de tête.`)
+  return refLabel(analysis.head)
 }
 
 /** Emplacement court d'un constat : « refreshService.ts:57 » ; sans emplacement, la source de la demande. */
 export function findingLocationLabel(finding: Finding, request: Analysis['request']): string {
   const location = finding.location
   if (!location) return request?.source ? `demande ${request.source}` : 'exigence manquante'
-  const lines = location.startLine === location.endLine ? `${location.startLine}` : `${location.startLine}–${location.endLine}`
-  return `${splitPath(location.path).name}:${lines}`
+  return `${splitPath(location.path).name}:${lineRange(location.startLine, location.endLine, '–')}`
 }
 
 /** Emplacement court d'une remarque. */

@@ -3,7 +3,7 @@ import type { Analysis, Finding, Note, ReviewDecision } from '@shared/schemas/an
 import { REVIEW_DECISIONS } from '@shared/schemas/analysis.schema'
 import { DECISION_LABELS } from '@shared/labels'
 import { buildAgentPrompt } from '@shared/prompt'
-import { compareSeverity } from '@shared/severity'
+import { sortBySeverity } from '@shared/severity'
 import { Icon, type IconName } from '../components/Icon'
 import { NotePill, SeverityPill } from '../components/Pills'
 import { useAnalysisStore } from '../store/useAnalysisStore'
@@ -21,11 +21,9 @@ const DECISIONS: Record<ReviewDecision, { icon: IconName; color: string; descrip
 type Point = { key: string; finding: Finding; note?: undefined } | { key: string; note: Note; finding?: undefined }
 
 function pointsOf(analysis: Analysis): Point[] {
-  const findings = analysis.findings
-    .map((finding, index) => ({ finding, index }))
-    .filter(({ finding }) => finding.status === 'open')
-    .sort((a, b) => compareSeverity(a.finding.severity, b.finding.severity) || a.index - b.index)
-    .map(({ finding }): Point => ({ key: `f:${finding.id}`, finding }))
+  const findings = sortBySeverity(analysis.findings.filter((finding) => finding.status === 'open')).map(
+    (finding): Point => ({ key: `f:${finding.id}`, finding }),
+  )
   const notes = analysis.notes.map((note): Point => ({ key: `n:${note.id}`, note }))
   return [...findings, ...notes]
 }

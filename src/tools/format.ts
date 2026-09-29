@@ -4,9 +4,10 @@ import {
   type FileEntry,
   type FileStatus,
   type Finding,
+  type Note,
   type Severity,
 } from "../../shared/schemas/analysis.schema.js";
-import { compareSeverity } from "../../shared/severity.js";
+import { lineRange, noteLocationText } from "../../shared/text.js";
 
 /** Lettre de statut d'un fichier, à la manière de `git status --short`. */
 const FILE_STATUS_LETTERS: Record<FileStatus, string> = {
@@ -55,21 +56,17 @@ export function fileTotals(files: FileEntry[]): string {
 export function locationLabel(finding: Pick<Finding, "location">): string {
   const location = finding.location;
   if (location === null) return "no location";
-  const lines = location.startLine === location.endLine ? `${location.startLine}` : `${location.startLine}-${location.endLine}`;
-  return `${location.path}:${lines}`;
+  return `${location.path}:${lineRange(location.startLine, location.endLine)}`;
+}
+
+/** `path`, `path:12`, ou `whole analysis` pour une remarque sans emplacement. */
+export function noteLocationLabel(note: Pick<Note, "location">): string {
+  return note.location ? noteLocationText(note.location) : "whole analysis";
 }
 
 /** Ligne d'un constat : id, gravité, nature, statut, emplacement, titre. */
 export function findingLine(finding: Finding): string {
   return `${finding.id} [${finding.severity}] ${finding.kind}, ${finding.status} — ${locationLabel(finding)} — ${finding.title}`;
-}
-
-/** Constats triés du plus grave au moins grave, dans l'ordre de l'analyse à gravité égale. */
-export function sortBySeverity(findings: Finding[]): Finding[] {
-  return findings
-    .map((finding, index) => ({ finding, index }))
-    .sort((a, b) => compareSeverity(a.finding.severity, b.finding.severity) || a.index - b.index)
-    .map((entry) => entry.finding);
 }
 
 /** `1 critical, 2 major` ; `none` quand tous les compteurs sont à zéro. */

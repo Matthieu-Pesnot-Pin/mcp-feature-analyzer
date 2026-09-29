@@ -14,6 +14,8 @@ function duplicates(ids: string[]): string[] {
 
 /**
  * Liste les violations des règles de cohérence d'une analyse :
+ * - refs cohérentes avec le mode : `branch` a une ref et un commit de tête ; `working_tree`
+ *   compare à HEAD, sans ref ni commit de tête ;
  * - identifiants uniques (fichiers, constats, remarques, schémas, nœuds d'un schéma) ;
  * - un constat `issue` a un emplacement, un `requirement_gap` peut ne pas en avoir ;
  * - un emplacement de constat porte un `anchorText` ; sans emplacement, ni `anchorText` ni `suggestion` ;
@@ -27,6 +29,13 @@ function duplicates(ids: string[]): string[] {
 export function findInvariantViolations(analysis: Analysis): string[] {
   const problems: string[] = [];
   const files = new Map<string, FileEntry>(analysis.files.map((file) => [file.path, file]));
+
+  if (analysis.mode === "branch" && (analysis.head === null || analysis.headCommit === null)) {
+    problems.push("a branch analysis needs a head ref and a head commit");
+  }
+  if (analysis.mode === "working_tree" && (analysis.base !== "HEAD" || analysis.head !== null || analysis.headCommit !== null)) {
+    problems.push('a working_tree analysis has base "HEAD" and no head ref nor head commit');
+  }
 
   for (const [label, ids] of [
     ["file path", analysis.files.map((file) => file.path)],

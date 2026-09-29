@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { MODE_LABELS } from '@shared/labels'
 import { useAnalysisStore } from '../store/useAnalysisStore'
-import { headLabel, relativeTime } from '../utils/format'
+import { headLabel, refLabel, relativeTime } from '../utils/format'
 import { hrefs, navigate } from '../utils/router'
 import { Icon } from './Icon'
 
@@ -62,7 +62,7 @@ function AnalysisSelector({ currentId }: { currentId: string | null }) {
               <span className="selector-item-title">{analysis.title}</span>
               <span className="selector-item-meta">
                 <span className="mono">
-                  {analysis.mode === 'branch' ? `${analysis.head ?? 'HEAD'} → ${analysis.base}` : MODE_LABELS.working_tree}
+                  {analysis.mode === 'branch' ? `${headLabel(analysis)} → ${refLabel(analysis.base)}` : MODE_LABELS.working_tree}
                 </span>
                 <span>· {relativeTime(analysis.updatedAt)}</span>
                 {analysis.reviewState === 'submitted' && <span className="selector-item-state">Revue enregistrée</span>}

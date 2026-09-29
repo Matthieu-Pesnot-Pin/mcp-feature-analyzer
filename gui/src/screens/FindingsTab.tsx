@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { Analysis, FindingStatus, Severity } from '@shared/schemas/analysis.schema'
 import { FINDING_STATUSES, SEVERITIES } from '@shared/schemas/analysis.schema'
 import { FINDING_STATUS_LABELS, SEVERITY_STYLES } from '@shared/labels'
-import { compareSeverity } from '@shared/severity'
+import { sortBySeverity } from '@shared/severity'
 import { FindingRow } from './FindingRow'
 
 function toggle<T>(set: ReadonlySet<T>, value: T): Set<T> {
@@ -17,11 +17,7 @@ export function FindingsTab({ analysis }: { analysis: Analysis }) {
   const [severities, setSeverities] = useState<ReadonlySet<Severity>>(new Set(SEVERITIES))
   const [statuses, setStatuses] = useState<ReadonlySet<FindingStatus>>(new Set(FINDING_STATUSES))
 
-  const sorted = analysis.findings
-    .map((finding, index) => ({ finding, index }))
-    .sort((a, b) => compareSeverity(a.finding.severity, b.finding.severity) || a.index - b.index)
-    .map(({ finding }) => finding)
-  const visible = sorted.filter((finding) => severities.has(finding.severity) && statuses.has(finding.status))
+  const visible = sortBySeverity(analysis.findings).filter((finding) => severities.has(finding.severity) && statuses.has(finding.status))
 
   return (
     <>

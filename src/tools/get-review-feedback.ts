@@ -1,19 +1,18 @@
 import type { AnalysisStore } from "../core/analysis-store.js";
 import type { Analysis, Finding, Note } from "../../shared/schemas/analysis.schema.js";
-import { indentBlock, locationLabel, sortBySeverity } from "./format.js";
+import { sortBySeverity } from "../../shared/severity.js";
+import { findingLine, indentBlock, noteLocationLabel } from "./format.js";
 import { rejectUnknownFields, requireString, textResult, type Args, type ToolResult } from "./types.js";
 
 function findingDetails(finding: Finding): string[] {
-  const lines = [`- ${finding.id} [${finding.severity}] ${finding.kind}, ${finding.status} — ${locationLabel(finding)} — ${finding.title}`];
+  const lines = [`- ${findingLine(finding)}`];
   if (finding.body.trim() !== "") lines.push(indentBlock(finding.body, "    "));
   if (finding.suggestion !== null) lines.push("    Proposed replacement:", indentBlock(finding.suggestion, "      "));
   return lines;
 }
 
 function noteDetails(note: Note): string {
-  let where = "whole analysis";
-  if (note.location) where = note.location.line === null ? note.location.path : `${note.location.path}:${note.location.line}`;
-  return `- ${note.id} — ${where}\n${indentBlock(note.text, "    ")}`;
+  return `- ${note.id} — ${noteLocationLabel(note)}\n${indentBlock(note.text, "    ")}`;
 }
 
 /** Avancement d'une revue non soumise. */

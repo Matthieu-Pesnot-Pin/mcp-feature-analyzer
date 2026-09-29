@@ -977,6 +977,15 @@ code {
   margin-top: 20px;
 }
 
+.files-group {
+  margin: 10px 24px 2px;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .files-item {
   display: flex;
   align-items: center;
@@ -1826,6 +1835,15 @@ button.diff-num:hover {
   width: 6px;
   height: 6px;
   border-radius: 50%;
+}
+
+.diagram-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--faint);
+  white-space: nowrap;
 }
 
 .diagram-zoom .icon-button {

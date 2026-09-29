@@ -2,7 +2,7 @@ import type { Analysis } from '@shared/schemas/analysis.schema'
 import { SEVERITIES } from '@shared/schemas/analysis.schema'
 import { SEVERITY_STYLES } from '@shared/labels'
 import { buildAllOpenFindingsPrompt } from '@shared/prompt'
-import { compareSeverity } from '@shared/severity'
+import { sortBySeverity } from '@shared/severity'
 import { Icon } from '../components/Icon'
 import { useAnalysisStore } from '../store/useAnalysisStore'
 import { severityCount } from '../utils/format'
@@ -15,11 +15,7 @@ const TOP_FINDINGS = 5
 /** Onglet Résumé : ce que l'agent a fait, la demande initiale et les principaux constats ouverts. */
 export function SummaryTab({ analysis }: { analysis: Analysis }) {
   const copy = useAnalysisStore((state) => state.copy)
-  const open = analysis.findings
-    .map((finding, index) => ({ finding, index }))
-    .filter(({ finding }) => finding.status === 'open')
-    .sort((a, b) => compareSeverity(a.finding.severity, b.finding.severity) || a.index - b.index)
-    .map(({ finding }) => finding)
+  const open = sortBySeverity(analysis.findings.filter((finding) => finding.status === 'open'))
   const counts = SEVERITIES.map((severity) => ({ severity, count: open.filter((finding) => finding.severity === severity).length }))
 
   return (

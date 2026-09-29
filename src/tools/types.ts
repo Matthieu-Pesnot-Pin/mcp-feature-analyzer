@@ -129,12 +129,6 @@ export function requireArray(args: Args, field: string, minItems = 0, prefix = "
   return value;
 }
 
-/** Lit un tableau facultatif ; `undefined` s'il est absent. */
-export function optionalArray(args: Args, field: string, prefix = ""): unknown[] | undefined {
-  if (!has(args, field)) return undefined;
-  return requireArray(args, field, 0, prefix);
-}
-
 /** Vérifie qu'un élément de tableau est un objet et le renvoie. */
 export function requireObject(value: unknown, where: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {

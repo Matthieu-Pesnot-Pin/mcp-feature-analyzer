@@ -53,8 +53,7 @@ export function updateAnalysis(store: AnalysisStore, args: Args): MutationResult
   }
   return {
     result: textResult(
-      `Updated analysis ${analysis.id}: ${changes.join(", ")}. Revision ${analysis.revision}.
-` +
+      `Updated analysis ${analysis.id}: ${changes.join(", ")}. Revision ${analysis.revision}.\n` +
         `Next: record problems and missing requirements with add_findings.`
     ),
     analysisId: analysis.id,

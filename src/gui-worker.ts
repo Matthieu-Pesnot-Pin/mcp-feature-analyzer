@@ -184,7 +184,10 @@ function setupIpcHandlers() {
 
     if (PUSHED_EVENTS.has(msg.type)) {
       for (const stream of sseStreams) {
-        stream.writeSSE({ data: JSON.stringify(msg), event: "message" }).catch(() => sseStreams.delete(stream));
+        stream.writeSSE({ data: JSON.stringify(msg), event: "message" }).catch((err: any) => {
+          logger.warn(`SSE push ${msg.type} failed, stream dropped: ${err?.message ?? err}`);
+          sseStreams.delete(stream);
+        });
       }
       return;
     }
@@ -334,7 +337,7 @@ function getHtmlBaseHref(appPath: string): string {
   return normalized.endsWith("/") ? normalized : `${normalized}/`;
 }
 
-// Fallback SPA
+// Toute autre route renvoie la page de la SPA, avec la balise <base> du chemin de montage.
 app.get("/*", (c, next) => {
   const urlPath = c.req.path;
   if (urlPath.startsWith("/api") || urlPath.startsWith("/proxy") || urlPath.startsWith("/assets")) return next();

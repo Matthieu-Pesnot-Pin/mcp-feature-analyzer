@@ -1,6 +1,6 @@
 import type { Analysis } from '@shared/schemas/analysis.schema'
 import { MODE_LABELS } from '@shared/labels'
-import { diffTotals, plural, relativeTime } from '../utils/format'
+import { diffTotals, headLabel, plural, refLabel, relativeTime } from '../utils/format'
 import { FEATURE_TABS, hrefs, navigate, type FeatureTab } from '../utils/router'
 import { FilesTab } from './FilesTab'
 import { DiagramsTab } from './DiagramsTab'
@@ -25,7 +25,7 @@ function tabCount(analysis: Analysis, tab: FeatureTab): number | null {
 
 /** Mode et refs de l'analyse : « Branche feat/x vers master », « Copie de travail vs HEAD ». */
 function refsDescription(analysis: Analysis): string {
-  if (analysis.mode === 'branch') return `${MODE_LABELS.branch} ${analysis.head ?? 'HEAD'} vers ${analysis.base}`
+  if (analysis.mode === 'branch') return `${MODE_LABELS.branch} ${headLabel(analysis)} vers ${refLabel(analysis.base)}`
   return `${MODE_LABELS.working_tree} vs HEAD`
 }
 

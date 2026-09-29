@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { Analysis, FileEntry } from '@shared/schemas/analysis.schema'
 import { FILE_STATUS_LABELS } from '@shared/labels'
 import { FindingCard } from '../components/FindingCard'
@@ -11,7 +11,7 @@ import { hrefs, navigate } from '../utils/router'
 import { DiffView, type ComposerTarget } from './DiffView'
 import { firstFileToReview, openFindingCounts, unlocatedFindings } from './review-model'
 
-/** Panneau gauche : progression de la revue et liste des fichiers. */
+/** Panneau gauche : progression de la revue et liste des fichiers, un intertitre par dossier. */
 function FilesPanel({ analysis, currentPath }: { analysis: Analysis; currentPath: string }) {
   const reviewed = analysis.files.filter((file) => file.reviewed).length
   const progress = analysis.files.length === 0 ? 0 : (reviewed / analysis.files.length) * 100
@@ -28,24 +28,32 @@ function FilesPanel({ analysis, currentPath }: { analysis: Analysis; currentPath
         <div className="progress-fill" style={{ width: `${progress}%` }} />
       </div>
       <nav className="files-list">
-        {analysis.files.map((file) => {
+        {analysis.files.map((file, index) => {
           const current = file.path === currentPath
           const icon = file.reviewed ? 'circle-check' : current ? 'circle-dot' : 'circle'
           const color = file.reviewed ? '#3fb950' : current ? '#8b97ff' : '#3a4050'
+          const folder = splitPath(file.path).folder
+          const newFolder = index === 0 ? folder !== '' : splitPath(analysis.files[index - 1].path).folder !== folder
           return (
-            <a
-              key={file.path}
-              href={hrefs.review(analysis.id, file.path)}
-              className={`files-item${current ? ' is-current' : ''}${file.reviewed ? ' is-reviewed' : ''}`}
-              title={file.path}
-              aria-current={current ? 'page' : undefined}
-            >
-              <Icon name={icon} color={color} />
-              <span className="files-item-name">{splitPath(file.path).name}</span>
-              {openFindingCounts(analysis, file.path).map(({ severity, count }) => (
-                <SeverityDot key={severity} severity={severity} count={count} />
-              ))}
-            </a>
+            <Fragment key={file.path}>
+              {newFolder && (
+                <span className="files-group mono" title={folder || 'racine du dépôt'}>
+                  {folder || './'}
+                </span>
+              )}
+              <a
+                href={hrefs.review(analysis.id, file.path)}
+                className={`files-item${current ? ' is-current' : ''}${file.reviewed ? ' is-reviewed' : ''}`}
+                title={file.path}
+                aria-current={current ? 'page' : undefined}
+              >
+                <Icon name={icon} color={color} />
+                <span className="files-item-name">{splitPath(file.path).name}</span>
+                {openFindingCounts(analysis, file.path).map(({ severity, count }) => (
+                  <SeverityDot key={severity} severity={severity} count={count} />
+                ))}
+              </a>
+            </Fragment>
           )
         })}
       </nav>

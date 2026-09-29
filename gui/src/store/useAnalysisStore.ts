@@ -66,6 +66,8 @@ interface AnalysisState {
 const NOTICE_DURATION_MS = 5000
 let noticeCounter = 0
 let noticeTimer: ReturnType<typeof setTimeout> | undefined
+/** Chargement du diff en cours, partagé par les appels qui visent le même snapshot. */
+let diffRequest: { key: string; promise: Promise<void> } | null = null
 
 const CONFLICT_MESSAGE =
   "L'analyse a été modifiée entre-temps (par l'agent ou un autre onglet) : elle vient d'être rechargée. Vérifiez l'état affiché puis refaites votre action."
@@ -155,13 +157,21 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
       if (!analysis) return
       const loaded = get().diff
       if (loaded && loaded.id === analysis.id && loaded.snapshotAt === analysis.snapshotAt) return
-      try {
-        const { diff } = await api.getDiff(analysis.id)
-        if (get().current?.analysis?.id !== analysis.id) return
-        set({ diff: { id: analysis.id, snapshotAt: analysis.snapshotAt, snapshot: diff }, diffError: null })
-      } catch (err) {
-        set({ diffError: `Diff illisible : ${(err as Error).message}` })
-      }
+      const key = `${analysis.id}@${analysis.snapshotAt}`
+      if (diffRequest?.key === key) return diffRequest.promise
+      const promise = (async () => {
+        try {
+          const { diff } = await api.getDiff(analysis.id)
+          if (get().current?.analysis?.id !== analysis.id) return
+          set({ diff: { id: analysis.id, snapshotAt: analysis.snapshotAt, snapshot: diff }, diffError: null })
+        } catch (err) {
+          set({ diffError: `Diff illisible : ${(err as Error).message}` })
+        } finally {
+          if (diffRequest?.key === key) diffRequest = null
+        }
+      })()
+      diffRequest = { key, promise }
+      return promise
     },
 
     setFileReviewed: (path, reviewed) =>

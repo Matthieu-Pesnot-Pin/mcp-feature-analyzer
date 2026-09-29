@@ -74,6 +74,11 @@ export interface Viewport {
 
 export const MIN_SCALE = 0.2
 export const MAX_SCALE = 3
+/**
+ * Échelle minimale de l'ajustement à la fenêtre : en dessous, les libellés (12 px) deviennent
+ * illisibles. Un schéma plus grand reste à cette échelle et se parcourt en le faisant glisser.
+ */
+export const MIN_FIT_SCALE = 0.85
 /** Facteur appliqué par les boutons − et +. */
 export const ZOOM_STEP = 1.25
 /** Hauteur minimale et maximale de la zone de dessin. */
@@ -84,16 +89,49 @@ function clampScale(scale: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale))
 }
 
+/** Échelle d'ajustement à une largeur : jamais au-delà de la taille réelle, jamais sous `MIN_FIT_SCALE`. */
+function fitScale(layout: DiagramLayout, width: number, height: number): number {
+  return Math.max(MIN_FIT_SCALE, Math.min(1, width / layout.width, height / layout.height))
+}
+
 /** Hauteur de la zone de dessin : celle du schéma ajusté à la largeur disponible, bornée. */
 export function canvasHeight(layout: DiagramLayout, width: number): number {
-  const scale = Math.min(1, width / layout.width)
+  const scale = fitScale(layout, width, Infinity)
   return Math.round(Math.min(MAX_CANVAS_HEIGHT, Math.max(MIN_CANVAS_HEIGHT, layout.height * scale)))
 }
 
-/** Vue qui montre tout le schéma, centré, sans l'agrandir au-delà de sa taille réelle. */
+/**
+ * Vue initiale : tout le schéma centré quand il tient dans la zone ; sinon, à l'échelle minimale,
+ * le début du schéma (bord gauche, bord haut) sur l'axe où il déborde.
+ */
 export function fitViewport(layout: DiagramLayout, width: number, height: number): Viewport {
-  const scale = clampScale(Math.min(1, width / layout.width, height / layout.height))
-  return { x: (layout.width - width / scale) / 2, y: (layout.height - height / scale) / 2, scale }
+  const scale = fitScale(layout, width, height)
+  const visibleWidth = width / scale
+  const visibleHeight = height / scale
+  return {
+    x: layout.width <= visibleWidth ? (layout.width - visibleWidth) / 2 : 0,
+    y: layout.height <= visibleHeight ? (layout.height - visibleHeight) / 2 : 0,
+    scale,
+  }
+}
+
+/** Vrai quand le schéma dépasse de la zone de dessin à l'échelle de la vue. */
+export function overflows(layout: DiagramLayout, viewport: Viewport, width: number, height: number): boolean {
+  return layout.width > width / viewport.scale + 0.5 || layout.height > height / viewport.scale + 0.5
+}
+
+/** Borne la vue pour que le schéma ne quitte jamais la zone de dessin. */
+export function clampViewport(viewport: Viewport, layout: DiagramLayout, width: number, height: number): Viewport {
+  const clampAxis = (value: number, size: number, visible: number) => {
+    const low = Math.min(0, size - visible)
+    const high = Math.max(0, size - visible)
+    return Math.min(high, Math.max(low, value))
+  }
+  return {
+    x: clampAxis(viewport.x, layout.width, width / viewport.scale),
+    y: clampAxis(viewport.y, layout.height, height / viewport.scale),
+    scale: viewport.scale,
+  }
 }
 
 /** Zoom de `factor` autour du point `anchor` de la zone de dessin (en pixels écran). */

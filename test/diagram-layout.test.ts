@@ -192,12 +192,21 @@ for (const [name, make] of FIXTURES) {
 
 // --- flow ------------------------------------------------------------------------
 
-test("flow layout: forward links go left to right, from the right of the source to the left of the target", () => {
+test("flow layout: main links go left to right, side branches and terminal nodes hang below their predecessor", () => {
   const layout = layoutDiagram(refreshFlow());
+  const vertical = new Set(["is401->forward", "success->null", "null->logout", "replay->end"]);
   for (const link of layout.links) {
     assert.equal(link.back, false);
     const from = nodeOf(layout, link.from);
     const to = nodeOf(layout, link.to);
+    if (vertical.has(`${link.from}->${link.to}`)) {
+      assert.ok(from.y + from.height < to.y, `${link.to} is below ${link.from}`);
+      assert.deepEqual(link.points, [
+        { x: from.x + from.width / 2, y: from.y + from.height },
+        { x: to.x + to.width / 2, y: to.y },
+      ]);
+      continue;
+    }
     assert.ok(from.x + from.width <= to.x, `${link.from} is left of ${link.to}`);
     assert.deepEqual(link.points[0], { x: from.x + from.width, y: from.y + from.height / 2 });
     assert.deepEqual(link.points[link.points.length - 1], { x: to.x, y: to.y + to.height / 2 });
@@ -207,6 +216,13 @@ test("flow layout: forward links go left to right, from the right of the source 
   assert.equal(decision.height, 84);
   assert.equal(nodeOf(layout, "request").height, 40);
   assert.ok(nodeOf(layout, "refresh").width >= 140 && nodeOf(layout, "refresh").height === 44);
+});
+
+test("flow layout: the flow of maquette 5 fits in the review canvas at scale 1", () => {
+  const layout = layoutDiagram(refreshFlow());
+  assert.ok(layout.width <= 1000, `width ${layout.width} > 1000`);
+  const gap = nodeOf(layout, "refresh").x - (nodeOf(layout, "is401").x + nodeOf(layout, "is401").width);
+  assert.ok(gap >= 40 && gap <= 50, `arrow length ${gap}`);
 });
 
 test("flow layout: the main branch stays on one line", () => {
@@ -240,7 +256,9 @@ test("flow layout: a cycle is laid out, its back edge is flagged and routed belo
   const bottom = Math.max(...layout.nodes.map((node) => node.y + node.height));
   assert.ok(Math.max(...backLinks[0].points.map((point) => point.y)) > bottom);
   for (const link of layout.links.filter((entry) => !entry.back)) {
-    assert.ok(nodeOf(layout, link.from).x < nodeOf(layout, link.to).x);
+    const from = nodeOf(layout, link.from);
+    const to = nodeOf(layout, link.to);
+    assert.ok(from.x < to.x || from.y + from.height < to.y, `${link.to} is right of or below ${link.from}`);
   }
 });
 
@@ -289,6 +307,56 @@ test("flow layout: a link that skips ranks goes around the nodes of the ranks it
       assert.ok(!(crossesX && crossesY), `segment ${i} crosses a node`);
     }
   }
+});
+
+/** Aucun segment de lien ne traverse un nœud autre que ses extrémités. */
+function assertLinksAvoidNodes(layout: DiagramLayout) {
+  for (const link of layout.links) {
+    for (let i = 1; i < link.points.length; i++) {
+      const p = link.points[i - 1];
+      const q = link.points[i];
+      for (const box of layout.nodes) {
+        if (box.id === link.from || box.id === link.to) continue;
+        const crossesX = Math.min(p.x, q.x) < box.x + box.width && Math.max(p.x, q.x) > box.x;
+        const crossesY = Math.min(p.y, q.y) < box.y + box.height && Math.max(p.y, q.y) > box.y;
+        assert.ok(!(crossesX && crossesY), `${link.from} -> ${link.to} crosses ${box.id}`);
+      }
+    }
+  }
+}
+
+test("flow layout: a wide hanging branch never covers a link of the neighbouring gaps", () => {
+  const layout = layoutDiagram(
+    diagram(
+      "flow",
+      [
+        { id: "start" },
+        { id: "check", shape: "decision" },
+        { id: "next" },
+        { id: "side", label: "Une branche latérale au libellé très long qui déborde" },
+        { id: "other" },
+        { id: "join" },
+      ],
+      [
+        ["start", "check"],
+        ["check", "next", "oui"],
+        ["check", "side", "non"],
+        ["check", "other", "peut-être"],
+        ["next", "join"],
+        ["other", "join"],
+      ]
+    )
+  );
+  assertNoOverlap(layout);
+  assertWithinBounds(layout);
+  assertLinksAvoidNodes(layout);
+  const check = nodeOf(layout, "check");
+  const side = nodeOf(layout, "side");
+  assert.ok(side.y > check.y + check.height, "the side branch hangs below the decision");
+});
+
+test("flow layout: links of maquette 5 avoid the nodes they do not connect", () => {
+  assertLinksAvoidNodes(layoutDiagram(refreshFlow()));
 });
 
 // --- layers ----------------------------------------------------------------------

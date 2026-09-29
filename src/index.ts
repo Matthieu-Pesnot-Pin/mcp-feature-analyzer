@@ -227,7 +227,7 @@ function handleGuiRequest(msg: IPCMessage): unknown {
     }
 
     default:
-      return undefined;
+      throw new Error(`GUI request ${msg.type} has no handler.`);
   }
 }
 
@@ -368,7 +368,7 @@ const NODE_SHAPE_DOC =
   `Shape (default "${DEFAULT_NODE_SHAPE}"): box = component or step; pill = start, end or actor; decision = a branch in a flow (drawn as a diamond).`;
 
 const DIAGRAM_KIND_DOC =
-  "flow = a process graph laid out left to right along the links; " +
+  "flow = a process graph laid out left to right along the links, where a side branch without a join and the last node of a chain hang below the node before them; " +
   "layers = one column per entry of `layers` (e.g. GUI, API, core, storage), each node in its layer, to show the impact perimeter; " +
   "mindmap = a radial tree around the first node, to map concepts.";
 
