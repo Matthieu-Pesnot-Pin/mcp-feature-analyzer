@@ -8,6 +8,7 @@ import {
   type AnalysisRequest,
   type AnalysisSummary,
   type Editor,
+  type Review,
 } from "../../shared/schemas/analysis.schema.js";
 import { DiffSnapshotSchema, type DiffSnapshot } from "../../shared/schemas/diff.schema.js";
 import { emptySeverityCounts } from "../../shared/severity.js";
@@ -41,6 +42,13 @@ export interface AnalysisListing {
 export interface ReplaceSnapshotResult {
   analysis: Analysis;
   stats: RefreshStats;
+  /** Revue en place avant le recalcul, remplacée par une revue vierge. */
+  previousReview: Review;
+}
+
+/** Revue vierge : en attente, sans décision, sélection ni prompt. */
+export function pendingReview(): Review {
+  return { state: "pending", decision: null, selectedFindingIds: [], selectedNoteIds: [], prompt: null, submittedAt: null };
 }
 
 /** Signature de fichier servant à détecter l'écriture d'un autre processus. */
@@ -348,14 +356,7 @@ export class AnalysisStore {
       findings: [],
       notes: [],
       diagrams: [],
-      review: {
-        state: "pending",
-        decision: null,
-        selectedFindingIds: [],
-        selectedNoteIds: [],
-        prompt: null,
-        submittedAt: null,
-      },
+      review: pendingReview(),
       revision: 0,
       createdAt: now,
       updatedAt: now,
@@ -418,8 +419,8 @@ export class AnalysisStore {
 
   /**
    * Remplace le snapshot de diff d'une analyse par `snapshot`, recalculé avec
-   * les mêmes dépôt, mode et refs, et met à jour fichiers et constats selon
-   * `applyRefresh`.
+   * les mêmes dépôt, mode et refs, met à jour fichiers et constats selon
+   * `applyRefresh` et remet la revue à l'état vierge, dans la même écriture.
    */
   replaceSnapshot(id: string, editor: Editor, snapshot: ComputedSnapshot, options: MutateOptions = {}): ReplaceSnapshotResult {
     this.assertId(id);
@@ -432,6 +433,7 @@ export class AnalysisStore {
       const next = this.validate({
         ...structuredClone(current),
         ...fields,
+        review: pendingReview(),
         revision: current.revision + 1,
         updatedAt: new Date().toISOString(),
         lastEditor: editor,
@@ -440,7 +442,7 @@ export class AnalysisStore {
 
       this.writeSnapshot(diff);
       this.writeAnalysis(next);
-      return { analysis: next, stats };
+      return { analysis: next, stats, previousReview: current.review };
     });
   }
 
