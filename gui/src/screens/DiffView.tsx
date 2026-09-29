@@ -1,158 +1,132 @@
 import type { CSSProperties } from 'react'
-import type { Analysis, FileEntry, Finding, Note, Severity } from '@shared/schemas/analysis.schema'
-import type { DiffLine, FileDiff } from '@shared/schemas/diff.schema'
+import type { FileEntry } from '@shared/schemas/analysis.schema'
+import type { DiffLine } from '@shared/schemas/diff.schema'
 import { SEVERITY_STYLES } from '@shared/labels'
-import { compareSeverity } from '@shared/severity'
-import { FindingCard } from '../components/FindingCard'
-import { NoteCard, NoteComposer } from '../components/Notes'
-import { findingsOfFile } from './review-model'
+import { splitLines } from '@shared/text'
+import { Icon } from '../components/Icon'
+import { FindingNumber } from '../components/MarginFindingCard'
+import { replacedLinesLabel, type HunkRows, type NumberedFinding, type RowBar } from './review-diff-model'
 
 /** Ligne où s'ouvre la saisie d'une remarque ; `line` null vise le fichier entier. */
 export type ComposerTarget = { line: number | null } | null
 
 interface DiffViewProps {
-  analysis: Analysis
   file: FileEntry
-  fileDiff: FileDiff
+  hunks: HunkRows[]
+  /** Lignes portant au moins une remarque. */
+  notedLines: ReadonlySet<number>
   /** Ligne mise en évidence (paramètre `?line=N`). */
   targetLine: number | null
-  composer: ComposerTarget
-  setComposer: (target: ComposerTarget) => void
+  onLineNote: (line: number) => void
+  onHideFix: (findingId: string) => void
 }
 
 const MARKERS: Record<DiffLine['type'], string> = { context: ' ', add: '+', del: '−' }
 
-function groupBy<T>(items: T[], key: (item: T) => number): Map<number, T[]> {
-  const map = new Map<number, T[]>()
-  for (const item of items) {
-    const value = key(item)
-    map.set(value, [...(map.get(value) ?? []), item])
-  }
-  return map
+function barStyle(bar: RowBar | null): CSSProperties | undefined {
+  return bar ? ({ '--mark': SEVERITY_STYLES[bar.severity].color } as CSSProperties) : undefined
 }
 
-/** Gravité la plus haute des constats ouverts qui couvrent la ligne `lineNo`. */
-function markSeverity(findings: Finding[], lineNo: number): Severity | null {
-  let best: Severity | null = null
-  for (const finding of findings) {
-    const location = finding.location
-    if (finding.status !== 'open' || !location) continue
-    if (lineNo < location.startLine || lineNo > location.endLine) continue
-    if (best === null || compareSeverity(finding.severity, best) < 0) best = finding.severity
-  }
-  return best
+function barClasses(bar: RowBar | null): string {
+  if (!bar) return ''
+  return bar.muted ? ' has-bar is-bar-muted' : ' has-bar'
+}
+
+/** Bandeau d'un correctif affiché dans le diff, avant les lignes qu'il remplace. */
+function FixStrip({ entry, bar, onHide }: { entry: NumberedFinding; bar: RowBar; onHide: () => void }) {
+  const removes = splitLines(entry.finding.suggestion ?? '').length === 0
+  const target = replacedLinesLabel(entry.startLine, entry.endLine)
+  return (
+    <div className={`fix-strip${barClasses(bar)}`} style={barStyle(bar)} data-fix={entry.finding.id}>
+      <FindingNumber entry={entry} small />
+      <Icon name="sparkles" color="#8b97ff" />
+      <span className="fix-strip-text">
+        Correctif proposé par l'agent — {removes ? `supprime ${target}` : `remplace ${target}`}
+      </span>
+      <button type="button" className="fix-strip-hide" onClick={onHide}>
+        Masquer le correctif
+      </button>
+    </div>
+  )
 }
 
 /**
  * Diff d'un fichier : en-têtes de bloc, numéros de ligne du côté « nouveau »,
- * constats et remarques insérés sous leur ligne de fin. Un clic sur un numéro
- * ouvre la saisie d'une remarque sur cette ligne.
+ * correctifs affichés à leur place, repère de gravité le long des lignes visées
+ * et pastille numérotée des constats dont le correctif n'est pas affiché. Un
+ * clic sur un numéro ouvre la saisie d'une remarque sur cette ligne.
  */
-export function DiffView({ analysis, file, fileDiff, targetLine, composer, setComposer }: DiffViewProps) {
-  const findings = findingsOfFile(analysis, file.path)
-  const lineNotes = analysis.notes.filter(
-    (note): note is Note & { location: { path: string; line: number } } =>
-      note.location?.path === file.path && note.location.line !== null,
-  )
-  const shownLines = new Set<number>()
-  for (const hunk of fileDiff.hunks) {
-    for (const line of hunk.lines) if (line.newNo !== null) shownLines.add(line.newNo)
-  }
-
-  const findingsByEnd = groupBy(
-    findings.filter((finding) => shownLines.has(finding.location!.endLine)),
-    (finding) => finding.location!.endLine,
-  )
-  const notesByLine = groupBy(
-    lineNotes.filter((note) => shownLines.has(note.location.line)),
-    (note) => note.location.line,
-  )
-  const outsideFindings = findings.filter((finding) => !shownLines.has(finding.location!.endLine))
-  const outsideNotes = lineNotes.filter((note) => !shownLines.has(note.location.line))
+export function DiffView({ file, hunks, notedLines, targetLine, onLineNote, onHideFix }: DiffViewProps) {
   const canNote = file.contentAvailable
-  const openComposer = (line: number) => setComposer({ line })
 
   return (
-    <>
-      {(outsideFindings.length > 0 || outsideNotes.length > 0) && (
-        <section className="outside-block">
-          <h3 className="block-title">Hors des lignes affichées du diff</h3>
-          {outsideFindings.map((finding) => (
-            <FindingCard
-              key={finding.id}
-              analysis={analysis}
-              finding={finding}
-              onAddNote={canNote ? () => openComposer(finding.location!.endLine) : undefined}
-            />
-          ))}
-          {outsideNotes.map((note) => (
-            <NoteCard key={note.id} note={note} />
-          ))}
-          {composer?.line !== null && composer !== null && !shownLines.has(composer.line) && (
-            <NoteComposer path={file.path} line={composer.line} onClose={() => setComposer(null)} />
-          )}
-        </section>
-      )}
-
-      <div className="diff">
-        {fileDiff.hunks.map((hunk, hunkIndex) => (
-          <div key={hunkIndex} className="hunk">
-            <div className="hunk-header mono">{hunk.header}</div>
-            {hunk.lines.map((line, lineIndex) => {
-              const lineNo = line.newNo
-              const severity = lineNo === null ? null : markSeverity(findings, lineNo)
-              const style = severity ? ({ '--mark': SEVERITY_STYLES[severity].color } as CSSProperties) : undefined
-              const classes = [
-                'diff-line',
-                `is-${line.type}`,
-                severity ? `is-marked mark-${severity}` : '',
-                lineNo !== null && lineNo === targetLine ? 'is-target' : '',
-              ]
-              const cards = lineNo === null ? [] : (findingsByEnd.get(lineNo) ?? [])
-              const notes = lineNo === null ? [] : (notesByLine.get(lineNo) ?? [])
-              const composing = lineNo !== null && composer?.line === lineNo
-
+    <div className="diff">
+      {hunks.map((hunk, hunkIndex) => (
+        <div key={hunkIndex} className="hunk">
+          <div className="hunk-header mono">{hunk.header}</div>
+          {hunk.rows.map((row, rowIndex) => {
+            if (row.kind === 'fix-strip') {
+              return <FixStrip key={rowIndex} entry={row.entry} bar={row.bar} onHide={() => onHideFix(row.entry.finding.id)} />
+            }
+            if (row.kind === 'fix-line') {
               return (
-                <div key={lineIndex} className="diff-line-group">
-                  <div className={classes.filter(Boolean).join(' ')} style={style} data-line={lineNo ?? undefined}>
-                    {notes.length > 0 && <span className="diff-note-dot" title={`${notes.length} remarque(s)`} />}
-                    {lineNo !== null && canNote ? (
-                      <button
-                        type="button"
-                        className="diff-num"
-                        title={`Ajouter une remarque sur la ligne ${lineNo}`}
-                        onClick={() => openComposer(lineNo)}
-                      >
-                        {lineNo}
-                      </button>
-                    ) : (
-                      <span className="diff-num">{lineNo ?? ''}</span>
-                    )}
-                    <span className="diff-marker">{MARKERS[line.type]}</span>
-                    <span className="diff-code">{line.text}</span>
-                  </div>
-                  {(cards.length > 0 || notes.length > 0 || composing) && (
-                    <div className="diff-inserts">
-                      {cards.map((finding) => (
-                        <FindingCard
-                          key={finding.id}
-                          analysis={analysis}
-                          finding={finding}
-                          onAddNote={canNote ? () => openComposer(lineNo!) : undefined}
-                        />
-                      ))}
-                      {notes.map((note) => (
-                        <NoteCard key={note.id} note={note} />
-                      ))}
-                      {composing && <NoteComposer path={file.path} line={lineNo} onClose={() => setComposer(null)} />}
-                    </div>
-                  )}
+                <div key={rowIndex} className={`diff-line is-proposed${barClasses(row.bar)}`} style={barStyle(row.bar)}>
+                  <span className="diff-num" />
+                  <span className="diff-marker">›</span>
+                  <span className="diff-code">{row.text}</span>
                 </div>
               )
-            })}
-          </div>
-        ))}
+            }
+
+            const { line } = row
+            const lineNo = line.newNo
+            const classes = [
+              'diff-line',
+              `is-${line.type}`,
+              row.replaced ? 'is-replaced' : '',
+              barClasses(row.bar).trim(),
+              lineNo !== null && lineNo === targetLine ? 'is-target' : '',
+            ]
+            return (
+              <div key={rowIndex} className={classes.filter(Boolean).join(' ')} style={barStyle(row.bar)} data-line={lineNo ?? undefined}>
+                {lineNo !== null && notedLines.has(lineNo) && <span className="diff-note-dot" title="Remarque sur cette ligne" />}
+                {lineNo !== null && canNote ? (
+                  <button type="button" className="diff-num" title={`Ajouter une remarque sur la ligne ${lineNo}`} onClick={() => onLineNote(lineNo)}>
+                    {lineNo}
+                  </button>
+                ) : (
+                  <span className="diff-num">{lineNo ?? ''}</span>
+                )}
+                <span className="diff-marker">{MARKERS[line.type]}</span>
+                <span className="diff-code">{line.text}</span>
+                {row.pills.length > 0 && (
+                  <span className="diff-pills">
+                    {row.pills.map((entry) => (
+                      <span key={entry.finding.id} className={entry.finding.status === 'open' ? undefined : 'is-muted'} title={entry.finding.title}>
+                        <FindingNumber entry={entry} small />
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      ))}
+      <div className="diff-legend">
+        <span className="legend-item">
+          <span className="legend-swatch" style={{ background: '#11201a', borderColor: '#2c6b3a' }} />
+          Ajouté par la feature
+        </span>
+        <span className="legend-item">
+          <span className="legend-swatch" style={{ background: '#2a1618', borderColor: '#6b2a2d' }} />
+          Lignes remplacées par le correctif
+        </span>
+        <span className="legend-item">
+          <span className="legend-swatch" style={{ background: '#1a1c35', borderColor: '#36407a' }} />
+          Correctif proposé
+        </span>
       </div>
-    </>
+    </div>
   )
 }

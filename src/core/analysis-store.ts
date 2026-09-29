@@ -482,8 +482,6 @@ export function summarize(analysis: Analysis): AnalysisSummary {
     reviewedCount: analysis.files.filter((file) => file.reviewed).length,
     openFindings,
     diagramCount: analysis.diagrams.length,
-    reviewState: analysis.review.state,
-    decision: analysis.review.decision,
     progress: reviewProgress(analysis),
     updatedAt: analysis.updatedAt,
     revision: analysis.revision,

@@ -19,10 +19,12 @@ import { relativeTime } from '../utils/format'
 import { hrefs, navigate } from '../utils/router'
 import {
   DIAGRAM_KIND_ICONS,
+  FULLSCREEN_MAX_FIT_SCALE,
   ZOOM_STEP,
   canvasHeight,
   clampViewport,
   diamondPoints,
+  drawingIssueCount,
   fileIconOf,
   fitViewport,
   linkPath,
@@ -56,6 +58,7 @@ function computeLayout(diagram: Diagram): LayoutResult {
 export function DiagramsTab({ analysis }: { analysis: Analysis }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const diagram = analysis.diagrams.find((entry) => entry.id === selectedId) ?? analysis.diagrams[0]
+  const issueCounts = useMemo(() => new Map(analysis.diagrams.map((entry) => [entry.id, drawingIssueCount(entry)])), [analysis.diagrams])
 
   if (!diagram) {
     return (
@@ -74,6 +77,7 @@ export function DiagramsTab({ analysis }: { analysis: Analysis }) {
       <div className="diagram-picker">
         {analysis.diagrams.map((entry) => {
           const active = entry.id === diagram.id
+          const issues = issueCounts.get(entry.id) ?? null
           return (
             <button
               key={entry.id}
@@ -84,6 +88,11 @@ export function DiagramsTab({ analysis }: { analysis: Analysis }) {
             >
               <Icon name={DIAGRAM_KIND_ICONS[entry.kind]} color={active ? '#8b97ff' : '#646b7b'} />
               {entry.title}
+              {issues !== null && issues > 0 && (
+                <span className="diagram-pick-issues" title={`${issues} croisement(s) de liens ou traversée(s) de nœud : l'agent doit revoir ce schéma`}>
+                  croisements
+                </span>
+              )}
             </button>
           )
         })}
@@ -113,9 +122,14 @@ function DiagramView({ analysis, diagram }: { analysis: Analysis; diagram: Diagr
 }
 
 function DiagramCanvas({ analysis, diagram, layout }: { analysis: Analysis; diagram: Diagram; layout: DiagramLayout }) {
+  const cardRef = useRef<HTMLElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
-  const [areaWidth, setAreaWidth] = useState(0)
-  const height = areaWidth > 0 ? canvasHeight(layout, areaWidth) : 0
+  const [areaSize, setAreaSize] = useState({ width: 0, height: 0 })
+  const [fullscreen, setFullscreen] = useState(false)
+  const [fullscreenError, setFullscreenError] = useState<string | null>(null)
+  const areaWidth = areaSize.width
+  // En plein écran, la zone de dessin prend la hauteur disponible ; sinon, celle du schéma ajusté.
+  const height = areaWidth === 0 ? 0 : fullscreen ? areaSize.height : canvasHeight(layout, areaWidth)
   // Vue choisie par l'utilisateur, valable tant que les dimensions du schéma et de la zone ne changent pas.
   const [view, setView] = useState<{ key: string; viewport: Viewport } | null>(null)
   const drag = useRef<{ x: number; y: number; origin: Viewport; moved: boolean; pointerId: number } | null>(null)
@@ -131,14 +145,41 @@ function DiagramCanvas({ analysis, diagram, layout }: { analysis: Analysis; diag
   useEffect(() => {
     const element = areaRef.current
     if (!element) return
-    const observer = new ResizeObserver(() => setAreaWidth(element.clientWidth))
+    const measure = () => setAreaSize({ width: element.clientWidth, height: element.clientHeight })
+    const observer = new ResizeObserver(measure)
     observer.observe(element)
-    setAreaWidth(element.clientWidth)
+    measure()
     return () => observer.disconnect()
   }, [])
 
-  const fitKey = `${layout.width}x${layout.height}@${areaWidth}x${height}`
-  const fitted = areaWidth > 0 ? fitViewport(layout, areaWidth, height) : null
+  // Entrée et sortie du plein écran (bouton, Échap ou navigateur) : la vue est réajustée.
+  useEffect(() => {
+    const onChange = () => {
+      setFullscreen(document.fullscreenElement !== null && document.fullscreenElement === cardRef.current)
+      setView(null)
+    }
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+
+  const toggleFullscreen = async () => {
+    setFullscreenError(null)
+    try {
+      if (fullscreen) {
+        await document.exitFullscreen()
+        return
+      }
+      const card = cardRef.current
+      if (!card) return
+      if (!document.fullscreenEnabled) throw new Error("le navigateur n'autorise pas le plein écran sur cette page")
+      await card.requestFullscreen()
+    } catch (err) {
+      setFullscreenError(`Plein écran impossible : ${(err as Error).message}`)
+    }
+  }
+
+  const fitKey = `${layout.width}x${layout.height}@${areaWidth}x${height}${fullscreen ? ':plein-ecran' : ''}`
+  const fitted = areaWidth > 0 ? fitViewport(layout, areaWidth, height, fullscreen ? FULLSCREEN_MAX_FIT_SCALE : 1) : null
   const viewport = view && view.key === fitKey ? view.viewport : fitted
   const setViewport = (change: (current: Viewport) => Viewport) => {
     if (viewport) setView({ key: fitKey, viewport: clampViewport(change(viewport), layout, areaWidth, height) })
@@ -195,8 +236,8 @@ function DiagramCanvas({ analysis, diagram, layout }: { analysis: Analysis; diag
   }
 
   return (
-    <section className="card diagram-card">
-      <div ref={areaRef} className="diagram-area" style={{ height: height || undefined }}>
+    <section ref={cardRef} className={`card diagram-card${fullscreen ? ' is-fullscreen' : ''}`}>
+      <div ref={areaRef} className="diagram-area" style={fullscreen ? undefined : { height: height || undefined }}>
         {viewport && (
           <svg
             className="diagram-svg"
@@ -299,17 +340,26 @@ function DiagramCanvas({ analysis, diagram, layout }: { analysis: Analysis; diag
           <button type="button" className="icon-button" title="Zoom avant" aria-label="Zoom avant" onClick={() => zoomCenter(ZOOM_STEP)}>
             <Icon name="plus" color="#9aa1b1" />
           </button>
+          <button type="button" className="button button-secondary diagram-control" title="Recentrer et adapter le zoom" onClick={() => setView(null)}>
+            <Icon name="focus" color="#9aa1b1" />
+            Ajuster
+          </button>
           <button
             type="button"
-            className="icon-button"
-            title="Ajuster à la fenêtre"
-            aria-label="Ajuster à la fenêtre"
-            onClick={() => setView(null)}
+            className="button button-secondary diagram-control"
+            aria-pressed={fullscreen}
+            onClick={() => void toggleFullscreen()}
           >
-            <Icon name="maximize" color="#9aa1b1" />
+            <Icon name={fullscreen ? 'minimize' : 'maximize'} color="#9aa1b1" />
+            {fullscreen ? 'Quitter le plein écran' : 'Plein écran'}
           </button>
         </div>
       </div>
+      {fullscreenError && (
+        <p className="diagram-fullscreen-error" role="alert">
+          {fullscreenError}
+        </p>
+      )}
     </section>
   )
 }

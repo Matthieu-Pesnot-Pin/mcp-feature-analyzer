@@ -178,16 +178,22 @@ refresh_analysis    { analysis_id }                 ← nouveau diff, nouveau to
 
 ## L'interface
 
-Thème sombre. La barre supérieure porte la marque, le sélecteur d'analyse (la plus récente s'ouvre par défaut), l'état de la connexion et, pendant la revue, le bouton « Terminer la revue ». Sans analyse, l'accueil explique que l'agent les crée avec `create_analysis`.
+Thème sombre. La barre supérieure porte la marque (un clic ramène à l'accueil), le sélecteur d'analyse groupé par projet avec l'état de revue de chaque analyse, l'état de la connexion et, pendant la revue, le bouton « Terminer la revue ».
+
+### Accueil (`#/`)
+
+Les analyses sont rangées par projet, dans des sections repliables. L'en-tête d'un projet compte ses analyses par état de revue. Chaque analyse affiche son titre, ses refs, la date de sa dernière modification, la progression des fichiers revus, ses constats ouverts par gravité et son état de revue : « Non commencée », « En cours », « Fichiers revus » ou « Soumise », suivi de la décision. Le filtre « À relire » (par défaut) masque les revues soumises, « Toutes » les montre. L'accueil n'ouvre aucune analyse d'office ; sans analyse, il explique que l'agent les crée avec `create_analysis`.
 
 ### Écran Feature (`#/<id>`)
 
 Titre, mode et refs (un sha complet est abrégé à 7 caractères), nombre de fichiers, lignes ajoutées et supprimées, bouton « Commencer la revue » qui ouvre le premier fichier non revu. Quatre onglets :
 
-- **Résumé** — « Ce que l'agent a fait », la demande initiale et sa source, les compteurs par gravité, les constats ouverts du plus grave au moins grave, et « Copier le prompt pour l'agent » (tous les constats ouverts).
+- **Résumé** — la carte « Vue d'ensemble » (objectif, approche, points d'attention) quand l'agent l'a rédigée, « Ce que l'agent a fait », la demande initiale et sa source, les compteurs par gravité, les constats ouverts du plus grave au moins grave, et « Copier le prompt pour l'agent » (tous les constats ouverts).
 - **Fichiers** — chaque fichier avec son statut, ses `+`/`−` et son état de revue.
 - **Constats** — la liste complète, filtrable par gravité et par statut (ouvert, ignoré, obsolète) ; un clic ouvre le constat dans la revue.
-- **Schémas** — sélecteur de schéma, rendu SVG, légende des statuts présents, zoom (−, +, ajuster à la fenêtre, molette). Un clic sur un nœud rattaché à un fichier ouvre la revue à ce fichier et à cette ligne.
+- **Schémas** — sélecteur de schéma (un schéma dont le tracé présente des croisements porte l'étiquette « croisements »), rendu SVG, légende des statuts présents, contrôles « − », « + », « Ajuster » (recentre et adapte le zoom), « Plein écran », et zoom à la molette. Un clic sur un nœud rattaché à un fichier ouvre la revue à ce fichier et à cette ligne. Un schéma qui ne peut pas être placé (carte mentale qui n'est pas un arbre, par exemple) affiche l'erreur à la place du dessin.
+
+Le plein écran passe par l'API Fullscreen du navigateur : le schéma occupe l'écran, légende et contrôles restent visibles, le zoom est réajusté à l'entrée et à la sortie, Échap ou « Quitter le plein écran » en sortent. Si le navigateur refuse, un message l'indique sous le schéma.
 
 L'ajustement à la fenêtre ne descend jamais sous l'échelle **0,85** : en dessous, les libellés deviennent illisibles. Un schéma plus grand s'ouvre sur son début, à cette échelle, et se parcourt en le faisant glisser (curseur main, indication « Glisser pour parcourir le schéma ») ; la vue reste bornée au schéma.
 
@@ -195,7 +201,8 @@ L'ajustement à la fenêtre ne descend jamais sous l'échelle **0,85** : en dess
 
 - **Panneau des fichiers** — progression, fichiers groupés par dossier, état revu, pastilles des constats ouverts par gravité.
 - **En-tête du fichier** — chemin, `+`/`−`, statut, fichier précédent et suivant, « Remarque sur le fichier », « Marquer comme revu ».
-- **Diff** — numéros du côté nouveau, lignes visées surlignées à la couleur de leur gravité, constats insérés sous leur dernière ligne : gravité, titre, corps, correctif proposé, « Copier le prompt pour l'agent », « Ignorer » / « Rouvrir », « Ajouter une remarque ». Un clic sur un numéro de ligne ouvre la saisie d'une remarque sur cette ligne. Les exigences manquantes s'affichent en bandeau sur le premier fichier ; ce qui vise des lignes hors du diff affiché apparaît en tête du fichier.
+- **Diff** — numéros du côté nouveau et repère vertical à la couleur de la gravité le long des lignes visées par un constat. Le correctif proposé s'affiche à l'endroit où il s'applique : bandeau « Correctif proposé par l'agent — remplace les lignes X à Y » avec le numéro du constat et « Masquer le correctif », lignes visées barrées sur fond rouge, lignes proposées juste en dessous sur fond violet (marque « › », sans numéro). Le correctif est affiché d'office pour un constat ouvert ; masqué, ou pour un constat sans correctif, une pastille numérotée marque la première ligne visée. Deux correctifs dont les lignes se recouvrent ne s'affichent pas ensemble. Une légende suit le diff. Un clic sur un numéro de ligne ouvre la saisie d'une remarque sur cette ligne. Les exigences manquantes s'affichent en bandeau au-dessus du diff du premier fichier.
+- **Colonne « Constats de ce fichier »** — les constats, numérotés dans l'ordre de leur première ligne, sont des cartes alignées sur leur ligne et reliées au diff ; des cartes voisines s'empilent sans se chevaucher et défilent avec le diff. Chaque carte montre numéro, gravité, lignes, titre, explication, l'interrupteur « Afficher le correctif dans le code » (constat avec correctif) et les boutons « Copier le prompt », « Ignorer » / « Rouvrir », « Remarque ». Les constats ignorés ou obsolètes restent visibles, atténués. Les remarques de ligne sont des cartes alignées de la même façon ; les remarques sur le fichier entier et ce qui vise des lignes hors du diff affiché sont en tête de colonne. Sous 1200 px de large, la colonne passe sous le diff et ses cartes s'empilent.
 
 Un fichier binaire, supprimé ou de plus de 1 Mo n'a pas de contenu conservé : on ne peut pas y ancrer de constat ni de remarque de ligne, seulement une remarque sur le fichier entier.
 

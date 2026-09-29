@@ -3,12 +3,19 @@ import type { Analysis, FileEntry } from '@shared/schemas/analysis.schema'
 import { FILE_STATUS_LABELS } from '@shared/labels'
 import { FindingCard } from '../components/FindingCard'
 import { Icon } from '../components/Icon'
-import { NoteCard, NoteComposer } from '../components/Notes'
 import { SeverityDot } from '../components/Pills'
 import { useAnalysisStore } from '../store/useAnalysisStore'
 import { splitPath } from '../utils/format'
 import { hrefs, navigate } from '../utils/router'
 import { DiffView, type ComposerTarget } from './DiffView'
+import { FindingsMargin } from './FindingsMargin'
+import {
+  buildDiffRows,
+  lineNotesOfFile,
+  numberedFindingsOfFile,
+  resolveFixDisplays,
+  shownLineNumbers,
+} from './review-diff-model'
 import { firstFileToReview, openFindingCounts, unlocatedFindings } from './review-model'
 
 /** Panneau gauche : progression de la revue et liste des fichiers, un intertitre par dossier. */
@@ -137,7 +144,10 @@ function FileHeader({
   )
 }
 
-/** Écran Revue : fichiers à gauche, diff du fichier `path` avec constats et remarques. */
+/**
+ * Écran Revue : fichiers à gauche, diff du fichier `path` au centre avec les
+ * correctifs proposés à leur place, constats et remarques dans la colonne de droite.
+ */
 export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; path: string | null; line: number | null }) {
   const diff = useAnalysisStore((state) => state.diff)
   const diffError = useAnalysisStore((state) => state.diffError)
@@ -145,7 +155,10 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const [composerState, setComposerState] = useState<{ path: string; line: number | null } | null>(null)
   const composer: ComposerTarget = composerState && composerState.path === path ? { line: composerState.line } : null
   const setComposer = (target: ComposerTarget) => setComposerState(target && path !== null ? { path, line: target.line } : null)
+  // Choix du relecteur d'afficher ou non le correctif de chaque constat dans le code.
+  const [fixChoices, setFixChoices] = useState<Record<string, boolean>>({})
   const bodyRef = useRef<HTMLDivElement>(null)
+  const centerRef = useRef<HTMLDivElement>(null)
 
   const fallbackPath = firstFileToReview(analysis)
   useEffect(() => {
@@ -154,6 +167,7 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
 
   const file = analysis.files.find((entry) => entry.path === path) ?? null
   const fileDiff = diff?.id === analysis.id ? diff.snapshot.files.find((entry) => entry.path === path) : undefined
+  const failed = diffError !== null && diff?.id !== analysis.id
 
   // Ligne ciblée par `?line=N` : centrée à l'écran ; sans ligne, retour en haut du fichier.
   useEffect(() => {
@@ -174,14 +188,24 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   }
 
   const gaps = analysis.files[0]?.path === path ? unlocatedFindings(analysis) : []
-  const fileNotes = analysis.notes.filter((note) => note.location?.path === path && note.location.line === null)
+  const numbered = numberedFindingsOfFile(analysis, path)
+  const fixes = resolveFixDisplays(
+    numbered,
+    fileDiff ?? { path, hunks: [], newContent: null },
+    (finding) => fixChoices[finding.id] ?? (finding.suggestion !== null && finding.status === 'open'),
+  )
+  const hunks = fileDiff ? buildDiffRows(fileDiff, numbered, fixes) : []
+  const shownLines = fileDiff ? shownLineNumbers(fileDiff) : failed ? new Set<number>() : null
+  const lineNotes = lineNotesOfFile(analysis, path)
+  const notedLines = new Set(lineNotes.map((note) => note.location.line))
+  const setFixShown = (findingId: string, shown: boolean) => setFixChoices((choices) => ({ ...choices, [findingId]: shown }))
 
   return (
     <div className="review">
       <FilesPanel analysis={analysis} currentPath={path} />
       <section className="review-main">
         {file === null ? (
-          <div className="review-body">
+          <div className="review-body review-body-padded">
             <p className="diff-message">
               Le fichier « {path} » ne fait pas partie de cette analyse. Choisissez un fichier dans la liste.
             </p>
@@ -190,49 +214,56 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
           <>
             <FileHeader analysis={analysis} file={file} onFileNote={() => setComposer({ line: null })} />
             <div className="review-body" ref={bodyRef}>
-              {gaps.length > 0 && (
-                <section className="gap-banner">
-                  <h3 className="block-title">
-                    <Icon name="triangle-alert" color="#e3a33b" />
-                    Exigences manquantes et constats sans emplacement
-                  </h3>
-                  {gaps.map((finding) => (
-                    <FindingCard key={finding.id} analysis={analysis} finding={finding} />
-                  ))}
-                </section>
-              )}
+              <div className="review-columns">
+                <div className="review-center" ref={centerRef}>
+                  {gaps.length > 0 && (
+                    <section className="gap-banner">
+                      <h3 className="block-title">
+                        <Icon name="triangle-alert" color="#e3a33b" />
+                        Exigences manquantes et constats sans emplacement
+                      </h3>
+                      {gaps.map((finding) => (
+                        <FindingCard key={finding.id} analysis={analysis} finding={finding} />
+                      ))}
+                    </section>
+                  )}
 
-              {(fileNotes.length > 0 || composer?.line === null) && (
-                <section className="file-notes">
-                  {fileNotes.map((note) => (
-                    <NoteCard key={note.id} note={note} />
-                  ))}
-                  {composer?.line === null && <NoteComposer path={file.path} line={null} onClose={() => setComposer(null)} />}
-                </section>
-              )}
+                  {!file.contentAvailable && !file.binary && file.status !== 'deleted' && (
+                    <p className="diff-notice">
+                      Fichier trop volumineux pour être conservé en entier : les remarques ne peuvent viser que le fichier entier.
+                    </p>
+                  )}
 
-              {!file.contentAvailable && !file.binary && file.status !== 'deleted' && (
-                <p className="diff-notice">
-                  Fichier trop volumineux pour être conservé en entier : les remarques ne peuvent viser que le fichier entier.
-                </p>
-              )}
-
-              {diffError && diff?.id !== analysis.id ? (
-                <p className="diff-message is-error">{diffError}</p>
-              ) : !fileDiff ? (
-                <p className="diff-message">Chargement du diff…</p>
-              ) : fileDiff.hunks.length === 0 ? (
-                <EmptyDiffMessage file={file} />
-              ) : (
-                <DiffView
+                  {failed ? (
+                    <p className="diff-message is-error">{diffError}</p>
+                  ) : !fileDiff ? (
+                    <p className="diff-message">Chargement du diff…</p>
+                  ) : fileDiff.hunks.length === 0 ? (
+                    <EmptyDiffMessage file={file} />
+                  ) : (
+                    <DiffView
+                      file={file}
+                      hunks={hunks}
+                      notedLines={notedLines}
+                      targetLine={line}
+                      onLineNote={(lineNo) => setComposer({ line: lineNo })}
+                      onHideFix={(findingId) => setFixShown(findingId, false)}
+                    />
+                  )}
+                </div>
+                <FindingsMargin
                   analysis={analysis}
                   file={file}
-                  fileDiff={fileDiff}
-                  targetLine={line}
+                  numbered={numbered}
+                  fixes={fixes}
+                  lineNotes={lineNotes}
+                  shownLines={shownLines}
                   composer={composer}
                   setComposer={setComposer}
+                  onToggleFix={setFixShown}
+                  scopeRef={centerRef}
                 />
-              )}
+              </div>
             </div>
           </>
         )}

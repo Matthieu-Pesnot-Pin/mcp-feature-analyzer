@@ -7,7 +7,7 @@ export type FeatureTab = (typeof FEATURE_TABS)[number]
 
 /**
  * Écran désigné par le hash de l'URL :
- *   `#/`                                        accueil (dernière analyse ou état vide) ;
+ *   `#/`                                        accueil (analyses par projet) ;
  *   `#/<id>` et `#/<id>/<onglet>`               écran Feature ;
  *   `#/<id>/review[/<chemin encodé>][?line=N]`  écran Revue ;
  *   `#/<id>/finish`                             écran Fin de revue.

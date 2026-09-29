@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { MODE_LABELS } from '@shared/labels'
 import { useAnalysisStore } from '../store/useAnalysisStore'
-import { headLabel, refLabel, relativeTime } from '../utils/format'
+import { headLabel, refsLabel, relativeTime } from '../utils/format'
 import { hrefs, navigate } from '../utils/router'
+import { groupByProject } from '../screens/home-model'
 import { Icon } from './Icon'
+import { ReviewStateBadge } from './Pills'
 
-/** Liste déroulante des analyses ; sa valeur affiche la ref de tête de l'analyse courante. */
+/**
+ * Liste déroulante des analyses groupées par projet, avec leur état de revue ;
+ * sa valeur affiche la ref de tête de l'analyse courante.
+ */
 function AnalysisSelector({ currentId }: { currentId: string | null }) {
   const analyses = useAnalysisStore((state) => state.analyses)
   const unreadable = useAnalysisStore((state) => state.unreadable)
@@ -47,27 +51,37 @@ function AnalysisSelector({ currentId }: { currentId: string | null }) {
       </button>
       {open && (
         <div className="selector-menu" role="listbox">
-          {analyses.map((analysis) => (
-            <button
-              type="button"
-              role="option"
-              aria-selected={analysis.id === currentId}
-              key={analysis.id}
-              className={`selector-item${analysis.id === currentId ? ' is-current' : ''}`}
-              onClick={() => {
-                setOpen(false)
-                navigate(hrefs.feature(analysis.id))
-              }}
-            >
-              <span className="selector-item-title">{analysis.title}</span>
-              <span className="selector-item-meta">
-                <span className="mono">
-                  {analysis.mode === 'branch' ? `${headLabel(analysis)} → ${refLabel(analysis.base)}` : MODE_LABELS.working_tree}
-                </span>
-                <span>· {relativeTime(analysis.updatedAt)}</span>
-                {analysis.reviewState === 'submitted' && <span className="selector-item-state">Revue enregistrée</span>}
-              </span>
-            </button>
+          {groupByProject(analyses).map((group) => (
+            <div key={group.project} className="selector-group" role="group" aria-label={`Projet ${group.project}`}>
+              <div className="selector-group-title">
+                <Icon name="folder" size={12} color="#646b7b" />
+                {group.project}
+              </div>
+              {group.analyses.map((analysis) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={analysis.id === currentId}
+                  key={analysis.id}
+                  className={`selector-item${analysis.id === currentId ? ' is-current' : ''}`}
+                  onClick={() => {
+                    setOpen(false)
+                    navigate(hrefs.feature(analysis.id))
+                  }}
+                >
+                  <span className="selector-item-head">
+                    <span className="selector-item-title">{analysis.title}</span>
+                    <ReviewStateBadge progress={analysis.progress} small />
+                  </span>
+                  <span className="selector-item-meta">
+                    <span className="mono">
+                      {refsLabel(analysis)}
+                    </span>
+                    <span>· {relativeTime(analysis.updatedAt)}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
           ))}
           {unreadable.map((entry) => (
             <div key={entry.id} className="selector-item is-unreadable" title={entry.error}>

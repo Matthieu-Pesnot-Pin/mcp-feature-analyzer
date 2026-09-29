@@ -49,7 +49,17 @@ Le résumé en puces décrit les changements ; il manque une analyse globale de 
 - Contrôles : « − », « + », « Ajuster » (recentre et adapte le zoom), « Plein écran » (bascule).
 - Plein écran via l'API Fullscreen sur le conteneur du canevas : le schéma occupe l'écran, le zoom est réajusté à l'entrée et à la sortie, Échap quitte, l'icône et le libellé passent à « Quitter le plein écran ». Erreur explicite affichée si le navigateur refuse.
 
-## 5. Tests
+## 5. Revue du diff : correctif dans le code, constats en marge
+
+Maquette de référence : `6-revue-correctif-dans-le-code-constats-en-marge`.
+
+- Le correctif proposé s'affiche dans le diff, à l'endroit où il s'applique : bandeau « Correctif proposé par l'agent — remplace les lignes X à Y » (numéro du constat, lien « Masquer le correctif »), lignes visées conservées sur fond rouge et barrées, lignes proposées juste en dessous en violet (marque « › », sans numéro).
+- Repère vertical de la couleur de la gravité le long des lignes visées ; pastille numérotée du constat dans le diff quand le correctif est masqué ou absent.
+- Colonne « Constats de ce fichier » à droite : cartes alignées verticalement sur la première ligne visée (empilées sans chevauchement quand elles se suivent), liaison horizontale vers le diff, numéro, gravité, lignes, titre, explication, interrupteur « Afficher le correctif dans le code », boutons « Copier le prompt », « Ignorer », « Remarque ».
+- Les constats sans emplacement et les remarques restent visibles (bandeau au-dessus du diff, remarques dans la colonne).
+- Légende sous le diff : ajouté par la feature, lignes remplacées par le correctif, correctif proposé.
+
+## 6. Tests
 
 - Migration `project`, état de revue dérivé (les quatre cas), `update_analysis` avec `overview`, `list_analyses` groupé et filtré.
 - `diagram-quality` : détection de croisements et de traversées sur des cas construits ; les fixtures des maquettes 4 et 5 et une carte mentale ne présentent aucun croisement ; `set_diagram` rapporte les croisements ; `mindmap` non arborescente refusée.

@@ -1,5 +1,5 @@
 import type { Analysis, AnalysisSummary, Finding, Note, Severity } from '@shared/schemas/analysis.schema'
-import { SEVERITY_STYLES } from '@shared/labels'
+import { MODE_LABELS, SEVERITY_STYLES } from '@shared/labels'
 import { lineRange } from '@shared/text'
 
 /** Sépare un chemin en dossier (barre finale comprise) et nom de fichier. */
@@ -47,6 +47,12 @@ export function headLabel(analysis: Pick<AnalysisSummary, 'id' | 'mode' | 'head'
   if (analysis.mode === 'working_tree') return 'working tree'
   if (analysis.head === null) throw new Error(`L'analyse ${analysis.id} est en mode branch sans ref de tête.`)
   return refLabel(analysis.head)
+}
+
+/** Refs d'une analyse dans une liste : « feat/x → master », ou « Copie de travail ». */
+export function refsLabel(analysis: Pick<AnalysisSummary, 'id' | 'mode' | 'head' | 'base'>): string {
+  if (analysis.mode === 'working_tree') return MODE_LABELS.working_tree
+  return `${headLabel(analysis)} → ${refLabel(analysis.base)}`
 }
 
 /** Emplacement court d'un constat : « refreshService.ts:57 » ; sans emplacement, la source de la demande. */

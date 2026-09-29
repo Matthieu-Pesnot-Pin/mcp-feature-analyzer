@@ -12,7 +12,10 @@ import { FindingRow } from './FindingRow'
 /** Nombre de constats ouverts listés sur le Résumé. */
 const TOP_FINDINGS = 5
 
-/** Onglet Résumé : ce que l'agent a fait, la demande initiale et les principaux constats ouverts. */
+/**
+ * Onglet Résumé : vue d'ensemble de la feature, ce que l'agent a fait, la
+ * demande initiale et les principaux constats ouverts.
+ */
 export function SummaryTab({ analysis }: { analysis: Analysis }) {
   const copy = useAnalysisStore((state) => state.copy)
   const open = sortBySeverity(analysis.findings.filter((finding) => finding.status === 'open'))
@@ -20,6 +23,29 @@ export function SummaryTab({ analysis }: { analysis: Analysis }) {
 
   return (
     <>
+      {analysis.overview && (
+        <section className="card overview-card">
+          <h2 className="card-title">
+            <Icon name="focus" color="#8b97ff" />
+            Vue d'ensemble
+          </h2>
+          <h3 className="overview-label">Objectif</h3>
+          <p className="overview-text">{analysis.overview.objective}</p>
+          <h3 className="overview-label">Approche</h3>
+          <p className="overview-text">{analysis.overview.approach}</p>
+          {analysis.overview.attentionPoints.length > 0 && (
+            <>
+              <h3 className="overview-label">Points d'attention</h3>
+              <ul className="summary-list overview-points">
+                {analysis.overview.attentionPoints.map((point, index) => (
+                  <li key={index}>{point}</li>
+                ))}
+              </ul>
+            </>
+          )}
+        </section>
+      )}
+
       <section className="card summary-card">
         <h2 className="card-title">
           <Icon name="sparkles" color="#b18cff" />

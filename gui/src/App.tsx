@@ -4,6 +4,7 @@ import { TopBar } from './components/TopBar'
 import { useIPC } from './hooks/useIPC'
 import { FeatureScreen } from './screens/FeatureScreen'
 import { FinishScreen } from './screens/FinishScreen'
+import { HomeScreen } from './screens/HomeScreen'
 import { ReviewScreen } from './screens/ReviewScreen'
 import { useAnalysisStore } from './store/useAnalysisStore'
 import { hrefs, navigate, useRoute, type Route } from './utils/router'
@@ -17,30 +18,6 @@ function Message({ children }: { children: ReactNode }) {
     <div className="empty-state">
       <div className="empty-card">{children}</div>
     </div>
-  )
-}
-
-/** Accueil : ouvre l'analyse la plus récente, sinon explique comment en créer une. */
-function Home() {
-  const analyses = useAnalysisStore((state) => state.analyses)
-  const listError = useAnalysisStore((state) => state.listError)
-  const latest = analyses?.[0]?.id
-
-  useEffect(() => {
-    if (latest) navigate(hrefs.feature(latest), { replace: true })
-  }, [latest])
-
-  if (listError) return <Message><p className="error-text">{listError}</p></Message>
-  if (analyses === null) return <Message><p>Chargement des analyses…</p></Message>
-  if (analyses.length > 0) return null
-  return (
-    <Message>
-      <h1 className="empty-title">Aucune analyse à revoir</h1>
-      <p>
-        L'agent crée une analyse avec l'outil <code>create_analysis</code> une fois la feature développée. Elle apparaîtra ici
-        automatiquement.
-      </p>
-    </Message>
   )
 }
 
@@ -67,7 +44,7 @@ export default function App() {
 
   let screen: ReactNode
   if (route.name === 'home') {
-    screen = <Home />
+    screen = <HomeScreen />
   } else if (route.name === 'not_found') {
     screen = (
       <Message>

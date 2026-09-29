@@ -27,11 +27,6 @@ export function openFindingCounts(analysis: Analysis, path: string): Array<{ sev
   })).filter(({ count }) => count > 0)
 }
 
-/** Constats ancrés sur `path`, du plus grave au moins grave puis dans l'ordre de l'analyse. */
-export function findingsOfFile(analysis: Analysis, path: string): Finding[] {
-  return sortBySeverity(analysis.findings.filter((finding) => finding.location?.path === path))
-}
-
 /** Constats sans emplacement (exigences manquantes). */
 export function unlocatedFindings(analysis: Analysis): Finding[] {
   return sortBySeverity(analysis.findings.filter((finding) => finding.location === null))

@@ -4,6 +4,7 @@ import type { DiffSnapshot } from '@shared/schemas/diff.schema'
 import { ApiError, api } from '../utils/api'
 import { copyText } from '../utils/clipboard'
 import type { AppConfig, AnalysisListing } from '../types'
+import type { HomeFilter } from '../screens/home-model'
 
 /** Message bref affiché en bas de l'écran. */
 export interface Notice {
@@ -40,8 +41,14 @@ interface AnalysisState {
   /** Une modification est en cours d'envoi. */
   saving: boolean
   notice: Notice | null
+  /** Filtre de l'accueil. */
+  homeFilter: HomeFilter
+  /** Projets repliés sur l'accueil. */
+  collapsedProjects: ReadonlySet<string>
 
   setConnected: (connected: boolean) => void
+  setHomeFilter: (filter: HomeFilter) => void
+  toggleProject: (project: string) => void
   loadConfig: () => Promise<void>
   setListing: (listing: AnalysisListing) => void
   loadAnalyses: () => Promise<void>
@@ -111,8 +118,19 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     diffError: null,
     saving: false,
     notice: null,
+    homeFilter: 'to_review',
+    collapsedProjects: new Set(),
 
     setConnected: (connected) => set({ connected }),
+
+    setHomeFilter: (homeFilter) => set({ homeFilter }),
+
+    toggleProject: (project) => {
+      const next = new Set(get().collapsedProjects)
+      if (next.has(project)) next.delete(project)
+      else next.add(project)
+      set({ collapsedProjects: next })
+    },
 
     loadConfig: async () => {
       try {

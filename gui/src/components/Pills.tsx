@@ -1,5 +1,13 @@
-import type { FindingKind, FindingStatus, Severity } from '@shared/schemas/analysis.schema'
-import { FINDING_KIND_LABELS, FINDING_STATUS_LABELS, NOTE_STYLE, SEVERITY_STYLES } from '@shared/labels'
+import type { FindingKind, FindingStatus, ReviewProgress, Severity } from '@shared/schemas/analysis.schema'
+import {
+  DECISION_STYLES,
+  FINDING_KIND_LABELS,
+  FINDING_STATUS_LABELS,
+  NOTE_STYLE,
+  REVIEW_PROGRESS_STYLES,
+  SEVERITY_STYLES,
+  type BadgeStyle,
+} from '@shared/labels'
 
 /** Pastille de gravité ; `fixed` lui donne la largeur constante des listes. */
 export function SeverityPill({ severity, fixed = true }: { severity: Severity; fixed?: boolean }) {
@@ -39,6 +47,24 @@ export function SeverityDot({ severity, count }: { severity: Severity; count: nu
     <span className="severity-dot" style={{ color }} title={`${count} constat(s) ${SEVERITY_STYLES[severity].label.toLowerCase()}(s) ouvert(s)`}>
       <span className="severity-dot-mark" style={{ background: color }} />
       {count}
+    </span>
+  )
+}
+
+function Badge({ style, small }: { style: BadgeStyle; small?: boolean }) {
+  return (
+    <span className={`pill${small ? ' pill-small' : ''}`} style={{ color: style.color, background: style.background }}>
+      {style.label}
+    </span>
+  )
+}
+
+/** État de revue d'une analyse ; une revue soumise affiche aussi sa décision. */
+export function ReviewStateBadge({ progress, small }: { progress: ReviewProgress; small?: boolean }) {
+  return (
+    <span className="review-badges">
+      <Badge style={REVIEW_PROGRESS_STYLES[progress.state]} small={small} />
+      {progress.decision && <Badge style={DECISION_STYLES[progress.decision]} small={small} />}
     </span>
   )
 }

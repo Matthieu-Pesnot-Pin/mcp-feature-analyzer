@@ -220,8 +220,6 @@ export interface AnalysisSummary {
   /** Constats au statut `open`, par gravité. */
   openFindings: Record<Severity, number>;
   diagramCount: number;
-  reviewState: ReviewState;
-  decision: ReviewDecision | null;
   progress: ReviewProgress;
   updatedAt: string;
   revision: number;

@@ -7,7 +7,7 @@ import { Icon } from './Icon'
 import { KindTag, SeverityPill, StatusTag } from './Pills'
 
 /** Correctif proposé : lignes visées retirées, lignes proposées ajoutées. */
-function SuggestedFix({ anchorText, suggestion }: { anchorText: string; suggestion: string }) {
+export function SuggestedFix({ anchorText, suggestion }: { anchorText: string; suggestion: string }) {
   const removed = splitLines(anchorText)
   const added = splitLines(suggestion)
   return (

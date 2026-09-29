@@ -1,6 +1,7 @@
-import type { Analysis, DiagramKind, DiagramNode, NodeStatus, Severity } from '@shared/schemas/analysis.schema'
+import type { Analysis, Diagram, DiagramKind, DiagramNode, NodeStatus, Severity } from '@shared/schemas/analysis.schema'
 import { NODE_STATUSES } from '@shared/schemas/analysis.schema'
-import type { DiagramLayout, Point } from '@shared/diagram-layout'
+import { layoutDiagram, type DiagramLayout, type Point } from '@shared/diagram-layout'
+import { diagramQuality } from '@shared/diagram-quality'
 import { compareSeverity } from '@shared/severity'
 import type { IconName } from '../components/Icon'
 
@@ -89,9 +90,12 @@ function clampScale(scale: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale))
 }
 
-/** Échelle d'ajustement à une largeur : jamais au-delà de la taille réelle, jamais sous `MIN_FIT_SCALE`. */
-function fitScale(layout: DiagramLayout, width: number, height: number): number {
-  return Math.max(MIN_FIT_SCALE, Math.min(1, width / layout.width, height / layout.height))
+/** Échelle maximale de l'ajustement en plein écran. */
+export const FULLSCREEN_MAX_FIT_SCALE = 1.5
+
+/** Échelle d'ajustement à une zone : jamais au-delà de `maxScale`, jamais sous `MIN_FIT_SCALE`. */
+function fitScale(layout: DiagramLayout, width: number, height: number, maxScale = 1): number {
+  return Math.max(MIN_FIT_SCALE, Math.min(maxScale, width / layout.width, height / layout.height))
 }
 
 /** Hauteur de la zone de dessin : celle du schéma ajusté à la largeur disponible, bornée. */
@@ -102,10 +106,11 @@ export function canvasHeight(layout: DiagramLayout, width: number): number {
 
 /**
  * Vue initiale : tout le schéma centré quand il tient dans la zone ; sinon, à l'échelle minimale,
- * le début du schéma (bord gauche, bord haut) sur l'axe où il déborde.
+ * le début du schéma (bord gauche, bord haut) sur l'axe où il déborde. `maxScale` borne le
+ * grossissement (taille réelle par défaut).
  */
-export function fitViewport(layout: DiagramLayout, width: number, height: number): Viewport {
-  const scale = fitScale(layout, width, height)
+export function fitViewport(layout: DiagramLayout, width: number, height: number, maxScale = 1): Viewport {
+  const scale = fitScale(layout, width, height, maxScale)
   const visibleWidth = width / scale
   const visibleHeight = height / scale
   return {
@@ -150,4 +155,19 @@ export function panBy(viewport: Viewport, dx: number, dy: number): Viewport {
 /** Attribut `viewBox` de la vue. */
 export function viewBoxOf(viewport: Viewport, width: number, height: number): string {
   return `${viewport.x} ${viewport.y} ${width / viewport.scale} ${height / viewport.scale}`
+}
+
+/**
+ * Nombre de croisements de liens et de traversées de nœuds du tracé de
+ * `diagram` ; null quand le schéma ne peut pas être placé.
+ */
+export function drawingIssueCount(diagram: Diagram): number | null {
+  let layout: DiagramLayout
+  try {
+    layout = layoutDiagram(diagram)
+  } catch {
+    return null
+  }
+  const quality = diagramQuality(diagram, layout)
+  return quality.crossings.length + quality.nodeOverlaps.length
 }

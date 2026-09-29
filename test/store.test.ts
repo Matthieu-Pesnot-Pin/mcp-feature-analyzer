@@ -82,8 +82,7 @@ test("list returns lightweight summaries, most recent first", (t) => {
   assert.equal(summary.reviewedCount, 1);
   assert.deepEqual(summary.openFindings, { critical: 2, major: 0, minor: 0, trivial: 0 });
   assert.equal(summary.diagramCount, 0);
-  assert.equal(summary.reviewState, "pending");
-  assert.equal(summary.decision, null);
+  assert.equal("reviewState" in summary, false);
   assert.equal(summary.revision, 1);
   assert.equal(analyses[1].mode, "working_tree");
 });
