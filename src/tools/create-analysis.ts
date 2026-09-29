@@ -12,12 +12,13 @@ import {
   type MutationResult,
 } from "./types.js";
 
-const FIELDS = ["repo_path", "title", "mode", "base", "head", "request_text", "request_source"] as const;
+const FIELDS = ["repo_path", "project", "title", "mode", "base", "head", "request_text", "request_source"] as const;
 
 /** Calcule et fige le diff du dépôt, puis crée l'analyse. */
 export async function createAnalysis(store: AnalysisStore, args: Args): Promise<MutationResult> {
   rejectUnknownFields(args, FIELDS);
   const repoPath = requireString(args, "repo_path");
+  const project = requireString(args, "project");
   const title = requireString(args, "title");
   const mode = requireEnum(args, "mode", ANALYSIS_MODES);
   const base = optionalString(args, "base");
@@ -30,12 +31,12 @@ export async function createAnalysis(store: AnalysisStore, args: Args): Promise<
 
   const computed = await computeSnapshot({ repoPath, mode, base, head });
   const analysis = store.create(
-    { title, request: requestText === undefined ? null : { text: requestText, source: requestSource ?? null } },
+    { project, title, request: requestText === undefined ? null : { text: requestText, source: requestSource ?? null } },
     computed
   );
 
   const lines = [
-    `Created analysis "${analysis.title}" (id: ${analysis.id}).`,
+    `Created analysis "${analysis.title}" (id: ${analysis.id}) in project "${analysis.project}".`,
     `Repository: ${analysis.repoPath}`,
     `Diff: ${snapshotLabel(analysis)}`,
     "",
@@ -51,9 +52,9 @@ export async function createAnalysis(store: AnalysisStore, args: Args): Promise<
     "",
     "Next steps:",
     `1. Read the frozen diff with get_diff (analysis_id "${analysis.id}"); anchor findings on its new-side line numbers.`,
-    "2. Describe what the feature does with update_analysis (summary bullets).",
+    "2. Write the overview (objective, approach, attention_points) and the summary (the functional changes of the feature) with update_analysis.",
     "3. Record problems with add_findings, including requirement_gap findings for requested behaviour that is missing.",
-    "4. Add a diagram with set_diagram when a picture helps the reviewer.",
+    "4. Add diagrams with set_diagram when a picture helps the reviewer: one subject each, 5 to 12 nodes, no crossing.",
     "5. Ask the user to review the analysis in the GUI, then read the outcome with get_review_feedback."
   );
 

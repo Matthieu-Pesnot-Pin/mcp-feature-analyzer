@@ -246,6 +246,7 @@ export function sampleAnalysis(overrides: Partial<Analysis> = {}): Analysis {
   return {
     id: "sample-abc123",
     title: "OAuth refresh",
+    project: "repo",
     repoPath: snapshot.repoPath,
     mode: snapshot.mode,
     base: snapshot.base,
@@ -254,6 +255,7 @@ export function sampleAnalysis(overrides: Partial<Analysis> = {}): Analysis {
     headCommit: snapshot.headCommit,
     snapshotAt: snapshot.snapshotAt,
     request: null,
+    overview: null,
     summary: [],
     files: structuredClone(snapshot.files),
     findings: [],

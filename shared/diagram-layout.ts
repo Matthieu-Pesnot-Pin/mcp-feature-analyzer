@@ -4,12 +4,11 @@
  * Fonctions pures et déterministes, sans dépendance, partagées par la GUI et
  * les tests. Un schéma incohérent lève une erreur explicite.
  */
+import { routeIssues, issueCount, type Point } from "./diagram-geometry.js";
+import { mindmapProblems, type MindmapProblem } from "./mindmap-tree.js";
 import type { Diagram, DiagramNode } from "./schemas/analysis.schema.js";
 
-export interface Point {
-  x: number;
-  y: number;
-}
+export type { Point };
 
 /** Police d'un texte de schéma. */
 export interface TextFont {
@@ -190,6 +189,8 @@ const RING_STEP = 8;
 const MAX_RING_ITERATIONS = 20000;
 /** Passes de réduction des croisements et de placement vertical. */
 const ORDER_SWEEPS = 8;
+/** Passes maximales d'échange de deux voisins d'un rang ou d'une colonne. */
+const TRANSPOSE_PASSES = 6;
 const PLACEMENT_PASSES = 12;
 /** Poids d'un lien entre deux nœuds alignés, pour garder droite la branche principale. */
 const ALIGN_WEIGHT = 1000;
@@ -352,8 +353,6 @@ function indexLinks(diagram: Diagram): { index: Map<string, number>; links: Inde
   return { index, links };
 }
 
-// --- Flux (flow) ---------------------------------------------------------------
-
 interface RawLayout {
   boxes: Box[];
   links: LaidOutLink[];
@@ -361,6 +360,65 @@ interface RawLayout {
   /** Point qui doit rester au centre du schéma (racine d'une carte mentale). */
   center: Point | null;
 }
+
+// --- Choix de l'ordre des nœuds --------------------------------------------------
+
+/** Note d'un tracé : problèmes (croisements, traversées de nœuds), puis étirement vertical des liens. */
+interface OrderScore {
+  issues: number;
+  stretch: number;
+}
+
+function scoreLayout(raw: RawLayout, links: IndexedLink[]): OrderScore {
+  const issues = issueCount(routeIssues(raw.boxes, raw.links.map((link, k) => ({ u: links[k].u, v: links[k].v, points: link.points }))));
+  let stretch = 0;
+  for (const link of raw.links) {
+    for (let i = 1; i < link.points.length; i++) stretch += Math.abs(link.points[i].y - link.points[i - 1].y);
+  }
+  return { issues, stretch };
+}
+
+function better(a: OrderScore, b: OrderScore): boolean {
+  return a.issues < b.issues || (a.issues === b.issues && a.stretch < b.stretch - 1e-6);
+}
+
+/**
+ * Ordre des éléments de chaque rang ou colonne : le candidat dont le tracé
+ * final a le moins de problèmes (à égalité, le moins étiré, puis le premier),
+ * puis, tant qu'il reste des problèmes, échanges de deux voisins d'un même rang
+ * conservés quand ils en retirent. `score` trace le schéma pour un ordre donné.
+ */
+function chooseOrder(candidates: number[][][], score: (order: number[][]) => OrderScore): number[][] {
+  let best = candidates[0];
+  let bestScore = score(best);
+  for (const candidate of candidates.slice(1)) {
+    const current = score(candidate);
+    if (better(current, bestScore)) {
+      best = candidate;
+      bestScore = current;
+    }
+  }
+  const order = best.map((layer) => [...layer]);
+  for (let pass = 0; pass < TRANSPOSE_PASSES && bestScore.issues > 0; pass++) {
+    let improved = false;
+    for (const layer of order) {
+      for (let i = 0; i + 1 < layer.length && bestScore.issues > 0; i++) {
+        [layer[i], layer[i + 1]] = [layer[i + 1], layer[i]];
+        const current = score(order);
+        if (current.issues < bestScore.issues) {
+          bestScore = current;
+          improved = true;
+        } else {
+          [layer[i], layer[i + 1]] = [layer[i + 1], layer[i]];
+        }
+      }
+    }
+    if (!improved) break;
+  }
+  return order;
+}
+
+// --- Flux (flow) ---------------------------------------------------------------
 
 /**
  * Élément d'un rang : un nœud réel avec sa branche suspendue, ou un point de passage (`node` null)
@@ -508,25 +566,14 @@ function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measu
     }
   }
 
-  // Ordre dans chaque rang : barycentre des voisins, en conservant le meilleur ordre rencontré.
+  // Ordres candidats dans chaque rang : ordre de déclaration (ordre de visite), puis l'ordre obtenu
+  // après chaque balayage barycentrique, alternativement vers l'aval et vers l'amont.
   let layers: number[][] = Array.from({ length: rankCount }, () => []);
   stableSortBy(spine, (node) => visitOrder[node]).forEach((node) => layers[rank[node]].push(node));
   for (let item = count; item < items.length; item++) layers[items[item].rank].push(item);
   const position = new Array<number>(items.length).fill(0);
   const refresh = () => layers.forEach((layer) => layer.forEach((item, index) => (position[item] = index)));
   refresh();
-  const crossings = () => {
-    let total = 0;
-    for (let r = 0; r + 1 < rankCount; r++) {
-      const hops = layers[r].flatMap((a) => itemSuccs[a].map((b) => [position[a], position[b]]));
-      for (let i = 0; i < hops.length; i++) {
-        for (let j = i + 1; j < hops.length; j++) {
-          if ((hops[i][0] - hops[j][0]) * (hops[i][1] - hops[j][1]) < 0) total++;
-        }
-      }
-    }
-    return total;
-  };
   const reorder = (r: number, neighbours: number[][]) => {
     layers[r] = stableSortBy(layers[r], (item) => {
       const list = neighbours[item];
@@ -534,273 +581,312 @@ function layoutFlow(diagram: Diagram, sizes: Size[], links: IndexedLink[], measu
     });
     layers[r].forEach((item, index) => (position[item] = index));
   };
-  let best = layers.map((layer) => [...layer]);
-  let bestCrossings = crossings();
-  for (let sweep = 0; sweep < ORDER_SWEEPS && bestCrossings > 0; sweep++) {
+  const candidates = [layers.map((layer) => [...layer])];
+  for (let sweep = 0; sweep < ORDER_SWEEPS; sweep++) {
     if (sweep % 2 === 0) for (let r = 1; r < rankCount; r++) reorder(r, itemPreds);
     else for (let r = rankCount - 2; r >= 0; r--) reorder(r, itemSuccs);
-    const current = crossings();
-    if (current < bestCrossings) {
-      best = layers.map((layer) => [...layer]);
-      bestCrossings = current;
-    }
-  }
-  layers = best;
-  refresh();
-
-  // Alignement : chaque élément s'aligne sur son voisin médian du rang précédent, si celui-ci est libre.
-  const aligned = new Set<string>();
-  const taken = new Set<number>();
-  for (let r = 1; r < rankCount; r++) {
-    let lastPosition = -1;
-    for (const item of layers[r]) {
-      const candidates = [...new Set(itemPreds[item])].sort((a, b) => position[a] - position[b]);
-      if (candidates.length === 0) continue;
-      const median = candidates[Math.floor((candidates.length - 1) / 2)];
-      if (!taken.has(median) && position[median] > lastPosition) {
-        taken.add(median);
-        aligned.add(`${median}>${item}`);
-        lastPosition = position[median];
-      }
-    }
-  }
-  const hopWeight = (a: number, b: number) => (aligned.has(`${a}>${b}`) || aligned.has(`${b}>${a}`) ? ALIGN_WEIGHT : 1);
-
-  // Placement vertical : passes alternées vers l'aval et vers l'amont. `port[item]` est l'ordonnée
-  // de ses liens horizontaux ; `shift` passe du port au centre de l'élément empilé.
-  const above = (item: number) => items[item].above;
-  const below = (item: number) => items[item].height - items[item].above;
-  const shift = (item: number) => items[item].height / 2 - items[item].above;
-  const gapsOf = (layer: number[]) =>
-    layer.slice(0, -1).map((item, index) => (items[item].node === null || items[layer[index + 1]].node === null ? DUMMY_GAP : NODE_GAP));
-  const port = new Array<number>(items.length).fill(0);
-  for (const layer of layers) {
-    stackCenters(layer.map((item) => items[item].height), gapsOf(layer)).forEach((value, index) => (port[layer[index]] = value - shift(layer[index])));
-  }
-  for (let pass = 0; pass < PLACEMENT_PASSES; pass++) {
-    const mode = pass === PLACEMENT_PASSES - 1 ? "both" : pass % 2 === 0 ? "down" : "up";
-    const order = mode === "up" ? [...layers.keys()].reverse() : [...layers.keys()];
-    for (const r of order) {
-      const layer = layers[r];
-      const desired: number[] = [];
-      const weights: number[] = [];
-      for (const item of layer) {
-        const neighbours = mode === "down" ? itemPreds[item] : mode === "up" ? itemSuccs[item] : [...itemPreds[item], ...itemSuccs[item]];
-        const values = neighbours.map((other) => ({ value: port[other], weight: hopWeight(item, other) }));
-        const mean = weightedMean(values);
-        desired.push((mean ?? port[item]) + shift(item));
-        weights.push(mean === null ? FREE_WEIGHT : values.reduce((sum, entry) => sum + entry.weight, 0));
-      }
-      placeStack(layer.map((item) => items[item].height), gapsOf(layer), desired, weights).forEach(
-        (value, index) => (port[layer[index]] = value - shift(layer[index]))
-      );
-    }
+    candidates.push(layers.map((layer) => [...layer]));
   }
 
-  // Redressement : un élément aligné presque à hauteur de son voisin s'y cale exactement ; ses voisins de rang s'écartent d'autant.
-  for (let r = 1; r < rankCount; r++) {
-    const layer = layers[r];
-    const gaps = gapsOf(layer);
-    layer.forEach((item, index) => {
-      const partner = itemPreds[item].find((other) => aligned.has(`${other}>${item}`));
-      if (partner === undefined || Math.abs(port[partner] - port[item]) > SNAP_DISTANCE) return;
-      port[item] = port[partner];
-      for (let j = index + 1; j < layer.length; j++) {
-        const minimum = port[layer[j - 1]] + below(layer[j - 1]) + gaps[j - 1] + above(layer[j]);
-        if (port[layer[j]] < minimum) port[layer[j]] = minimum;
-      }
-      for (let j = index - 1; j >= 0; j--) {
-        const maximum = port[layer[j + 1]] - above(layer[j + 1]) - gaps[j] - below(layer[j]);
-        if (port[layer[j]] > maximum) port[layer[j]] = maximum;
-      }
-    });
-  }
+  /** Trace le flux pour un ordre donné des éléments de chaque rang. */
+  const build = (order: number[][]): RawLayout => {
+    layers = order.map((layer) => [...layer]);
+    refresh();
 
-  // Ordonnées des boîtes : un nœud du flux principal centré sur son port, sa branche suspendue empilée dessous.
-  const boxY = new Array<number>(count).fill(0);
-  for (const node of spine) {
-    boxY[node] = port[node] - sizes[node].height / 2;
-    let bottom = boxY[node] + sizes[node].height;
-    for (const member of hanging[node]) {
-      boxY[member] = bottom + HANG_GAP;
-      bottom = boxY[member] + sizes[member].height;
-    }
-  }
-
-  // Couloirs verticaux des liens coudés, par intervalle entre deux rangs.
-  const isElbow = (a: number, b: number) => Math.abs(port[a] - port[b]) >= STRAIGHT_TOLERANCE;
-  const channels: number[][] = Array.from({ length: rankCount }, () => []);
-  for (const chain of chains.values()) {
-    for (let i = 1; i < chain.length; i++) {
-      const a = chain[i - 1];
-      if (isElbow(a, chain[i]) && !channels[items[a].rank].includes(a)) channels[items[a].rank].push(a);
-    }
-  }
-  channels.forEach((list, r) => (channels[r] = stableSortBy(list, (item) => port[item])));
-  const channelFraction = (r: number, item: number) => (channels[r].indexOf(item) + 1) / (channels[r].length + 1);
-
-  // Largeur des intervalles : couloirs et libellés doivent y tenir.
-  const gapWidth = channels.map((list) => Math.max(RANK_GAP, (list.length + 1) * CHANNEL_SPACING));
-  for (const link of forward) {
-    if (!link.label) continue;
-    const chain = chains.get(link.k)!;
-    const a = chain[chain.length - 2];
-    const r = items[a].rank;
-    const width = measure(link.label, LINK_LABEL_FONT);
-    const needed = isElbow(a, link.v)
-      ? (width + LABEL_OFFSET + LABEL_MARGIN) / (1 - channelFraction(r, a))
-      : width + 2 * LABEL_MARGIN;
-    gapWidth[r] = Math.max(gapWidth[r], needed);
-  }
-
-  // Tranches verticales occupées par des liens de part et d'autre de chaque rang :
-  // `occupied[b]` pour la frontière `b`, entre les rangs `b - 1` et `b`.
-  const occupied: Array<Array<[number, number]>> = Array.from({ length: rankCount + 1 }, () => []);
-  for (const chain of chains.values()) {
-    for (let i = 1; i < chain.length; i++) {
-      const [a, b] = [chain[i - 1], chain[i]];
-      occupied[items[a].rank + 1].push([Math.min(port[a], port[b]), Math.max(port[a], port[b])]);
-    }
-  }
-  links.forEach((link, k) => {
-    if (link.u === link.v) occupied[rank[link.u] + 1].push([boxY[link.u] - LOOP_SIZE, port[link.u]]);
-    else if (back[k]) {
-      occupied[rank[link.u] + 1].push([port[link.u], Infinity]);
-      occupied[rank[link.v]].push([port[link.v], Infinity]);
-    }
-  });
-  const crossesLinks = (boundary: number, top: number, bottom: number) =>
-    occupied[boundary].some(([low, high]) => low - LINK_CLEARANCE < bottom && high + LINK_CLEARANCE > top);
-
-  // Emprise horizontale de chaque nœud autour de l'axe de son rang. Un nœud suspendu inclut le
-  // libellé du lien vertical qui l'atteint, à droite de ce lien, dans l'écart au-dessus de lui.
-  interface Extent {
-    rank: number;
-    top: number;
-    bottom: number;
-    left: number;
-    right: number;
-    hung: boolean;
-  }
-  const extents: Extent[] = diagram.nodes.map((_, node) => {
-    const half = sizes[node].width / 2;
-    if (!hung[node]) return { rank: rank[node], top: boxY[node], bottom: boxY[node] + sizes[node].height, left: half, right: half, hung: false };
-    const labels = links.filter((link) => link.v === node && link.label).map((link) => LABEL_OFFSET + measure(link.label!, LINK_LABEL_FONT) + LABEL_MARGIN);
-    return {
-      rank: rank[node],
-      top: boxY[node] - HANG_GAP,
-      bottom: boxY[node] + sizes[node].height,
-      left: half,
-      right: Math.max(half, ...labels),
-      hung: true,
-    };
-  });
-
-  // Demi-largeurs des rangs : celle des nœuds du flux principal, élargie là où un nœud suspendu
-  // plus large croiserait un lien ; ailleurs, il déborde sur l'intervalle voisin.
-  const halfLeft = layers.map((layer) => Math.max(0, ...layer.map((item) => items[item].width / 2)));
-  const halfRight = [...halfLeft];
-  for (const extent of extents) {
-    if (!extent.hung) continue;
-    if (crossesLinks(extent.rank, extent.top, extent.bottom)) halfLeft[extent.rank] = Math.max(halfLeft[extent.rank], extent.left);
-    if (crossesLinks(extent.rank + 1, extent.top, extent.bottom)) halfRight[extent.rank] = Math.max(halfRight[extent.rank], extent.right);
-  }
-
-  // Axe de chaque rang : après l'intervalle qui le sépare du précédent, et assez loin de tout nœud
-  // suspendu qui déborde à la même hauteur.
-  const byRank: Extent[][] = Array.from({ length: rankCount }, () => []);
-  extents.forEach((extent) => byRank[extent.rank].push(extent));
-  const axis: number[] = [];
-  for (let r = 0; r < rankCount; r++) {
-    let x = r === 0 ? halfLeft[0] : axis[r - 1] + halfRight[r - 1] + gapWidth[r - 1] + halfLeft[r];
-    for (const current of byRank[r]) {
-      for (let earlier = 0; earlier < r; earlier++) {
-        for (const other of byRank[earlier]) {
-          if (!current.hung && !other.hung) continue;
-          if (current.top >= other.bottom + LINK_CLEARANCE || other.top >= current.bottom + LINK_CLEARANCE) continue;
-          x = Math.max(x, axis[earlier] + other.right + HANG_CLEARANCE + current.left);
+    // Alignement : chaque élément s'aligne sur son voisin médian du rang précédent, si celui-ci est libre.
+    const aligned = new Set<string>();
+    const taken = new Set<number>();
+    for (let r = 1; r < rankCount; r++) {
+      let lastPosition = -1;
+      for (const item of layers[r]) {
+        const candidates = [...new Set(itemPreds[item])].sort((a, b) => position[a] - position[b]);
+        if (candidates.length === 0) continue;
+        const median = candidates[Math.floor((candidates.length - 1) / 2)];
+        if (!taken.has(median) && position[median] > lastPosition) {
+          taken.add(median);
+          aligned.add(`${median}>${item}`);
+          lastPosition = position[median];
         }
       }
     }
-    axis.push(x);
-  }
-  const rankLeft = (r: number) => axis[r] - halfLeft[r];
-  const rankRight = (r: number) => axis[r] + halfRight[r];
+    const hopWeight = (a: number, b: number) => (aligned.has(`${a}>${b}`) || aligned.has(`${b}>${a}`) ? ALIGN_WEIGHT : 1);
 
-  const boxes: Box[] = diagram.nodes.map((_, node) => ({
-    x: axis[rank[node]] - sizes[node].width / 2,
-    y: boxY[node],
-    width: sizes[node].width,
-    height: sizes[node].height,
-  }));
-  const bottom = Math.max(...boxes.map((box) => box.y + box.height));
-
-  let backIndex = 0;
-  const laidOut = links.map((link, k): LaidOutLink => {
-    const from = diagram.nodes[link.u].id;
-    const to = diagram.nodes[link.v].id;
-    if (link.u === link.v) return selfLoop(boxes[link.u], from);
-
-    if (back[k]) {
-      const start = rightMid(boxes[link.u]);
-      const end = leftMid(boxes[link.v]);
-      const outX = rankRight(rank[link.u]) + BACK_OFFSET;
-      const inX = rankLeft(rank[link.v]) - BACK_OFFSET;
-      const channelY = bottom + BACK_CHANNEL_GAP + BACK_CHANNEL_SPACING * backIndex++;
-      return {
-        from,
-        to,
-        points: [start, { x: outX, y: start.y }, { x: outX, y: channelY }, { x: inX, y: channelY }, { x: inX, y: end.y }, end],
-        labelPosition: { x: (outX + inX) / 2, y: channelY - LABEL_OFFSET },
-        labelAnchor: "middle",
-        back: true,
-      };
+    // Placement vertical : passes alternées vers l'aval et vers l'amont. `port[item]` est l'ordonnée
+    // de ses liens horizontaux ; `shift` passe du port au centre de l'élément empilé.
+    const above = (item: number) => items[item].above;
+    const below = (item: number) => items[item].height - items[item].above;
+    const shift = (item: number) => items[item].height / 2 - items[item].above;
+    const gapsOf = (layer: number[]) =>
+      layer.slice(0, -1).map((item, index) => (items[item].node === null || items[layer[index + 1]].node === null ? DUMMY_GAP : NODE_GAP));
+    const port = new Array<number>(items.length).fill(0);
+    for (const layer of layers) {
+      stackCenters(layer.map((item) => items[item].height), gapsOf(layer)).forEach((value, index) => (port[layer[index]] = value - shift(layer[index])));
     }
-
-    if (hung[link.v]) {
-      const x = axis[rank[link.v]];
-      const top = boxes[link.u].y + boxes[link.u].height;
-      const end = boxes[link.v].y;
-      return {
-        from,
-        to,
-        points: [
-          { x, y: top },
-          { x, y: end },
-        ],
-        labelPosition: { x: x + LABEL_OFFSET, y: (top + end) / 2 },
-        labelAnchor: "start",
-        back: false,
-      };
-    }
-
-    const chain = chains.get(k)!;
-    const points: Point[] = [rightMid(boxes[link.u])];
-    let labelPosition: Point = points[0];
-    let labelAnchor: LaidOutLink["labelAnchor"] = "middle";
-    for (let i = 1; i < chain.length; i++) {
-      const a = chain[i - 1];
-      const b = chain[i];
-      const exit = points[points.length - 1];
-      const real = items[b].node !== null;
-      const entry = real ? leftMid(boxes[b]) : { x: rankLeft(items[b].rank), y: port[b] };
-      if (isElbow(a, b)) {
-        const r = items[a].rank;
-        const channelX = rankRight(r) + gapWidth[r] * channelFraction(r, a);
-        points.push({ x: channelX, y: exit.y }, { x: channelX, y: entry.y });
-        labelPosition = { x: channelX + LABEL_OFFSET, y: (exit.y + entry.y) / 2 };
-        labelAnchor = "start";
-      } else {
-        labelPosition = { x: (exit.x + entry.x) / 2, y: entry.y - LABEL_OFFSET };
-        labelAnchor = "middle";
+    for (let pass = 0; pass < PLACEMENT_PASSES; pass++) {
+      const mode = pass === PLACEMENT_PASSES - 1 ? "both" : pass % 2 === 0 ? "down" : "up";
+      const order = mode === "up" ? [...layers.keys()].reverse() : [...layers.keys()];
+      for (const r of order) {
+        const layer = layers[r];
+        const desired: number[] = [];
+        const weights: number[] = [];
+        for (const item of layer) {
+          const neighbours = mode === "down" ? itemPreds[item] : mode === "up" ? itemSuccs[item] : [...itemPreds[item], ...itemSuccs[item]];
+          const values = neighbours.map((other) => ({ value: port[other], weight: hopWeight(item, other) }));
+          const mean = weightedMean(values);
+          desired.push((mean ?? port[item]) + shift(item));
+          weights.push(mean === null ? FREE_WEIGHT : values.reduce((sum, entry) => sum + entry.weight, 0));
+        }
+        placeStack(layer.map((item) => items[item].height), gapsOf(layer), desired, weights).forEach(
+          (value, index) => (port[layer[index]] = value - shift(layer[index]))
+        );
       }
-      points.push(entry);
-      if (!real) points.push({ x: rankRight(items[b].rank), y: port[b] });
     }
-    return { from, to, points: simplify(points), labelPosition, labelAnchor, back: false };
-  });
 
-  return { boxes, links: laidOut, headers: [], center: null };
+    // Redressement : un élément aligné presque à hauteur de son voisin s'y cale exactement ; ses voisins de rang s'écartent d'autant.
+    for (let r = 1; r < rankCount; r++) {
+      const layer = layers[r];
+      const gaps = gapsOf(layer);
+      layer.forEach((item, index) => {
+        const partner = itemPreds[item].find((other) => aligned.has(`${other}>${item}`));
+        if (partner === undefined || Math.abs(port[partner] - port[item]) > SNAP_DISTANCE) return;
+        port[item] = port[partner];
+        for (let j = index + 1; j < layer.length; j++) {
+          const minimum = port[layer[j - 1]] + below(layer[j - 1]) + gaps[j - 1] + above(layer[j]);
+          if (port[layer[j]] < minimum) port[layer[j]] = minimum;
+        }
+        for (let j = index - 1; j >= 0; j--) {
+          const maximum = port[layer[j + 1]] - above(layer[j + 1]) - gaps[j] - below(layer[j]);
+          if (port[layer[j]] > maximum) port[layer[j]] = maximum;
+        }
+      });
+    }
+
+    // Ordonnées des boîtes : un nœud du flux principal centré sur son port, sa branche suspendue empilée dessous.
+    const boxY = new Array<number>(count).fill(0);
+    for (const node of spine) {
+      boxY[node] = port[node] - sizes[node].height / 2;
+      let bottom = boxY[node] + sizes[node].height;
+      for (const member of hanging[node]) {
+        boxY[member] = bottom + HANG_GAP;
+        bottom = boxY[member] + sizes[member].height;
+      }
+    }
+
+    // Couloirs verticaux des liens coudés, par intervalle entre deux rangs : un couloir par élément
+    // de départ, qui descend ou monte vers chacune de ses cibles coudées.
+    const isElbow = (a: number, b: number) => Math.abs(port[a] - port[b]) >= STRAIGHT_TOLERANCE;
+    const channels: number[][] = Array.from({ length: rankCount }, () => []);
+    const elbowTargets = new Map<number, number[]>();
+    for (const chain of chains.values()) {
+      for (let i = 1; i < chain.length; i++) {
+        const [a, b] = [chain[i - 1], chain[i]];
+        if (!isElbow(a, b)) continue;
+        if (!channels[items[a].rank].includes(a)) channels[items[a].rank].push(a);
+        const targets = elbowTargets.get(a) ?? [];
+        if (!targets.includes(b)) targets.push(b);
+        elbowTargets.set(a, targets);
+      }
+    }
+    /**
+     * Croisements dans l'intervalle quand le couloir de `left` est à gauche de celui de `right` :
+     * les liens sortants de `left` qui coupent le couloir de `right` (hors cible commune), plus
+     * le lien entrant de `right` quand il coupe le couloir de `left`.
+     */
+    const spanOf = (a: number) => {
+      const ys = [port[a], ...elbowTargets.get(a)!.map((b) => port[b])];
+      return [Math.min(...ys), Math.max(...ys)];
+    };
+    const inside = (y: number, [low, high]: number[]) => y > low + STRAIGHT_TOLERANCE && y < high - STRAIGHT_TOLERANCE;
+    const channelCost = (left: number, right: number) => {
+      const rightTargets = elbowTargets.get(right)!;
+      const exits = elbowTargets.get(left)!.filter((b) => !rightTargets.includes(b) && inside(port[b], spanOf(right))).length;
+      return exits + (inside(port[right], spanOf(left)) ? 1 : 0);
+    };
+    // Insertion un à un, par ordonnée de départ, à la place qui coûte le moins de croisements ;
+    // à égalité, la place la plus à droite, ce qui garde l'ordre des ordonnées.
+    channels.forEach((list, r) => {
+      const ordered: number[] = [];
+      for (const item of stableSortBy(list, (entry) => port[entry])) {
+        let bestPosition = ordered.length;
+        let bestCost = Infinity;
+        for (let position = ordered.length; position >= 0; position--) {
+          const cost = ordered.reduce((sum, other, k) => sum + (k < position ? channelCost(other, item) : channelCost(item, other)), 0);
+          if (cost < bestCost) {
+            bestCost = cost;
+            bestPosition = position;
+          }
+        }
+        ordered.splice(bestPosition, 0, item);
+      }
+      channels[r] = ordered;
+    });
+    const channelFraction = (r: number, item: number) => (channels[r].indexOf(item) + 1) / (channels[r].length + 1);
+
+    // Largeur des intervalles : couloirs et libellés doivent y tenir.
+    const gapWidth = channels.map((list) => Math.max(RANK_GAP, (list.length + 1) * CHANNEL_SPACING));
+    for (const link of forward) {
+      if (!link.label) continue;
+      const chain = chains.get(link.k)!;
+      const a = chain[chain.length - 2];
+      const r = items[a].rank;
+      const width = measure(link.label, LINK_LABEL_FONT);
+      const needed = isElbow(a, link.v)
+        ? (width + LABEL_OFFSET + LABEL_MARGIN) / (1 - channelFraction(r, a))
+        : width + 2 * LABEL_MARGIN;
+      gapWidth[r] = Math.max(gapWidth[r], needed);
+    }
+
+    // Tranches verticales occupées par des liens de part et d'autre de chaque rang :
+    // `occupied[b]` pour la frontière `b`, entre les rangs `b - 1` et `b`.
+    const occupied: Array<Array<[number, number]>> = Array.from({ length: rankCount + 1 }, () => []);
+    for (const chain of chains.values()) {
+      for (let i = 1; i < chain.length; i++) {
+        const [a, b] = [chain[i - 1], chain[i]];
+        occupied[items[a].rank + 1].push([Math.min(port[a], port[b]), Math.max(port[a], port[b])]);
+      }
+    }
+    links.forEach((link, k) => {
+      if (link.u === link.v) occupied[rank[link.u] + 1].push([boxY[link.u] - LOOP_SIZE, port[link.u]]);
+      else if (back[k]) {
+        occupied[rank[link.u] + 1].push([port[link.u], Infinity]);
+        occupied[rank[link.v]].push([port[link.v], Infinity]);
+      }
+    });
+    const crossesLinks = (boundary: number, top: number, bottom: number) =>
+      occupied[boundary].some(([low, high]) => low - LINK_CLEARANCE < bottom && high + LINK_CLEARANCE > top);
+
+    // Emprise horizontale de chaque nœud autour de l'axe de son rang. Un nœud suspendu inclut le
+    // libellé du lien vertical qui l'atteint, à droite de ce lien, dans l'écart au-dessus de lui.
+    interface Extent {
+      rank: number;
+      top: number;
+      bottom: number;
+      left: number;
+      right: number;
+      hung: boolean;
+    }
+    const extents: Extent[] = diagram.nodes.map((_, node) => {
+      const half = sizes[node].width / 2;
+      if (!hung[node]) return { rank: rank[node], top: boxY[node], bottom: boxY[node] + sizes[node].height, left: half, right: half, hung: false };
+      const labels = links.filter((link) => link.v === node && link.label).map((link) => LABEL_OFFSET + measure(link.label!, LINK_LABEL_FONT) + LABEL_MARGIN);
+      return {
+        rank: rank[node],
+        top: boxY[node] - HANG_GAP,
+        bottom: boxY[node] + sizes[node].height,
+        left: half,
+        right: Math.max(half, ...labels),
+        hung: true,
+      };
+    });
+
+    // Demi-largeurs des rangs : celle des nœuds du flux principal, élargie là où un nœud suspendu
+    // plus large croiserait un lien ; ailleurs, il déborde sur l'intervalle voisin.
+    const halfLeft = layers.map((layer) => Math.max(0, ...layer.map((item) => items[item].width / 2)));
+    const halfRight = [...halfLeft];
+    for (const extent of extents) {
+      if (!extent.hung) continue;
+      if (crossesLinks(extent.rank, extent.top, extent.bottom)) halfLeft[extent.rank] = Math.max(halfLeft[extent.rank], extent.left);
+      if (crossesLinks(extent.rank + 1, extent.top, extent.bottom)) halfRight[extent.rank] = Math.max(halfRight[extent.rank], extent.right);
+    }
+
+    // Axe de chaque rang : après l'intervalle qui le sépare du précédent, et assez loin de tout nœud
+    // suspendu qui déborde à la même hauteur.
+    const byRank: Extent[][] = Array.from({ length: rankCount }, () => []);
+    extents.forEach((extent) => byRank[extent.rank].push(extent));
+    const axis: number[] = [];
+    for (let r = 0; r < rankCount; r++) {
+      let x = r === 0 ? halfLeft[0] : axis[r - 1] + halfRight[r - 1] + gapWidth[r - 1] + halfLeft[r];
+      for (const current of byRank[r]) {
+        for (let earlier = 0; earlier < r; earlier++) {
+          for (const other of byRank[earlier]) {
+            if (!current.hung && !other.hung) continue;
+            if (current.top >= other.bottom + LINK_CLEARANCE || other.top >= current.bottom + LINK_CLEARANCE) continue;
+            x = Math.max(x, axis[earlier] + other.right + HANG_CLEARANCE + current.left);
+          }
+        }
+      }
+      axis.push(x);
+    }
+    const rankLeft = (r: number) => axis[r] - halfLeft[r];
+    const rankRight = (r: number) => axis[r] + halfRight[r];
+
+    const boxes: Box[] = diagram.nodes.map((_, node) => ({
+      x: axis[rank[node]] - sizes[node].width / 2,
+      y: boxY[node],
+      width: sizes[node].width,
+      height: sizes[node].height,
+    }));
+    const bottom = Math.max(...boxes.map((box) => box.y + box.height));
+
+    let backIndex = 0;
+    const laidOut = links.map((link, k): LaidOutLink => {
+      const from = diagram.nodes[link.u].id;
+      const to = diagram.nodes[link.v].id;
+      if (link.u === link.v) return selfLoop(boxes[link.u], from);
+
+      if (back[k]) {
+        const start = rightMid(boxes[link.u]);
+        const end = leftMid(boxes[link.v]);
+        const outX = rankRight(rank[link.u]) + BACK_OFFSET;
+        const inX = rankLeft(rank[link.v]) - BACK_OFFSET;
+        const channelY = bottom + BACK_CHANNEL_GAP + BACK_CHANNEL_SPACING * backIndex++;
+        return {
+          from,
+          to,
+          points: [start, { x: outX, y: start.y }, { x: outX, y: channelY }, { x: inX, y: channelY }, { x: inX, y: end.y }, end],
+          labelPosition: { x: (outX + inX) / 2, y: channelY - LABEL_OFFSET },
+          labelAnchor: "middle",
+          back: true,
+        };
+      }
+
+      if (hung[link.v]) {
+        const x = axis[rank[link.v]];
+        const top = boxes[link.u].y + boxes[link.u].height;
+        const end = boxes[link.v].y;
+        return {
+          from,
+          to,
+          points: [
+            { x, y: top },
+            { x, y: end },
+          ],
+          labelPosition: { x: x + LABEL_OFFSET, y: (top + end) / 2 },
+          labelAnchor: "start",
+          back: false,
+        };
+      }
+
+      const chain = chains.get(k)!;
+      const points: Point[] = [rightMid(boxes[link.u])];
+      let labelPosition: Point = points[0];
+      let labelAnchor: LaidOutLink["labelAnchor"] = "middle";
+      for (let i = 1; i < chain.length; i++) {
+        const a = chain[i - 1];
+        const b = chain[i];
+        const exit = points[points.length - 1];
+        const real = items[b].node !== null;
+        const entry = real ? leftMid(boxes[b]) : { x: rankLeft(items[b].rank), y: port[b] };
+        if (isElbow(a, b)) {
+          const r = items[a].rank;
+          const channelX = rankRight(r) + gapWidth[r] * channelFraction(r, a);
+          points.push({ x: channelX, y: exit.y }, { x: channelX, y: entry.y });
+          labelPosition = { x: channelX + LABEL_OFFSET, y: (exit.y + entry.y) / 2 };
+          labelAnchor = "start";
+        } else {
+          labelPosition = { x: (exit.x + entry.x) / 2, y: entry.y - LABEL_OFFSET };
+          labelAnchor = "middle";
+        }
+        points.push(entry);
+        if (!real) points.push({ x: rankRight(items[b].rank), y: port[b] });
+      }
+      return { from, to, points: simplify(points), labelPosition, labelAnchor, back: false };
+    });
+
+    return { boxes, links: laidOut, headers: [], center: null };
+  };
+
+  return build(chooseOrder(candidates, (order) => scoreLayout(build(order), links)));
 }
 
 // --- Couches (layers) --------------------------------------------------------
@@ -834,7 +920,7 @@ function layoutLayers(diagram: Diagram, sizes: Size[], links: IndexedLink[], mea
     neighbours[link.v].push({ other: link.u, delta });
   }
 
-  const columns: number[][] = diagram.layers.map((_, c) => [...diagram.nodes.keys()].filter((node) => column[node] === c));
+  let columns: number[][] = diagram.layers.map((_, c) => [...diagram.nodes.keys()].filter((node) => column[node] === c));
   const gaps = (list: number[]) => list.slice(0, -1).map(() => NODE_GAP);
   const center = new Array<number>(diagram.nodes.length).fill(0);
   const restack = (c: number) =>
@@ -845,110 +931,121 @@ function layoutLayers(diagram: Diagram, sizes: Size[], links: IndexedLink[], mea
     return { mean: weightedMean(values), weight: values.length };
   };
 
-  // Ordre dans chaque colonne : barycentre des voisins.
+  // Ordres candidats dans chaque colonne : ordre de déclaration, puis l'ordre obtenu après chaque
+  // balayage barycentrique, alternativement de gauche à droite et de droite à gauche.
+  const candidates = [columns.map((list) => [...list])];
   for (let sweep = 0; sweep < ORDER_SWEEPS; sweep++) {
     const order = sweep % 2 === 0 ? [...columns.keys()] : [...columns.keys()].reverse();
     for (const c of order) {
       columns[c] = stableSortBy(columns[c], (node) => desiredOf(node).mean ?? center[node]);
       restack(c);
     }
+    candidates.push(columns.map((list) => [...list]));
   }
 
-  // Placement vertical au plus près des voisins, sans chevauchement.
-  for (let pass = 0; pass < PLACEMENT_PASSES; pass++) {
-    const order = pass % 2 === 0 ? [...columns.keys()] : [...columns.keys()].reverse();
-    for (const c of order) {
-      const list = columns[c];
-      const targets = list.map(desiredOf);
-      placeStack(
-        list.map((node) => height[node]),
-        gaps(list),
-        targets.map((target, index) => target.mean ?? center[list[index]]),
-        targets.map((target) => (target.mean === null ? FREE_WEIGHT : target.weight))
-      ).forEach((value, index) => (center[list[index]] = value));
+  /** Trace le schéma pour un ordre donné des nœuds de chaque colonne. */
+  const build = (orderOfColumns: number[][]): RawLayout => {
+    columns = orderOfColumns.map((list) => [...list]);
+    columns.forEach((_, c) => restack(c));
+
+    // Placement vertical au plus près des voisins, sans chevauchement.
+    for (let pass = 0; pass < PLACEMENT_PASSES; pass++) {
+      const order = pass % 2 === 0 ? [...columns.keys()] : [...columns.keys()].reverse();
+      for (const c of order) {
+        const list = columns[c];
+        const targets = list.map(desiredOf);
+        placeStack(
+          list.map((node) => height[node]),
+          gaps(list),
+          targets.map((target, index) => target.mean ?? center[list[index]]),
+          targets.map((target) => (target.mean === null ? FREE_WEIGHT : target.weight))
+        ).forEach((value, index) => (center[list[index]] = value));
+      }
     }
-  }
 
-  const columnLeft: number[] = [];
-  let left = 0;
-  for (let c = 0; c < columnCount; c++) {
-    columnLeft.push(left);
-    left += columnWidth[c] + COLUMN_GAP;
-  }
-  const boxes: Box[] = diagram.nodes.map((_, node) => ({
-    x: columnLeft[column[node]] + (columnWidth[column[node]] - width[node]) / 2,
-    y: center[node] - height[node] / 2,
-    width: width[node],
-    height: height[node],
-  }));
-  const top = Math.min(...boxes.map((box) => box.y));
-  const headers = diagram.layers.map((label, c) => ({ label, x: columnLeft[c], y: top - HEADER_OFFSET, width: columnWidth[c] }));
+    const columnLeft: number[] = [];
+    let left = 0;
+    for (let c = 0; c < columnCount; c++) {
+      columnLeft.push(left);
+      left += columnWidth[c] + COLUMN_GAP;
+    }
+    const boxes: Box[] = diagram.nodes.map((_, node) => ({
+      x: columnLeft[column[node]] + (columnWidth[column[node]] - width[node]) / 2,
+      y: center[node] - height[node] / 2,
+      width: width[node],
+      height: height[node],
+    }));
+    const top = Math.min(...boxes.map((box) => box.y));
+    const headers = diagram.layers.map((label, c) => ({ label, x: columnLeft[c], y: top - HEADER_OFFSET, width: columnWidth[c] }));
 
-  /** Ordonnée libre la plus proche de `y` dans la colonne `c`. */
-  const freeSlot = (c: number, y: number) => {
-    const list = columns[c].map((node) => boxes[node]);
-    const slots = [list[0].y - NODE_GAP / 2, ...list.slice(1).map((box, i) => (list[i].y + list[i].height + box.y) / 2)];
-    slots.push(list[list.length - 1].y + list[list.length - 1].height + NODE_GAP / 2);
-    return stableSortBy(slots, (slot) => Math.abs(slot - y))[0];
+    /** Ordonnée libre la plus proche de `y` dans la colonne `c`. */
+    const freeSlot = (c: number, y: number) => {
+      const list = columns[c].map((node) => boxes[node]);
+      const slots = [list[0].y - NODE_GAP / 2, ...list.slice(1).map((box, i) => (list[i].y + list[i].height + box.y) / 2)];
+      slots.push(list[list.length - 1].y + list[list.length - 1].height + NODE_GAP / 2);
+      return stableSortBy(slots, (slot) => Math.abs(slot - y))[0];
+    };
+
+    const laidOut = links.map((link): LaidOutLink => {
+      const from = diagram.nodes[link.u].id;
+      const to = diagram.nodes[link.v].id;
+      if (link.u === link.v) return selfLoop(boxes[link.u], from);
+      const a = boxes[link.u];
+      const b = boxes[link.v];
+      let points: Point[];
+
+      if (column[link.u] === column[link.v]) {
+        const c = column[link.u];
+        const [upper, lower] = a.y <= b.y ? [link.u, link.v] : [link.v, link.u];
+        const between = columns[c].indexOf(lower) - columns[c].indexOf(upper) > 1;
+        const up = boxes[upper];
+        const low = boxes[lower];
+        if (between) {
+          const sideX = columnLeft[c] + columnWidth[c] + BACK_OFFSET;
+          points = [rightMid(up), { x: sideX, y: up.y + up.height / 2 }, { x: sideX, y: low.y + low.height / 2 }, rightMid(low)];
+        } else {
+          points = [
+            { x: up.x + up.width / 2, y: up.y + up.height },
+            { x: low.x + low.width / 2, y: low.y },
+          ];
+        }
+        if (upper !== link.u) points.reverse();
+      } else {
+        const [leftNode, rightNode] = column[link.u] < column[link.v] ? [link.u, link.v] : [link.v, link.u];
+        const end = leftMid(boxes[rightNode]);
+        points = [rightMid(boxes[leftNode])];
+        for (let c = column[leftNode] + 1; c < column[rightNode]; c++) {
+          const start = points[points.length - 1];
+          const x0 = columnLeft[c];
+          const x1 = columnLeft[c] + columnWidth[c];
+          const yAt = (x: number) => start.y + ((end.y - start.y) * (x - start.x)) / (end.x - start.x);
+          const low = Math.min(yAt(x0), yAt(x1));
+          const high = Math.max(yAt(x0), yAt(x1));
+          const blocked = columns[c].some((node) => boxes[node].y - CROSS_MARGIN < high && boxes[node].y + boxes[node].height + CROSS_MARGIN > low);
+          if (blocked) {
+            const slot = freeSlot(c, yAt((x0 + x1) / 2));
+            points.push({ x: x0, y: slot }, { x: x1, y: slot });
+          }
+        }
+        points.push(end);
+        if (leftNode !== link.u) points.reverse();
+      }
+
+      const middle = middleOf(points);
+      return {
+        from,
+        to,
+        points,
+        labelPosition: { x: middle.x, y: middle.y - LABEL_OFFSET },
+        labelAnchor: "middle",
+        back: false,
+      };
+    });
+
+    return { boxes, links: laidOut, headers, center: null };
   };
 
-  const laidOut = links.map((link): LaidOutLink => {
-    const from = diagram.nodes[link.u].id;
-    const to = diagram.nodes[link.v].id;
-    if (link.u === link.v) return selfLoop(boxes[link.u], from);
-    const a = boxes[link.u];
-    const b = boxes[link.v];
-    let points: Point[];
-
-    if (column[link.u] === column[link.v]) {
-      const c = column[link.u];
-      const [upper, lower] = a.y <= b.y ? [link.u, link.v] : [link.v, link.u];
-      const between = columns[c].indexOf(lower) - columns[c].indexOf(upper) > 1;
-      const up = boxes[upper];
-      const low = boxes[lower];
-      if (between) {
-        const sideX = columnLeft[c] + columnWidth[c] + BACK_OFFSET;
-        points = [rightMid(up), { x: sideX, y: up.y + up.height / 2 }, { x: sideX, y: low.y + low.height / 2 }, rightMid(low)];
-      } else {
-        points = [
-          { x: up.x + up.width / 2, y: up.y + up.height },
-          { x: low.x + low.width / 2, y: low.y },
-        ];
-      }
-      if (upper !== link.u) points.reverse();
-    } else {
-      const [leftNode, rightNode] = column[link.u] < column[link.v] ? [link.u, link.v] : [link.v, link.u];
-      const end = leftMid(boxes[rightNode]);
-      points = [rightMid(boxes[leftNode])];
-      for (let c = column[leftNode] + 1; c < column[rightNode]; c++) {
-        const start = points[points.length - 1];
-        const x0 = columnLeft[c];
-        const x1 = columnLeft[c] + columnWidth[c];
-        const yAt = (x: number) => start.y + ((end.y - start.y) * (x - start.x)) / (end.x - start.x);
-        const low = Math.min(yAt(x0), yAt(x1));
-        const high = Math.max(yAt(x0), yAt(x1));
-        const blocked = columns[c].some((node) => boxes[node].y - CROSS_MARGIN < high && boxes[node].y + boxes[node].height + CROSS_MARGIN > low);
-        if (blocked) {
-          const slot = freeSlot(c, yAt((x0 + x1) / 2));
-          points.push({ x: x0, y: slot }, { x: x1, y: slot });
-        }
-      }
-      points.push(end);
-      if (leftNode !== link.u) points.reverse();
-    }
-
-    const middle = middleOf(points);
-    return {
-      from,
-      to,
-      points,
-      labelPosition: { x: middle.x, y: middle.y - LABEL_OFFSET },
-      labelAnchor: "middle",
-      back: false,
-    };
-  });
-
-  return { boxes, links: laidOut, headers, center: null };
+  return build(chooseOrder(candidates, (order) => scoreLayout(build(order), links)));
 }
 
 // --- Carte mentale (mindmap) --------------------------------------------------
@@ -992,43 +1089,51 @@ function boxesOverlap(a: Box, b: Box, clearance: number): boolean {
   );
 }
 
+/** Description française d'un problème d'arborescence. */
+function mindmapProblemText(problem: MindmapProblem): string {
+  const list = (ids: string[]) => ids.map((id) => `« ${id} »`).join(", ");
+  switch (problem.kind) {
+    case "self_loop":
+      return `le nœud « ${problem.node} » est relié à lui-même`;
+    case "no_root":
+      return "aucun nœud n'est sans lien entrant, il n'y a pas de racine";
+    case "several_roots":
+      return `plusieurs nœuds sans lien entrant (${list(problem.roots)}) au lieu d'une seule racine`;
+    case "several_parents":
+      return `le nœud « ${problem.node} » a plusieurs parents (${list(problem.parents)})`;
+    case "cycle":
+      return `cycle ${problem.nodes.join(" → ")}`;
+    case "unreachable":
+      return `${list(problem.nodes)} inaccessible(s) depuis la racine « ${problem.root} »`;
+  }
+}
+
 function layoutMindmap(diagram: Diagram, sizes: Size[], links: IndexedLink[]): RawLayout {
+  const problems = mindmapProblems(diagram);
+  if (problems.length > 0) {
+    throw new Error(`La carte mentale « ${diagram.title} » n'est pas un arbre : ${problems.map(mindmapProblemText).join(" ; ")}.`);
+  }
   const count = diagram.nodes.length;
   const hasIncoming = new Array<boolean>(count).fill(false);
-  const adjacent: number[][] = Array.from({ length: count }, () => []);
+  const outgoing: number[][] = Array.from({ length: count }, () => []);
   for (const link of links) {
-    if (link.u === link.v) continue;
     hasIncoming[link.v] = true;
-    adjacent[link.u].push(link.v);
-    adjacent[link.v].push(link.u);
+    outgoing[link.u].push(link.v);
   }
-  const rootIndex = hasIncoming.indexOf(false);
-  const root = rootIndex === -1 ? 0 : rootIndex;
+  const root = hasIncoming.indexOf(false);
 
-  // Arbre en largeur ; un nœud non relié devient une branche de la racine.
-  const children: number[][] = Array.from({ length: count }, () => []);
-  const depth = new Array<number>(count).fill(-1);
+  // Arbre parcouru en largeur depuis la racine, enfants dans l'ordre des liens.
+  const children = outgoing;
+  const depth = new Array<number>(count).fill(0);
   const bfsOrder: number[] = [];
-  const explore = (start: number) => {
-    const queue = [start];
-    while (queue.length > 0) {
-      const node = queue.shift()!;
-      bfsOrder.push(node);
-      for (const next of adjacent[node]) {
-        if (depth[next] !== -1) continue;
-        depth[next] = depth[node] + 1;
-        children[node].push(next);
-        queue.push(next);
-      }
+  const queue = [root];
+  while (queue.length > 0) {
+    const node = queue.shift()!;
+    bfsOrder.push(node);
+    for (const next of children[node]) {
+      depth[next] = depth[node] + 1;
+      queue.push(next);
     }
-  };
-  depth[root] = 0;
-  explore(root);
-  for (let node = 0; node < count; node++) {
-    if (depth[node] !== -1) continue;
-    depth[node] = 1;
-    children[root].push(node);
-    explore(node);
   }
 
   const subtree = new Array<number>(count).fill(1);

@@ -58,7 +58,7 @@ async function setup(t: TestContext) {
     repo.cleanup();
     temp.cleanup();
   });
-  const text = await ok(createAnalysis, temp.store, { repo_path: repo.dir, title: "Feature X", mode: "branch", base: "master" });
+  const text = await ok(createAnalysis, temp.store, { repo_path: repo.dir, project: "demo", title: "Feature X", mode: "branch", base: "master" });
   const id = /\(id: ([a-z0-9-]+)\)/.exec(text)![1];
   return { repo: repo.dir, store: temp.store, id, createText: text };
 }
@@ -67,7 +67,8 @@ async function setup(t: TestContext) {
 
 test("create_analysis freezes the branch diff and lists the changed files with next steps", async (t) => {
   const { store, id, createText } = await setup(t);
-  assert.match(createText, /Created analysis "Feature X"/);
+  assert.match(createText, /Created analysis "Feature X" \(id: [a-z0-9-]+\) in project "demo"/);
+  assert.match(createText, /2\. Write the overview \(objective, approach, attention_points\) and the summary/);
   assert.match(createText, /branch master\.\.\.HEAD/);
   assert.match(createText, /M src\/app\.ts {2}\+2 -1/);
   assert.match(createText, /A src\/new file\.ts/);
@@ -79,25 +80,27 @@ test("create_analysis freezes the branch diff and lists the changed files with n
 
 test("create_analysis reports a bad ref, a missing base and a misplaced head explicitly", async (t) => {
   const { repo, store } = await setup(t);
-  assert.match(await fails(createAnalysis, store, { repo_path: repo, title: "X", mode: "branch", base: "nope" }), /Unknown base ref "nope"/);
-  assert.match(await fails(createAnalysis, store, { repo_path: repo, title: "X", mode: "branch" }), /"base" is required in branch mode/);
+  assert.match(await fails(createAnalysis, store, { repo_path: repo, project: "demo", title: "X", mode: "branch", base: "nope" }), /Unknown base ref "nope"/);
+  assert.match(await fails(createAnalysis, store, { repo_path: repo, project: "demo", title: "X", mode: "branch" }), /"base" is required in branch mode/);
   assert.match(
-    await fails(createAnalysis, store, { repo_path: repo, title: "X", mode: "working_tree", head: "feature" }),
+    await fails(createAnalysis, store, { repo_path: repo, project: "demo", title: "X", mode: "working_tree", head: "feature" }),
     /"head" is not accepted in working_tree mode/
   );
-  assert.match(await fails(createAnalysis, store, { repo_path: repo, title: "X", mode: "both" }), /"mode" must be one of branch, working_tree/);
+  assert.match(await fails(createAnalysis, store, { repo_path: repo, project: "demo", title: "X", mode: "both" }), /"mode" must be one of branch, working_tree/);
   assert.match(
-    await fails(createAnalysis, store, { repo_path: repo, title: "X", mode: "branch", base: "master", request_source: "JIRA-1" }),
+    await fails(createAnalysis, store, { repo_path: repo, project: "demo", title: "X", mode: "branch", base: "master", request_source: "JIRA-1" }),
     /give "request_text" too/
   );
-  assert.match(await fails(createAnalysis, store, { repo_path: repo, title: "X", mode: "branch", bse: "master" }), /Unknown field\(s\): bse/);
+  assert.match(await fails(createAnalysis, store, { repo_path: repo, project: "demo", title: "X", mode: "branch", bse: "master" }), /Unknown field\(s\): bse/);
+  assert.match(await fails(createAnalysis, store, { repo_path: repo, title: "X", mode: "branch", base: "master" }), /"project" is required and must be a non-empty string/);
+  assert.match(await fails(createAnalysis, store, { repo_path: repo, project: "  ", title: "X", mode: "branch", base: "master" }), /"project" is required/);
   assert.equal(store.list().analyses.length, 1);
 });
 
 test("create_analysis in working_tree mode includes untracked files", async (t) => {
   const { repo, store } = await setup(t);
   fs.writeFileSync(path.join(repo, "draft.txt"), "draft\n");
-  const text = await ok(createAnalysis, store, { repo_path: repo, title: "WIP", mode: "working_tree" });
+  const text = await ok(createAnalysis, store, { repo_path: repo, project: "demo", title: "WIP", mode: "working_tree" });
   assert.match(text, /working_tree/);
   assert.match(text, /A draft\.txt {2}\+1 -0/);
 });
@@ -114,11 +117,55 @@ test("list_analyses points to create_analysis when empty, then lists analyses an
   });
   fs.writeFileSync(path.join(store.dataDir, "analyses", "broken-abc123.json"), "{ not json");
   const text = await ok(listAnalyses, store, {});
+  assert.match(text, /## Project "demo" \(1 analysis\(es\): 1 not started\)/);
   assert.match(text, new RegExp(`- ${id} — "Feature X"`));
   assert.match(text, /files reviewed 0\/7 \| open findings: 1 major \| diagrams: 0/);
-  assert.match(text, /review: pending/);
+  assert.match(text, /review: not started \(0\/7 files reviewed\)/);
+  assert.match(text, /reuse its analysis: update_analysis .* refresh_analysis/);
   assert.match(text, /1 analysis file\(s\) could not be read/);
   assert.match(text, /- broken-abc123: /);
+});
+
+test("list_analyses groups analyses by project with their review state, and filters by project", async (t) => {
+  const { repo, store, id } = await setup(t);
+  const second = await ok(createAnalysis, store, { repo_path: repo, project: "billing", title: "Invoices", mode: "branch", base: "master" });
+  const billingId = /\(id: ([a-z0-9-]+)\)/.exec(second)![1];
+  const third = await ok(createAnalysis, store, { repo_path: repo, project: "billing", title: "Refunds", mode: "branch", base: "master" });
+  const refundsId = /\(id: ([a-z0-9-]+)\)/.exec(third)![1];
+  store.mutate(billingId, "user", (draft) => {
+    draft.files[0].reviewed = true;
+  });
+  store.mutate(refundsId, "user", (draft) => {
+    for (const file of draft.files) file.reviewed = true;
+  });
+  store.mutate(id, "user", (draft) => {
+    draft.review = { ...draft.review, state: "submitted", decision: "approve", submittedAt: new Date().toISOString() };
+  });
+
+  const all = await ok(listAnalyses, store, {});
+  assert.match(all, /^3 analysis\(es\) in 2 project\(s\), most recently updated first:/);
+  const demoAt = all.indexOf('## Project "demo"');
+  const billingAt = all.indexOf('## Project "billing"');
+  assert.ok(demoAt !== -1 && billingAt !== -1 && demoAt < billingAt, "the most recently updated project comes first");
+  assert.match(all, /## Project "billing" \(2 analysis\(es\): 1 in progress, 1 all files reviewed, not submitted\)/);
+  assert.match(all, /## Project "demo" \(1 analysis\(es\): 1 submitted\)/);
+  assert.match(all, /review: submitted, decision approve \(0\/7 files reviewed\) — read it with get_review_feedback/);
+  assert.match(all, /review: in progress \(1\/7 files reviewed\)/);
+  assert.match(all, /review: all files reviewed, not submitted \(7\/7 files reviewed\)/);
+
+  const billing = await ok(listAnalyses, store, { project: "billing" });
+  assert.match(billing, /^2 analysis\(es\) in project "billing"/);
+  assert.doesNotMatch(billing, /Feature X/);
+  assert.match(billing, /Invoices[\s\S]*Refunds|Refunds[\s\S]*Invoices/);
+
+  assert.match(
+    await fails(listAnalyses, store, { project: "Billing" }),
+    /Unknown project "Billing"\. Existing projects: "demo", "billing"\./
+  );
+  const empty = makeStore();
+  t.after(empty.cleanup);
+  assert.match(await fails(listAnalyses, empty.store, { project: "x" }), /Unknown project "x": there are no analyses yet/);
+  assert.equal(store.list().analyses.find((summary) => summary.id === billingId)?.project, "billing");
 });
 
 // --- get_diff / get_analysis / update_analysis --------------------------------
@@ -160,7 +207,63 @@ test("update_analysis sets the summary and the request, and requires at least on
   assert.equal(store.get(id).request, null);
 
   assert.match(await fails(updateAnalysis, store, { analysis_id: id }), /Give at least one field to change/);
+  assert.match(await fails(updateAnalysis, store, { analysis_id: id, project: "" }), /"project" is required and must be a non-empty string/);
   assert.match(await fails(updateAnalysis, store, { analysis_id: id, summary: ["ok", ""] }), /"summary\[1\]" must be a non-empty string/);
+});
+
+test("update_analysis creates, partially updates and removes the overview, and moves the analysis to another project", async (t) => {
+  const { store, id } = await setup(t);
+  assert.match(await ok(getAnalysis, store, { analysis_id: id }), /Overview: none yet \(write objective and approach with update_analysis\)\./);
+
+  const missing = await fails(updateAnalysis, store, { analysis_id: id, objective: "Refresh tokens" });
+  assert.match(missing, /Analysis "[a-z0-9-]+" has no overview yet: give "approach" too to create it/);
+  assert.match(await fails(updateAnalysis, store, { analysis_id: id, attention_points: ["Races"] }), /give "objective" and "approach" too/);
+  assert.equal(store.get(id).overview, null);
+
+  const created = await ok(updateAnalysis, store, {
+    analysis_id: id,
+    objective: "Refresh expired tokens without logging the user out",
+    approach: "A retry wrapper around the HTTP client",
+    summary: ["Expired tokens are refreshed once before the request fails"],
+  });
+  assert.match(created, /summary \(1 bullet\(s\)\), overview \(0 attention point\(s\)\)/);
+  assert.match(created, /Next: record problems/);
+  assert.deepEqual(store.get(id).overview, {
+    objective: "Refresh expired tokens without logging the user out",
+    approach: "A retry wrapper around the HTTP client",
+    attentionPoints: [],
+  });
+
+  await ok(updateAnalysis, store, { analysis_id: id, attention_points: ["Concurrent refreshes", "Token storage"] });
+  await ok(updateAnalysis, store, { analysis_id: id, approach: "A single-flight refresh in the HTTP client" });
+  assert.deepEqual(store.get(id).overview, {
+    objective: "Refresh expired tokens without logging the user out",
+    approach: "A single-flight refresh in the HTTP client",
+    attentionPoints: ["Concurrent refreshes", "Token storage"],
+  });
+
+  const view = await ok(getAnalysis, store, { analysis_id: id });
+  assert.match(
+    view,
+    /Overview:\n {2}Objective: Refresh expired tokens without logging the user out\n {2}Approach: A single-flight refresh in the HTTP client\n {2}Attention points:\n {2}- Concurrent refreshes\n {2}- Token storage/
+  );
+  assert.match(await ok(getReviewFeedback, store, { analysis_id: id }), /Overview:\n {2}Objective: Refresh expired tokens/);
+
+  const moved = await ok(updateAnalysis, store, { analysis_id: id, project: "auth" });
+  assert.match(moved, /project "demo" -> "auth"/);
+  assert.match(await ok(getAnalysis, store, { analysis_id: id }), /^Project: auth$/m);
+
+  assert.match(
+    await fails(updateAnalysis, store, { analysis_id: id, objective: null, approach: "x" }),
+    /"objective" is null \(overview removed\), so "approach" and "attention_points" cannot be set/
+  );
+  assert.match(await fails(updateAnalysis, store, { analysis_id: id, approach: "" }), /"approach" is required and must be a non-empty string/);
+  assert.match(await fails(updateAnalysis, store, { analysis_id: id, attention_points: ["ok", " "] }), /"attention_points\[1\]" must be a non-empty string/);
+
+  const removed = await ok(updateAnalysis, store, { analysis_id: id, objective: null });
+  assert.match(removed, /overview removed/);
+  assert.match(removed, /Next: write the overview \(objective, approach, attention_points\) with update_analysis/);
+  assert.equal(store.get(id).overview, null);
 });
 
 // --- add_findings / update_finding / delete_findings --------------------------
@@ -284,6 +387,7 @@ test("set_diagram creates a layers diagram with defaults, then replaces it by id
     links: [{ from: "ui", to: "app", label: "calls" }],
   });
   assert.match(text, /Created diagram impact "Impact" \(layers, 2 node\(s\), 1 link\(s\)\)/);
+  assert.match(text, /Layout check: No crossing\./);
   const node = store.get(id).diagrams[0].nodes[1];
   assert.equal(node.shape, "box");
   assert.equal(node.status, "existing");
@@ -330,6 +434,74 @@ test("set_diagram rejects undeclared layers, unknown link ends and bad node loca
     await fails(setDiagram, store, { analysis_id: id, title: "F", kind: "flow", layers: ["X"], nodes: [{ id: "a", label: "A" }] }),
     /"layers" is only used when kind is layers/
   );
+  assert.equal(store.get(id).diagrams.length, 0);
+});
+
+test("set_diagram saves a diagram with crossings but reports each crossing with advice, and get_analysis flags it", async (t) => {
+  const { store, id } = await setup(t);
+  const text = await ok(setDiagram, store, {
+    analysis_id: id,
+    diagram_id: "tangle",
+    title: "Tangle",
+    kind: "layers",
+    layers: ["A", "B"],
+    nodes: ["a1", "a2", "a3"].map((node) => ({ id: node, label: node, layer: "A" })).concat(["b1", "b2", "b3"].map((node) => ({ id: node, label: node, layer: "B" }))),
+    links: ["a1", "a2", "a3"].flatMap((from) => ["b1", "b2", "b3"].map((to) => ({ from, to }))),
+  });
+  assert.match(text, /Created diagram tangle "Tangle"/);
+  assert.match(text, /Layout check: 9 link crossing\(s\), 0 link\(s\) through a node\. The diagram is saved, but the reviewer expects none/);
+  assert.match(text, /^- links\[\d\] a\d -> b\d crosses links\[\d\] a\d -> b\d$/m);
+  assert.match(text, /Reorder the nodes: the declaration order is the initial order of each rank or column/);
+  assert.match(text, /Split the diagram: one subject per diagram, 5 to 12 nodes each/);
+  assert.match(text, /Order the layers so links run between neighbouring columns/);
+  assert.equal(store.get(id).diagrams.length, 1);
+
+  const view = await ok(getAnalysis, store, { analysis_id: id });
+  assert.match(view, /tangle — "Tangle" \(layers, 6 node\(s\), 9 link\(s\)\) — WARNING: 9 link crossing\(s\)\. Send it again with set_diagram/);
+
+  const big = await ok(setDiagram, store, {
+    analysis_id: id,
+    title: "Chain",
+    kind: "flow",
+    nodes: Array.from({ length: 13 }, (_, index) => ({ id: `n${index}`, label: `Step ${index}` })),
+    links: Array.from({ length: 12 }, (_, index) => ({ from: `n${index}`, to: `n${index + 1}` })),
+  });
+  assert.match(big, /Layout check: No crossing\./);
+  assert.match(big, /Note: 13 nodes; keep a diagram between 5 and 12 nodes/);
+});
+
+test("set_diagram refuses a mindmap that is not a tree and lists every problem", async (t) => {
+  const { store, id } = await setup(t);
+  const text = await fails(setDiagram, store, {
+    analysis_id: id,
+    title: "Concepts",
+    kind: "mindmap",
+    nodes: [{ id: "root", label: "Root" }, { id: "a", label: "A" }, { id: "b", label: "B" }, { id: "orphan", label: "Orphan" }, { id: "c", label: "C" }],
+    links: [
+      { from: "root", to: "a" },
+      { from: "root", to: "b" },
+      { from: "a", to: "b" },
+      { from: "c", to: "c" },
+    ],
+  });
+  assert.match(text, /The diagram was not saved: 3 problem\(s\)/);
+  assert.match(text, /- mindmap: node "c" links to itself\./);
+  assert.match(text, /- mindmap: 3 nodes have no incoming link \("root", "orphan", "c"\); keep one root/);
+  assert.match(text, /- mindmap: node "b" has 2 parents \("root", "a"\); keep a single link into it\./);
+  assert.match(text, /A mindmap is a tree: one root \(the central subject\), exactly one incoming link for every other node, no cycle/);
+
+  const cycle = await fails(setDiagram, store, {
+    analysis_id: id,
+    title: "Loop",
+    kind: "mindmap",
+    nodes: [{ id: "root", label: "Root" }, { id: "x", label: "X" }, { id: "y", label: "Y" }],
+    links: [
+      { from: "x", to: "y" },
+      { from: "y", to: "x" },
+    ],
+  });
+  assert.match(cycle, /- mindmap: the links form a cycle x -> y -> x\./);
+  assert.match(cycle, /- mindmap: node\(s\) "x", "y" cannot be reached from the root "root"\./);
   assert.equal(store.get(id).diagrams.length, 0);
 });
 

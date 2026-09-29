@@ -11,6 +11,7 @@ import {
   type Review,
 } from "../../shared/schemas/analysis.schema.js";
 import { DiffSnapshotSchema, type DiffSnapshot } from "../../shared/schemas/diff.schema.js";
+import { reviewProgress } from "../../shared/review-state.js";
 import { emptySeverityCounts } from "../../shared/severity.js";
 import { AnalysisError, NotFoundError, RevisionConflictError } from "./errors.js";
 import type { ComputedSnapshot } from "./git.js";
@@ -20,6 +21,7 @@ import { migrateAnalysis, migrateSnapshot, type RawDocument } from "./migrate.js
 import { applyRefresh, type RefreshStats } from "./refresh.js";
 
 export interface CreateAnalysisInput {
+  project: string;
   title: string;
   request?: AnalysisRequest | null;
   summary?: string[];
@@ -335,6 +337,8 @@ export class AnalysisStore {
   create(input: CreateAnalysisInput, snapshot: ComputedSnapshot): Analysis {
     const title = input.title?.trim();
     if (!title) throw new AnalysisError(`"title" is required to create an analysis.`);
+    const project = input.project?.trim();
+    if (!project) throw new AnalysisError(`"project" is required to create an analysis.`);
 
     let id = analysisId(title);
     while (fs.existsSync(this.analysisPath(id))) id = analysisId(title);
@@ -343,6 +347,7 @@ export class AnalysisStore {
     const analysis = this.validate({
       id,
       title,
+      project,
       repoPath: snapshot.repoPath,
       mode: snapshot.mode,
       base: snapshot.base,
@@ -351,6 +356,7 @@ export class AnalysisStore {
       headCommit: snapshot.headCommit,
       snapshotAt: snapshot.snapshotAt,
       request: input.request ?? null,
+      overview: null,
       summary: input.summary ?? [],
       files: snapshot.files.map((file) => ({ ...file, reviewed: false })),
       findings: [],
@@ -468,6 +474,7 @@ export function summarize(analysis: Analysis): AnalysisSummary {
   return {
     id: analysis.id,
     title: analysis.title,
+    project: analysis.project,
     mode: analysis.mode,
     base: analysis.base,
     head: analysis.head,
@@ -477,6 +484,7 @@ export function summarize(analysis: Analysis): AnalysisSummary {
     diagramCount: analysis.diagrams.length,
     reviewState: analysis.review.state,
     decision: analysis.review.decision,
+    progress: reviewProgress(analysis),
     updatedAt: analysis.updatedAt,
     revision: analysis.revision,
   };

@@ -110,6 +110,27 @@ test("buildAgentPrompt describes a working tree analysis and an empty selection"
   );
 });
 
+test("buildAgentPrompt adds the feature objective to the header when the analysis has an overview", () => {
+  const analysis = sampleAnalysis({
+    mode: "working_tree",
+    base: "HEAD",
+    head: null,
+    headCommit: null,
+    title: "WIP",
+    overview: { objective: "Refresh expired tokens without logging the user out.", approach: "A retry wrapper.", attentionPoints: ["Races"] },
+  });
+  assert.equal(
+    buildAgentPrompt(analysis, { findingIds: [], noteIds: [], decision: "approve" }),
+    [
+      'Review feedback on "WIP" (working tree changes against HEAD).',
+      "Feature objective: Refresh expired tokens without logging the user out.",
+      "Decision: Approve. The feature can be merged.",
+      "",
+      "No points to address.",
+    ].join("\n")
+  );
+});
+
 test("buildAgentPrompt rejects unknown ids", () => {
   assert.throws(
     () => buildAgentPrompt(fixture(), { findingIds: ["f_nope"], noteIds: ["n_nope"], decision: null }),

@@ -13,6 +13,9 @@ import {
   type NodeShape,
   type NodeStatus,
 } from "../../shared/schemas/analysis.schema.js";
+import { layoutDiagram } from "../../shared/diagram-layout.js";
+import { diagramQuality, type DiagramQuality, type LinkRef } from "../../shared/diagram-quality.js";
+import { mindmapProblems, type MindmapProblem } from "../../shared/mindmap-tree.js";
 import { readItemId } from "./inputs.js";
 import {
   has,
@@ -62,9 +65,68 @@ function assertNodeLocation(files: FileEntry[], location: DiagramNodeLocation): 
   }
 }
 
+/** Nombre de nœuds au-delà duquel un schéma devient difficile à lire. */
+const MAX_READABLE_NODES = 12;
+
+/** Description anglaise d'un problème d'arborescence d'une carte mentale. */
+function mindmapProblemText(problem: MindmapProblem): string {
+  const list = (ids: string[]) => ids.map((id) => `"${id}"`).join(", ");
+  switch (problem.kind) {
+    case "self_loop":
+      return `node "${problem.node}" links to itself.`;
+    case "no_root":
+      return "every node has an incoming link, so there is no root: the central subject must have none.";
+    case "several_roots":
+      return `${problem.roots.length} nodes have no incoming link (${list(problem.roots)}); keep one root and link the others below it.`;
+    case "several_parents":
+      return `node "${problem.node}" has ${problem.parents.length} parents (${list(problem.parents)}); keep a single link into it.`;
+    case "cycle":
+      return `the links form a cycle ${problem.nodes.join(" -> ")}.`;
+    case "unreachable":
+      return `node(s) ${list(problem.nodes)} cannot be reached from the root "${problem.root}".`;
+  }
+}
+
+function linkLabel(ref: LinkRef): string {
+  return `links[${ref.index}] ${ref.from} -> ${ref.to}`;
+}
+
+/** Compte rendu du contrôle de tracé et conseils pour supprimer les croisements. */
+function qualityLines(quality: DiagramQuality, kind: Diagram["kind"], nodeCount: number): string[] {
+  const lines: string[] = [];
+  if (quality.crossings.length === 0 && quality.nodeOverlaps.length === 0) {
+    lines.push("Layout check: No crossing.");
+  } else {
+    lines.push(
+      `Layout check: ${quality.crossings.length} link crossing(s), ${quality.nodeOverlaps.length} link(s) through a node. ` +
+        `The diagram is saved, but the reviewer expects none; fix it and send it again:`,
+      ...quality.crossings.map((crossing) => `- ${linkLabel(crossing.a)} crosses ${linkLabel(crossing.b)}`),
+      ...quality.nodeOverlaps.map((overlap) => `- ${linkLabel(overlap.link)} passes through node "${overlap.node}"`),
+      "How to fix:",
+      "- Reorder the nodes: the declaration order is the initial order of each rank or column, so declare them in reading order, " +
+        "with the nodes that link to each other next to each other.",
+      "- Split the diagram: one subject per diagram, 5 to 12 nodes each."
+    );
+    if (kind === "flow") {
+      lines.push("- Drop shortcut links that skip steps and loops back to earlier steps, or show dependencies as a layers diagram instead.");
+    } else if (kind === "layers") {
+      lines.push(
+        "- Order the layers so links run between neighbouring columns, move a node to the layer it belongs to, " +
+          "and avoid links between nodes of the same column that are not adjacent."
+      );
+    }
+  }
+  if (nodeCount > MAX_READABLE_NODES) {
+    lines.push(`Note: ${nodeCount} nodes; keep a diagram between 5 and ${MAX_READABLE_NODES} nodes and split a bigger picture into several diagrams.`);
+  }
+  return lines;
+}
+
 /**
  * Crée ou remplace entièrement un schéma. Nœuds, couches et liens sont validés
- * ensemble ; toutes les erreurs sont renvoyées d'un coup et rien n'est écrit.
+ * ensemble, une carte mentale doit former un arbre ; toutes les erreurs sont
+ * renvoyées d'un coup et rien n'est écrit. Le résultat rend compte des
+ * croisements du tracé, sans refuser l'écriture.
  */
 export function setDiagram(store: AnalysisStore, args: Args): MutationResult {
   rejectUnknownFields(args, ["analysis_id", "diagram_id", "title", "kind", "layers", "nodes", "links"]);
@@ -149,8 +211,26 @@ export function setDiagram(store: AnalysisStore, args: Args): MutationResult {
     }
   });
 
+  const treeProblems = kind === "mindmap" ? mindmapProblems({ nodes, links }) : [];
+  for (const problem of treeProblems) errors.push(`- mindmap: ${mindmapProblemText(problem)}`);
+
   if (errors.length > 0) {
-    throw new AnalysisError(`The diagram was not saved: ${errors.length} problem(s). Fix them and send the whole diagram again.\n${errors.join("\n")}`);
+    const tree =
+      treeProblems.length > 0
+        ? "\nA mindmap is a tree: one root (the central subject), exactly one incoming link for every other node, no cycle. " +
+          "Use a flow or layers diagram for a graph."
+        : "";
+    throw new AnalysisError(
+      `The diagram was not saved: ${errors.length} problem(s). Fix them and send the whole diagram again.\n${errors.join("\n")}${tree}`
+    );
+  }
+
+  const draft: Diagram = { id: requestedId ?? "draft", title, kind, layers, nodes, links, updatedAt: new Date().toISOString() };
+  let quality: DiagramQuality;
+  try {
+    quality = diagramQuality(draft, layoutDiagram(draft));
+  } catch (err) {
+    throw new AnalysisError(`The diagram was not saved: it cannot be laid out (${(err as Error).message}).`);
   }
 
   let replaced = false;
@@ -167,6 +247,7 @@ export function setDiagram(store: AnalysisStore, args: Args): MutationResult {
   const lines = [
     `${replaced ? "Replaced" : "Created"} diagram ${diagramId} "${title}" (${kind}, ${nodes.length} node(s), ${links.length} link(s)) ` +
       `in "${updated.title}" (${updated.id}).`,
+    ...qualityLines(quality, kind, nodes.length),
     `To change it, call set_diagram again with diagram_id "${diagramId}" and the complete diagram.`,
   ];
   return { result: textResult(lines.join("\n")), analysisId: updated.id };

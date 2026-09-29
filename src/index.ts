@@ -95,20 +95,28 @@ const store = new AnalysisStore(dataDir);
 const INSTRUCTIONS = `mcp-feature-analyzer helps a human review a feature you developed. You write the analysis through these tools; the user reviews it in a web GUI and records feedback that you read back.
 
 Concepts:
-- An **analysis** is one feature under review. It freezes the git diff of a repository (branch mode: base...head; working_tree mode: uncommitted changes, index included, against HEAD) together with your summary, findings and diagrams.
+- An **analysis** is one feature under review. It freezes the git diff of a repository (branch mode: base...head; working_tree mode: uncommitted changes, index included, against HEAD) together with your overview, summary, findings and diagrams.
+- A **project** groups the analyses of one product or feature; the GUI files analyses by project.
+- The **overview** is your global analysis of the feature: its objective (what it lets users do), its approach (architecture choices, main flow) and the attention points the reviewer should check first. The **summary** lists the functional changes of the feature, one bullet per change, not one bullet per file.
 - A **finding** is a point for the reviewer: an issue anchored on changed lines, or a requirement_gap for requested behaviour that is missing (location optional). Severity: ${SEVERITIES.join(", ")}.
 - A **diagram** is a flow, layers or mindmap picture of the feature. You give nodes and links only; the GUI lays them out.
 - The **review** belongs to the reviewer: files marked reviewed, findings ignored, notes, and a submitted decision with a prompt for you.
 
 Workflow:
-1. create_analysis once the feature is developed.
+1. list_analyses (with project) to find an analysis of the same feature: reuse it with update_analysis and refresh_analysis instead of creating a duplicate. Otherwise create_analysis with its project once the feature is developed.
 2. get_diff to read the frozen diff.
-3. update_analysis with a summary (one bullet per thing the feature does).
+3. update_analysis with the overview (objective, approach, attention_points) and the summary (the functional changes).
 4. add_findings for every problem, including requirement_gap findings for requested behaviour that is missing.
-5. set_diagram when a picture helps (impacted layers, process flow).
+5. set_diagram when a picture helps (impacted layers, process flow, concept tree).
 6. Tell the user to review the analysis in the GUI (the link is in the tool results).
 7. get_review_feedback to read the decision, the selected points and the prompt.
 8. Fix the code, then refresh_analysis to recompute the diff for a new review round.
+
+Diagram rules:
+- One subject per diagram, 5 to 12 nodes; split a bigger picture into several diagrams.
+- Declare nodes in reading order (from the start of the flow, from top to bottom): the declaration order is the initial order of every rank or column.
+- Zero crossings are expected. set_diagram reports link crossings and links through nodes; fix them before moving on.
+- flow for a process with steps and decisions; layers for the impact perimeter across architecture layers; mindmap for a tree of concepts (one root, one parent per node).
 
 Rules:
 - Line numbers are always NEW-side numbers, as shown by get_diff.
@@ -368,17 +376,32 @@ const NODE_SHAPE_DOC =
   `Shape (default "${DEFAULT_NODE_SHAPE}"): box = component or step; pill = start, end or actor; decision = a branch in a flow (drawn as a diamond).`;
 
 const DIAGRAM_KIND_DOC =
-  "flow = a process graph laid out left to right along the links, where a side branch without a join and the last node of a chain hang below the node before them; " +
-  "layers = one column per entry of `layers` (e.g. GUI, API, core, storage), each node in its layer, to show the impact perimeter; " +
-  "mindmap = a radial tree around the first node, to map concepts.";
+  "flow = a process with steps and decisions, laid out left to right along the links, where a side branch without a join and the last node of a chain hang below the node before them; " +
+  "layers = the impact perimeter, one column per entry of `layers` (e.g. GUI, API, core, storage), each node in its layer; " +
+  "mindmap = a tree of concepts drawn radially around its root: exactly one root, one incoming link for every other node, no cycle (refused otherwise).";
+
+const DIAGRAM_RULES_DOC =
+  "Rules: one subject per diagram, 5 to 12 nodes; declare nodes in reading order, since the declaration order is the initial order of every rank or column; " +
+  "zero crossings expected. The result reports every link crossing and every link through a node, with advice: reorder the nodes, split the diagram or change its kind, then send it again.";
+
+const PROJECT_DOC =
+  "Project the analysis belongs to: the product or feature name, used as its folder in the GUI. " +
+  "Reuse the exact name of an existing project (see list_analyses) for another analysis of it.";
 
 const TOOLS = [
   {
     name: "list_analyses",
     description:
-      "List every analysis with its refs, open findings by severity, reviewed files, diagram count and review state. " +
-      "Start here to find an analysis id; when there is none, create one with create_analysis.",
-    inputSchema: { type: "object" as const, properties: {} },
+      "List the analyses grouped by project, with their refs, open findings by severity, reviewed files, diagram count and review state " +
+      "(not started, in progress, all files reviewed, submitted). Start here: when the project already has an analysis of the feature, " +
+      "continue it (update_analysis to rewrite the overview and summary, refresh_analysis after changing the code) instead of creating a duplicate; " +
+      "create a new one with create_analysis for another feature or another diff.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        project: { type: "string", description: "Only list the analyses of this project (exact name). An unknown name lists the existing projects." },
+      },
+    },
   },
   {
     name: "create_analysis",
@@ -390,6 +413,7 @@ const TOOLS = [
       type: "object" as const,
       properties: {
         repo_path: { type: "string", description: "Absolute path of the root of the git repository." },
+        project: { type: "string", description: PROJECT_DOC },
         title: { type: "string", description: "Short title of the feature, e.g. \"OAuth token refresh\"." },
         mode: {
           type: "string",
@@ -407,14 +431,14 @@ const TOOLS = [
         request_text: { type: "string", description: REQUEST_TEXT_DOC },
         request_source: { type: "string", description: `${REQUEST_SOURCE_DOC} Needs request_text.` },
       },
-      required: ["repo_path", "title", "mode"],
+      required: ["repo_path", "project", "title", "mode"],
     },
   },
   {
     name: "get_analysis",
     description:
-      "Read a whole analysis: request, summary, files (reviewed or not), findings with their status and location, reviewer notes, diagrams and review state. " +
-      "Use it to check what is already recorded before adding more.",
+      "Read a whole analysis: project, request, overview, summary, files (reviewed or not), findings with their status and location, reviewer notes, " +
+      "diagrams (flagged when their layout has crossings) and review state. Use it to check what is already recorded before adding more.",
     inputSchema: {
       type: "object" as const,
       properties: { analysis_id: { type: "string", description: ANALYSIS_ID_DOC } },
@@ -438,17 +462,38 @@ const TOOLS = [
   {
     name: "update_analysis",
     description:
-      "Change the title, the summary or the initial request of an analysis. Write the summary right after reading the diff: " +
-      "one bullet per thing the feature does. Give at least one field.",
+      "Change the title, the project, the overview, the summary or the initial request of an analysis. Right after reading the diff, " +
+      "write the overview (objective, approach, attention_points: your global analysis of the feature) and the summary " +
+      "(the functional changes of the feature, one bullet per change, not one bullet per file). Give at least one field; fields left out are kept.",
     inputSchema: {
       type: "object" as const,
       properties: {
         analysis_id: { type: "string", description: ANALYSIS_ID_DOC },
         title: { type: "string", description: "New title." },
+        project: { type: "string", description: `New project. ${PROJECT_DOC}` },
+        objective: {
+          type: ["string", "null"],
+          description:
+            "Overview: what the feature lets users do, from a functional point of view. When the analysis has no overview yet, give objective and approach together to create it. " +
+            "null removes the whole overview (approach and attention points included).",
+        },
+        approach: {
+          type: "string",
+          description: "Overview: how the feature achieves it (architecture choices, main flow). Replaces the current approach.",
+        },
+        attention_points: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Overview: risks and points the reviewer should check first, one per string. Replaces the whole list; [] clears it. " +
+            "Defaults to an empty list when the overview is created without it.",
+        },
         summary: {
           type: "array",
           items: { type: "string" },
-          description: "What the feature does, one bullet per string. Replaces the whole list; [] clears it.",
+          description:
+            "Functional changes of the feature, one bullet per change (e.g. \"Expired tokens are refreshed once before the request fails\"), not one bullet per file. " +
+            "Replaces the whole list; [] clears it.",
         },
         request_text: { type: ["string", "null"], description: `${REQUEST_TEXT_DOC} null removes the request.` },
         request_source: { type: ["string", "null"], description: `${REQUEST_SOURCE_DOC} null clears it.` },
@@ -533,7 +578,7 @@ const TOOLS = [
     description:
       "Create a diagram, or fully replace the one with diagram_id, when a picture helps the reviewer (impact perimeter, process flow, concept map). " +
       "Give nodes and links only, with no coordinates or colours: the GUI lays the diagram out and colours nodes by status. " +
-      `${DIAGRAM_KIND_DOC}`,
+      `${DIAGRAM_KIND_DOC} ${DIAGRAM_RULES_DOC}`,
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -549,6 +594,7 @@ const TOOLS = [
         nodes: {
           type: "array",
           minItems: 1,
+          description: "Nodes in reading order (5 to 12): the declaration order is the initial order of every rank or column.",
           items: {
             type: "object",
             properties: {
@@ -578,7 +624,7 @@ const TOOLS = [
             },
             required: ["from", "to"],
           },
-          description: "Directed links between nodes (default: none).",
+          description: "Directed links between nodes (default: none). In a mindmap, from parent to child.",
         },
       },
       required: ["analysis_id", "title", "kind", "nodes"],

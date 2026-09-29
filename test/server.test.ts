@@ -67,6 +67,8 @@ test("the server publishes instructions describing the review workflow", async (
     });
     assert.match(result.instructions, /create_analysis[\s\S]*get_diff[\s\S]*add_findings[\s\S]*get_review_feedback[\s\S]*refresh_analysis/);
     assert.match(result.instructions, /NEW-side/);
+    assert.match(result.instructions, /3\. update_analysis with the overview \(objective, approach, attention_points\) and the summary/);
+    assert.match(result.instructions, /5 to 12 nodes[\s\S]*Zero crossings are expected/);
   } finally {
     await probe.stop();
   }
@@ -76,7 +78,7 @@ test("create_analysis, add_findings and get_analysis round-trip through the stdi
   const repo = makeGitRepo();
   t.after(repo.cleanup);
 
-  const created = await client.callTool("create_analysis", { repo_path: repo.dir, title: "Round trip", mode: "branch", base: "master" });
+  const created = await client.callTool("create_analysis", { repo_path: repo.dir, project: "demo", title: "Round trip", mode: "branch", base: "master" });
   assert.equal(created.isError, false, created.text);
   assert.doesNotMatch(created.text, /Open the review:/, "no GUI link when the GUI is disabled");
   const id = /\(id: ([a-z0-9-]+)\)/.exec(created.text)![1];

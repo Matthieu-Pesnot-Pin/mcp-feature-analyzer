@@ -5,6 +5,7 @@ import type {
   FindingStatus,
   NodeStatus,
   ReviewDecision,
+  ReviewProgressState,
   Severity,
 } from "./schemas/analysis.schema.js";
 
@@ -52,6 +53,21 @@ export const DECISION_LABELS: Record<ReviewDecision, string> = {
   approve: "Approuver",
   request_changes: "Demander des corrections",
   reject: "Rejeter",
+};
+
+/** Pastille de l'état d'avancement d'une revue. */
+export const REVIEW_PROGRESS_STYLES: Record<ReviewProgressState, BadgeStyle> = {
+  not_started: { label: "Non commencée", color: "#9aa1b1", background: "#1c2029" },
+  in_progress: { label: "En cours", color: "#6fb3ff", background: "#13243a" },
+  files_reviewed: { label: "Fichiers revus", color: "#8b97ff", background: "#1b1f3d" },
+  submitted: { label: "Soumise", color: "#3fb950", background: "#11201a" },
+};
+
+/** Pastille de la décision d'une revue soumise, affichée à côté de « Soumise ». */
+export const DECISION_STYLES: Record<ReviewDecision, BadgeStyle> = {
+  approve: { label: "Approuvée", color: "#3fb950", background: "#11201a" },
+  request_changes: { label: "Corrections demandées", color: "#e3a33b", background: "#33270f" },
+  reject: { label: "Rejetée", color: "#f0625a", background: "#34191c" },
 };
 
 /**

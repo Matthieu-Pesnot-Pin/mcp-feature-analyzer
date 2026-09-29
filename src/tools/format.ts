@@ -5,6 +5,9 @@ import {
   type FileStatus,
   type Finding,
   type Note,
+  type Overview,
+  type ReviewProgress,
+  type ReviewProgressState,
   type Severity,
 } from "../../shared/schemas/analysis.schema.js";
 import { lineRange, noteLocationText } from "../../shared/text.js";
@@ -81,4 +84,31 @@ export function indentBlock(text: string, indent: string): string {
     .split("\n")
     .map((line) => (line === "" ? "" : `${indent}${line}`))
     .join("\n");
+}
+
+const REVIEW_PROGRESS_TEXT: Record<ReviewProgressState, string> = {
+  not_started: "not started",
+  in_progress: "in progress",
+  files_reviewed: "all files reviewed, not submitted",
+  submitted: "submitted",
+};
+
+/** Nom anglais d'un état de revue : `not started`, `in progress`… */
+export function progressStateLabel(state: ReviewProgressState): string {
+  return REVIEW_PROGRESS_TEXT[state];
+}
+
+/** `in progress (2/7 files reviewed)` ou `submitted, decision approve (7/7 files reviewed)`. */
+export function progressLabel(progress: ReviewProgress): string {
+  const decision = progress.state === "submitted" ? `, decision ${progress.decision}` : "";
+  return `${REVIEW_PROGRESS_TEXT[progress.state]}${decision} (${progress.reviewedFiles}/${progress.totalFiles} files reviewed)`;
+}
+
+/** Bloc « Overview » : objectif, approche et points d'attention ; une ligne d'invitation quand il n'y en a pas. */
+export function overviewLines(overview: Overview | null): string[] {
+  if (overview === null) return ["Overview: none yet (write objective and approach with update_analysis)."];
+  const lines = ["Overview:", `  Objective: ${indentBlock(overview.objective, "    ").trimStart()}`, `  Approach: ${indentBlock(overview.approach, "    ").trimStart()}`];
+  if (overview.attentionPoints.length === 0) lines.push("  Attention points: none");
+  else lines.push("  Attention points:", ...overview.attentionPoints.map((point) => `  - ${point}`));
+  return lines;
 }

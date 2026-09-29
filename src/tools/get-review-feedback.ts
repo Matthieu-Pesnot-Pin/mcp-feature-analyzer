@@ -1,7 +1,8 @@
 import type { AnalysisStore } from "../core/analysis-store.js";
 import type { Analysis, Finding, Note } from "../../shared/schemas/analysis.schema.js";
+import { reviewProgress } from "../../shared/review-state.js";
 import { sortBySeverity } from "../../shared/severity.js";
-import { findingLine, indentBlock, noteLocationLabel } from "./format.js";
+import { findingLine, indentBlock, noteLocationLabel, overviewLines, progressLabel } from "./format.js";
 import { rejectUnknownFields, requireString, textResult, type Args, type ToolResult } from "./types.js";
 
 function findingDetails(finding: Finding): string[] {
@@ -17,12 +18,16 @@ function noteDetails(note: Note): string {
 
 /** Avancement d'une revue non soumise. */
 function progressLines(analysis: Analysis): string[] {
-  const reviewed = analysis.files.filter((file) => file.reviewed).length;
+  const progress = reviewProgress(analysis);
   const ignored = analysis.findings.filter((finding) => finding.status === "ignored").length;
   return [
-    `The review of "${analysis.title}" (${analysis.id}) is not submitted yet.`,
-    `Progress: ${reviewed}/${analysis.files.length} file(s) reviewed, ${ignored}/${analysis.findings.length} finding(s) ignored, ` +
+    `The review of "${analysis.title}" (${analysis.id}, project "${analysis.project}") is not submitted yet.`,
+    `Review state: ${progressLabel(progress)}.`,
+    `Progress: ${progress.reviewedFiles}/${progress.totalFiles} file(s) reviewed, ${ignored}/${analysis.findings.length} finding(s) ignored, ` +
       `${analysis.notes.length} reviewer note(s).`,
+    "",
+    ...overviewLines(analysis.overview),
+    "",
     "Ask the user to finish the review in the GUI and save the feedback, then call get_review_feedback again.",
   ];
 }
@@ -40,8 +45,10 @@ export function getReviewFeedback(store: AnalysisStore, args: Args): ToolResult 
   const notes = analysis.notes.filter((note) => selectedNotes.has(note.id));
 
   const lines = [
-    `Review of "${analysis.title}" (${analysis.id}) submitted at ${review.submittedAt}.`,
+    `Review of "${analysis.title}" (${analysis.id}, project "${analysis.project}") submitted at ${review.submittedAt}.`,
     `Decision: ${review.decision}`,
+    "",
+    ...overviewLines(analysis.overview),
     "",
     `Selected findings (${findings.length}):`,
   ];

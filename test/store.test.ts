@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { AnalysisStore } from "../src/core/analysis-store.js";
 import { AnalysisError } from "../src/core/errors.js";
-import { applyMigrations, migrateAnalysis, migrateSnapshot, type MigrationStep } from "../src/core/migrate.js";
+import { addProject, applyMigrations, migrateAnalysis, migrateSnapshot, repoFolderName, type MigrationStep } from "../src/core/migrate.js";
 import { makeStore, sampleFinding, sampleSnapshot } from "./helpers.js";
 
 function listFiles(dir: string): string[] {
@@ -16,7 +16,7 @@ test("create writes the analysis and its diff snapshot, pretty-printed", (t) => 
   const { store, dir, cleanup } = makeStore();
   t.after(cleanup);
 
-  const analysis = store.create({ title: "Refonte de l'Écran OAuth", request: { text: "Do it", source: "TM-1" } }, sampleSnapshot());
+  const analysis = store.create({ project: "demo", title: "Refonte de l'Écran OAuth", request: { text: "Do it", source: "TM-1" } }, sampleSnapshot());
   assert.match(analysis.id, /^refonte-de-l-ecran-oauth-[a-z0-9]{6}$/);
   assert.equal(analysis.revision, 0);
   assert.equal(analysis.lastEditor, "agent");
@@ -37,16 +37,25 @@ test("create writes the analysis and its diff snapshot, pretty-printed", (t) => 
 test("create rejects an empty title", (t) => {
   const { store, cleanup } = makeStore();
   t.after(cleanup);
-  assert.throws(() => store.create({ title: "  " }, sampleSnapshot()), /"title" is required/);
+  assert.throws(() => store.create({ project: "demo", title: "  " }, sampleSnapshot()), /"title" is required/);
+});
+
+test("create requires a project and stores it trimmed, with no overview", (t) => {
+  const { store, cleanup } = makeStore();
+  t.after(cleanup);
+  assert.throws(() => store.create({ project: " ", title: "T" }, sampleSnapshot()), /"project" is required/);
+  const created = store.create({ project: "  Billing  ", title: "T" }, sampleSnapshot());
+  assert.equal(created.project, "Billing");
+  assert.equal(created.overview, null);
 });
 
 test("list returns lightweight summaries, most recent first", (t) => {
   const { store, cleanup } = makeStore();
   t.after(cleanup);
 
-  const first = store.create({ title: "First" }, sampleSnapshot());
+  const first = store.create({ project: "demo", title: "First" }, sampleSnapshot());
   const second = store.create(
-    { title: "Second" },
+    { project: "demo", title: "Second" },
     sampleSnapshot({ mode: "working_tree", base: "HEAD", head: null, headCommit: null })
   );
   store.mutate(first.id, "user", (draft) => {
@@ -64,6 +73,8 @@ test("list returns lightweight summaries, most recent first", (t) => {
   );
   const summary = analyses[0];
   assert.equal(summary.title, "First");
+  assert.equal(summary.project, "demo");
+  assert.deepEqual(summary.progress, { state: "in_progress", reviewedFiles: 1, totalFiles: 2, decision: null });
   assert.equal(summary.mode, "branch");
   assert.equal(summary.base, "master");
   assert.equal(summary.head, "HEAD");
@@ -81,7 +92,7 @@ test("list reports unreadable files instead of hiding them", (t) => {
   const { store, dir, cleanup } = makeStore();
   t.after(cleanup);
 
-  const valid = store.create({ title: "Valid" }, sampleSnapshot());
+  const valid = store.create({ project: "demo", title: "Valid" }, sampleSnapshot());
   fs.writeFileSync(path.join(dir, "analyses", "broken-aaaaaa.json"), "{ not json", "utf-8");
 
   const { analyses, unreadable } = new AnalysisStore(dir).list();
@@ -98,7 +109,7 @@ test("mutate bumps the revision, records the editor and persists", (t) => {
   const { store, dir, cleanup } = makeStore();
   t.after(cleanup);
 
-  const created = store.create({ title: "Rev" }, sampleSnapshot());
+  const created = store.create({ project: "demo", title: "Rev" }, sampleSnapshot());
   const afterAgent = store.mutate(created.id, "agent", (draft) => {
     draft.summary = ["Did a thing"];
   });
@@ -122,7 +133,7 @@ test("mutate refuses an edit based on an outdated revision and writes nothing", 
   const { store, dir, cleanup } = makeStore();
   t.after(cleanup);
 
-  const created = store.create({ title: "Conflict" }, sampleSnapshot());
+  const created = store.create({ project: "demo", title: "Conflict" }, sampleSnapshot());
   store.mutate(created.id, "agent", (draft) => {
     draft.summary = ["agent"];
   });
@@ -146,7 +157,7 @@ test("mutate leaves the analysis untouched when the callback throws or breaks a 
   const { store, cleanup } = makeStore();
   t.after(cleanup);
 
-  const created = store.create({ title: "Atomic" }, sampleSnapshot());
+  const created = store.create({ project: "demo", title: "Atomic" }, sampleSnapshot());
   assert.throws(() =>
     store.mutate(created.id, "agent", (draft) => {
       draft.summary.push("partial");
@@ -196,7 +207,7 @@ test("delete removes the analysis and its snapshot", (t) => {
   const { store, dir, cleanup } = makeStore();
   t.after(cleanup);
 
-  const created = store.create({ title: "Temporary" }, sampleSnapshot());
+  const created = store.create({ project: "demo", title: "Temporary" }, sampleSnapshot());
   store.delete(created.id);
   assert.equal(store.list().analyses.length, 0);
   assert.deepEqual(listFiles(path.join(dir, "analyses")), []);
@@ -207,7 +218,7 @@ test("no temporary or lock file remains after writes", (t) => {
   const { store, dir, cleanup } = makeStore();
   t.after(cleanup);
 
-  const created = store.create({ title: "Clean" }, sampleSnapshot());
+  const created = store.create({ project: "demo", title: "Clean" }, sampleSnapshot());
   for (let i = 0; i < 5; i++) {
     store.mutate(created.id, "agent", (draft) => {
       draft.summary.push(`point ${i}`);
@@ -222,7 +233,7 @@ test("get rejects a file that no longer matches the schema, naming the offending
   const { store, dir, cleanup } = makeStore();
   t.after(cleanup);
 
-  const created = store.create({ title: "Corrupt" }, sampleSnapshot());
+  const created = store.create({ project: "demo", title: "Corrupt" }, sampleSnapshot());
   const file = path.join(dir, "analyses", `${created.id}.json`);
   const raw = JSON.parse(fs.readFileSync(file, "utf-8"));
   raw.mode = "sideways";
@@ -252,7 +263,7 @@ test("two store instances on the same directory see each other's writes and neve
 
   const a = new AnalysisStore(dir);
   const b = new AnalysisStore(dir);
-  const created = a.create({ title: "Shared" }, sampleSnapshot());
+  const created = a.create({ project: "demo", title: "Shared" }, sampleSnapshot());
 
   assert.deepEqual(a.get(created.id).summary, []);
   b.mutate(created.id, "agent", (draft) => {
@@ -273,7 +284,7 @@ test("a held lock makes a second writer wait, then fail with a retry message", (
   const { store, dir, cleanup } = makeStore();
   t.after(cleanup);
 
-  const created = store.create({ title: "Locked" }, sampleSnapshot());
+  const created = store.create({ project: "demo", title: "Locked" }, sampleSnapshot());
   const lockPath = path.join(dir, "analyses", `${created.id}.json.lock`);
   fs.writeFileSync(lockPath, "");
   assert.throws(
@@ -294,7 +305,7 @@ test("replaceSnapshot rewrites the diff and applies the refresh rules", (t) => {
   const { store, cleanup } = makeStore();
   t.after(cleanup);
 
-  const created = store.create({ title: "Refresh" }, sampleSnapshot());
+  const created = store.create({ project: "demo", title: "Refresh" }, sampleSnapshot());
   store.mutate(created.id, "agent", (draft) => {
     draft.findings.push(sampleFinding());
   });
@@ -318,7 +329,7 @@ test("migrations are wired, idempotent and leave an up-to-date file untouched", 
   const { store, dir, cleanup } = makeStore();
   t.after(cleanup);
 
-  const created = store.create({ title: "Migrate" }, sampleSnapshot());
+  const created = store.create({ project: "demo", title: "Migrate" }, sampleSnapshot());
   const file = path.join(dir, "analyses", `${created.id}.json`);
   const before = fs.readFileSync(file, "utf-8");
   const raw = JSON.parse(before);
@@ -340,4 +351,42 @@ test("migrations are wired, idempotent and leave an up-to-date file untouched", 
   assert.deepEqual(once?.summary, []);
   assert.equal(applyMigrations(once, [addSummary]), null, "a second pass must change nothing");
   assert.equal(applyMigrations("not an object", [addSummary]), null);
+});
+
+test("migration derives the project from the repository folder and adds an empty overview, once", (t) => {
+  const { store, dir, cleanup } = makeStore();
+  t.after(cleanup);
+
+  const created = store.create({ project: "demo", title: "Legacy" }, sampleSnapshot({ repoPath: "/work/repos/billing-api/" }));
+  const file = path.join(dir, "analyses", `${created.id}.json`);
+  const legacy = JSON.parse(fs.readFileSync(file, "utf-8"));
+  delete legacy.project;
+  delete legacy.overview;
+  fs.writeFileSync(file, JSON.stringify(legacy, null, 2));
+
+  const migrated = migrateAnalysis(legacy);
+  assert.equal(migrated?.project, "billing-api");
+  assert.equal(migrated?.overview, null);
+  assert.equal(migrateAnalysis(migrated), null, "a second pass must change nothing");
+
+  const reloaded = new AnalysisStore(dir).get(created.id);
+  assert.equal(reloaded.project, "billing-api");
+  assert.equal(reloaded.overview, null);
+  const onDisk = JSON.parse(fs.readFileSync(file, "utf-8"));
+  assert.equal(onDisk.project, "billing-api", "the migrated analysis is written back");
+  assert.equal(onDisk.revision, legacy.revision);
+
+  assert.equal(repoFolderName("C:\\Users\\me\\code\\shop\\"), "shop");
+  assert.equal(repoFolderName("/srv/app"), "app");
+  const kept = { ...legacy, project: "Chosen" };
+  assert.equal(addProject(kept), null, "an existing project is never replaced");
+});
+
+test("migration refuses to guess a project when the repository path has no folder name", () => {
+  for (const repoPath of ["/", "C:\\", 42]) {
+    assert.throws(
+      () => migrateAnalysis({ id: "x-abc123", repoPath }),
+      /Cannot derive the project of analysis "x-abc123" from its repoPath .*set "project" in the analysis file/
+    );
+  }
 });

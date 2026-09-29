@@ -72,7 +72,8 @@ function pick<T extends { id: string }>(items: T[], ids: string[], label: string
 }
 
 /**
- * Prompt de correction destiné à l'agent : en-tête (titre, refs), décision,
+ * Prompt de correction destiné à l'agent : en-tête (titre, refs, objectif de la
+ * feature quand la vue d'ensemble existe), décision,
  * liste numérotée des constats retenus (du plus grave au moins grave, puis dans
  * l'ordre de l'analyse) suivie des remarques du relecteur. Le `prompt` propre
  * à un constat remplace son corps, ses lignes actuelles et son correctif.
@@ -82,6 +83,7 @@ export function buildAgentPrompt(analysis: Analysis, selection: PromptSelection)
   const notes = pick(analysis.notes, selection.noteIds, "note");
 
   const out: string[] = [`Review feedback on "${analysis.title}" (${refsLabel(analysis)}).`];
+  if (analysis.overview !== null) out.push(`Feature objective: ${analysis.overview.objective}`);
   if (selection.decision !== null) out.push(DECISION_LINES[selection.decision]);
   out.push("");
 

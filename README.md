@@ -95,12 +95,16 @@ Quatorze outils. Les noms, descriptions et textes de résultat sont en anglais ;
 
 | Outil | Effet |
 |---|---|
-| `list_analyses` | Point d'entrée : chaque analyse avec ses refs, ses constats ouverts par gravité, ses fichiers revus, son nombre de schémas et l'état de la revue. Signale aussi les fichiers d'analyse illisibles. |
-| `create_analysis` | Calcule et fige le diff : `repo_path` (racine absolue du dépôt), `title`, `mode` (`branch` ou `working_tree`), `base` (requis en `branch`), `head` (en `branch`, défaut `HEAD`), `request_text` et `request_source` (la demande initiale : ticket, prompt). Renvoie l'identifiant et la liste des fichiers. |
-| `get_analysis` | Vue complète : demande, résumé, fichiers (revus ou non), constats avec statut et emplacement, remarques du relecteur, schémas, état de la revue. |
-| `update_analysis` | Change `title`, `summary` (une puce par chaîne, remplace toute la liste) ou la demande initiale (`request_text`, `request_source` ; `null` efface). |
+| `list_analyses` | Point d'entrée : les analyses regroupées par projet, chacune avec ses refs, ses constats ouverts par gravité, ses fichiers revus, son nombre de schémas et l'état de sa revue ; `project` limite la liste à un projet (un nom inconnu liste les projets existants). Invite l'agent à reprendre l'analyse existante d'une feature plutôt qu'à en créer une autre. Signale aussi les fichiers d'analyse illisibles. |
+| `create_analysis` | Calcule et fige le diff : `repo_path` (racine absolue du dépôt), `project` (projet ou feature, dossier de rangement, requis), `title`, `mode` (`branch` ou `working_tree`), `base` (requis en `branch`), `head` (en `branch`, défaut `HEAD`), `request_text` et `request_source` (la demande initiale : ticket, prompt). Renvoie l'identifiant et la liste des fichiers. |
+| `get_analysis` | Vue complète : projet, demande, vue d'ensemble, résumé, fichiers (revus ou non), constats avec statut et emplacement, remarques du relecteur, schémas (signalés quand leur tracé a des croisements), état de la revue. |
+| `update_analysis` | Change `title`, `project`, la vue d'ensemble (`objective`, `approach`, `attention_points`), `summary` (les changements fonctionnels de la feature, une puce par changement, remplace toute la liste) ou la demande initiale (`request_text`, `request_source` ; `null` efface). Les champs absents sont conservés. |
 | `refresh_analysis` | Recalcule le diff avec le même dépôt, le même mode et les mêmes refs, après correction. Voir [Les deux modes de diff](#les-deux-modes-de-diff). |
 | `delete_analysis` | Supprime l'analyse et son diff figé. Le dépôt n'est pas touché. Supprime aussi une analyse listée comme illisible. |
+
+La **vue d'ensemble** est l'analyse globale de l'agent : l'objectif fonctionnel de la feature, l'approche retenue (architecture, flux principal) et les points d'attention à vérifier en priorité. Sans vue d'ensemble, `objective` et `approach` sont requis ensemble pour la créer (`attention_points` vaut alors une liste vide s'il est omis) ; ensuite, chaque champ donné remplace le précédent. `objective: null` retire toute la vue d'ensemble. L'objectif figure aussi en tête du prompt de retour.
+
+L'**état de revue** est dérivé des fichiers revus et de la soumission (`shared/review-state.ts`) : `not_started` (aucun fichier revu), `in_progress` (au moins un), `files_reviewed` (tous, revue non soumise), `submitted` (avec sa décision).
 
 ### Diff
 
@@ -122,14 +126,16 @@ Un `issue` a toujours un emplacement ; un `requirement_gap` peut ne pas en avoir
 
 | Outil | Effet |
 |---|---|
-| `set_diagram` | Crée un schéma, ou remplace entièrement celui de `diagram_id`. L'agent ne donne que des nœuds et des liens, sans coordonnées ni couleurs : la GUI place et colore. |
+| `set_diagram` | Crée un schéma, ou remplace entièrement celui de `diagram_id`. L'agent ne donne que des nœuds et des liens, sans coordonnées ni couleurs : la GUI place et colore. Le résultat contrôle le tracé : `No crossing.`, ou le nombre de croisements avec chaque paire de liens et chaque lien qui traverse un nœud, suivis de conseils (réordonner les nœuds, découper le schéma, changer de sorte). Le schéma est enregistré dans les deux cas. |
 | `delete_diagram` | Supprime un schéma. |
 
 Trois sortes de schéma (`kind`) :
 
 - `flow` — un process, placé de gauche à droite le long des liens. Une branche secondaire sans jonction et le nœud terminal d'une chaîne descendent sous le nœud qui les précède, ce qui garde le flux compact ; les liens qui remontent le flux passent sous le schéma.
 - `layers` — une colonne par entrée de `layers` (GUI, API, cœur, stockage…), chaque nœud dans sa couche : le périmètre d'impact.
-- `mindmap` — un arbre radial autour du premier nœud sans parent : la carte des concepts.
+- `mindmap` — un arbre radial autour de sa racine : la carte des concepts. Le schéma doit être un arbre (une seule racine, un seul parent pour chaque autre nœud, aucun cycle) ; sinon `set_diagram` le refuse en listant les problèmes.
+
+Règles de lisibilité : un sujet par schéma, 5 à 12 nœuds, nœuds déclarés dans l'ordre de lecture (l'ordre de déclaration est l'ordre de départ de chaque rang ou colonne), aucun croisement attendu. Pour `flow` et `layers`, le placement part de l'ordre de déclaration et des ordres obtenus par balayages barycentriques, garde celui dont le tracé final a le moins de croisements et de traversées de nœuds, puis échange deux voisins d'un même rang tant que cela en retire. `shared/diagram-quality.ts` mesure ces croisements sur le tracé de `layoutDiagram`.
 
 Chaque nœud a un `id`, un `label`, une forme `shape` (`box` par défaut, `pill`, `decision` en losange) et un statut `status` qui fixe sa couleur : `new`, `modified`, `impacted`, `existing` (défaut), `finding`, `missing` (dessiné en contour). `detail` s'affiche au survol ; `path` (fichier modifié de l'analyse) et `line` rendent le nœud cliquable vers la revue. Un lien a `from`, `to` et un `label` facultatif.
 
@@ -152,10 +158,12 @@ Le retour se lit **avant** `refresh_analysis`, qui le remplace par une revue vie
 ## Boucle de travail type
 
 ```
-create_analysis { repo_path: "C:/dev/mon-projet", title: "Rafraîchissement OAuth",
+list_analyses   { project: "mon-projet" }           ← reprendre une analyse existante de la feature ?
+create_analysis { repo_path: "C:/dev/mon-projet", project: "mon-projet", title: "Rafraîchissement OAuth",
                   mode: "branch", base: "master", request_text: "…", request_source: "TM-142" }
 get_diff        { analysis_id }                     ← numéros de ligne du côté nouveau
-update_analysis { analysis_id, summary: ["…", "…"] }
+update_analysis { analysis_id, objective: "…", approach: "…", attention_points: ["…"],
+                  summary: ["…", "…"] }             ← vue d'ensemble et changements fonctionnels
 add_findings    { analysis_id, findings: [...] }    ← y compris les requirement_gap
 set_diagram     { analysis_id, kind: "flow", nodes: [...], links: [...] }
 
@@ -208,11 +216,11 @@ Deux processus, conformément au standard de l'écosystème (`@imenam/mcp-gui-in
 
 Le worker ne lit ni n'écrit aucune donnée : chaque requête REST est transmise au maître par IPC (messages `{type, correlationId, data, error, timestamp}` validés par zod) et le maître pousse les changements, que le worker relaie en SSE. Le worker s'arrête quand le maître disparaît (canal IPC fermé, PID parent absent) ou quand une autre instance est déjà enregistrée, ce qui évite les GUI orphelines.
 
-`shared/` est importé à la fois par le serveur et par la GUI : schémas zod (`shared/schemas/`), prompt de retour (`prompt.ts`, utilisé par l'aperçu de la GUI et par `get_review_feedback`), placement des schémas (`diagram-layout.ts`, fonctions pures testées sous Node), libellés et couleurs des gravités et statuts (`labels.ts`, `severity.ts`). Ce que l'utilisateur voit en aperçu est donc exactement ce que l'agent reçoit.
+`shared/` est importé à la fois par le serveur et par la GUI : schémas zod (`shared/schemas/`), prompt de retour (`prompt.ts`, utilisé par l'aperçu de la GUI et par `get_review_feedback`), placement des schémas (`diagram-layout.ts`, fonctions pures testées sous Node) et contrôle de leurs croisements (`diagram-quality.ts`), état de revue dérivé (`review-state.ts`), libellés et couleurs des gravités et statuts (`labels.ts`, `severity.ts`). Ce que l'utilisateur voit en aperçu est donc exactement ce que l'agent reçoit.
 
 ### Persistance
 
-Un fichier JSON par analyse dans `<données>/analyses/<id>.json`, et son diff figé dans `<données>/diffs/<id>.json`. Les écritures sont atomiques (fichier temporaire puis `rename`), sérialisées entre processus par un verrou `.lock`, et le cache mémoire est invalidé dès que la date ou la taille du fichier change. Tout document est validé par zod à la lecture et à l'écriture ; `src/core/migrate.ts` met à niveau les anciens formats à la lecture.
+Un fichier JSON par analyse dans `<données>/analyses/<id>.json`, et son diff figé dans `<données>/diffs/<id>.json`. Les écritures sont atomiques (fichier temporaire puis `rename`), sérialisées entre processus par un verrou `.lock`, et le cache mémoire est invalidé dès que la date ou la taille du fichier change. Tout document est validé par zod à la lecture et à l'écriture ; `src/core/migrate.ts` met à niveau les anciens formats à la lecture : une analyse sans projet reçoit le nom du dossier du dépôt (`basename(repoPath)`), une analyse sans vue d'ensemble reçoit `overview: null`.
 
 ### Invariants
 

@@ -64,7 +64,7 @@ before(async () => {
   await client.initialize("mcp-feature-analyzer-gui-api");
   await waitForHealth(baseUrl, 20000);
 
-  const created = await client.callTool("create_analysis", { repo_path: repo.dir, title: "GUI API", mode: "branch", base: "master" });
+  const created = await client.callTool("create_analysis", { repo_path: repo.dir, project: "demo", title: "GUI API", mode: "branch", base: "master" });
   assert.equal(created.isError, false, created.text);
   assert.match(created.text, new RegExp(`Open the review: http://localhost:${port}#/`));
   analysisId = /\(id: ([a-z0-9-]+)\)/.exec(created.text)![1];
@@ -93,6 +93,8 @@ test("GET /api/analyses lists the analysis summaries", async () => {
   assert.equal(json.analyses.length, 1);
   assert.equal(json.analyses[0].id, analysisId);
   assert.deepEqual(json.analyses[0].openFindings, { critical: 1, major: 1, minor: 1, trivial: 0 });
+  assert.equal(json.analyses[0].project, "demo");
+  assert.deepEqual(json.analyses[0].progress, { state: "not_started", reviewedFiles: 0, totalFiles: 7, decision: null });
 });
 
 test("GET /api/analyses/:id and /diff return the analysis and its frozen diff", async () => {

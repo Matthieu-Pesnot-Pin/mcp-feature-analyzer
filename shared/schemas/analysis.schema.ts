@@ -123,9 +123,27 @@ export const RequestSchema = z.object({
   source: z.string().min(1).nullable(),
 });
 
+/** Vue d'ensemble de la feature : objectif, approche et points d'attention pour le relecteur. */
+export const OverviewSchema = z.object({
+  /** Ce que la feature doit permettre, du point de vue fonctionnel. */
+  objective: z.string().min(1),
+  /** Comment elle y parvient : choix d'architecture, flux principal. */
+  approach: z.string().min(1),
+  /** Risques et points à vérifier en priorité. */
+  attentionPoints: z.array(z.string().min(1)),
+});
+
+/** Nom de projet : non vide, sans espace en tête ni en fin. */
+export const ProjectNameSchema = z
+  .string()
+  .min(1)
+  .refine((value) => value === value.trim(), "must not start or end with whitespace");
+
 export const AnalysisSchema = z.object({
   id: z.string().regex(ANALYSIS_ID_PATTERN),
   title: z.string().min(1),
+  /** Projet ou feature auquel l'analyse appartient ; sert de dossier de rangement. */
+  project: ProjectNameSchema,
   repoPath: z.string().min(1),
   mode: z.enum(ANALYSIS_MODES),
   /** Ref de base en mode `branch` ; "HEAD" en mode `working_tree`. */
@@ -136,6 +154,8 @@ export const AnalysisSchema = z.object({
   headCommit: z.string().min(1).nullable(),
   snapshotAt: IsoDateSchema,
   request: RequestSchema.nullable(),
+  overview: OverviewSchema.nullable(),
+  /** Changements fonctionnels de la feature, une puce par changement. */
   summary: z.array(z.string().min(1)),
   files: z.array(FileEntrySchema),
   findings: z.array(FindingSchema),
@@ -171,12 +191,27 @@ export type DiagramLink = z.infer<typeof DiagramLinkSchema>;
 export type Diagram = z.infer<typeof DiagramSchema>;
 export type Review = z.infer<typeof ReviewSchema>;
 export type AnalysisRequest = z.infer<typeof RequestSchema>;
+export type Overview = z.infer<typeof OverviewSchema>;
 export type Analysis = z.infer<typeof AnalysisSchema>;
+
+/** État d'avancement d'une revue, dérivé des fichiers revus et de la soumission. */
+export const REVIEW_PROGRESS_STATES = ["not_started", "in_progress", "files_reviewed", "submitted"] as const;
+export type ReviewProgressState = (typeof REVIEW_PROGRESS_STATES)[number];
+
+/** Avancement d'une revue (voir `reviewProgress` dans `shared/review-state.ts`). */
+export interface ReviewProgress {
+  state: ReviewProgressState;
+  reviewedFiles: number;
+  totalFiles: number;
+  /** Décision de la revue soumise ; null tant qu'elle ne l'est pas. */
+  decision: ReviewDecision | null;
+}
 
 /** Vue légère d'une analyse, pour les listes. */
 export interface AnalysisSummary {
   id: string;
   title: string;
+  project: string;
   mode: AnalysisMode;
   base: string;
   head: string | null;
@@ -187,6 +222,7 @@ export interface AnalysisSummary {
   diagramCount: number;
   reviewState: ReviewState;
   decision: ReviewDecision | null;
+  progress: ReviewProgress;
   updatedAt: string;
   revision: number;
 }
