@@ -1406,7 +1406,7 @@ code {
   background: var(--panel);
   border: 1px solid var(--divider);
   border-radius: 10px;
-  overflow: hidden;
+  overflow: clip;
 }
 
 .hunk + .hunk {
@@ -1542,13 +1542,18 @@ code {
   padding: 14px 16px 16px;
 }
 
+/* Reste visible en haut de la zone de défilement de la revue. */
 .diff-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--divider);
+  background: var(--panel);
 }
 
 .diff-toolbar-label {
