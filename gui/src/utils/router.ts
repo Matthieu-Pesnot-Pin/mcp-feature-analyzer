@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 
 /** Onglets de l'écran Feature, dans leur ordre d'affichage. */
-export const FEATURE_TABS = ['summary', 'files', 'findings'] as const
+export const FEATURE_TABS = ['summary', 'files', 'findings', 'diagrams'] as const
 
 export type FeatureTab = (typeof FEATURE_TABS)[number]
 

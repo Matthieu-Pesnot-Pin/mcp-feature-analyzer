@@ -55,19 +55,22 @@ export const DECISION_LABELS: Record<ReviewDecision, string> = {
 };
 
 /**
- * Apparence d'un nœud de schéma. `fill` null : contour seul.
+ * Apparence d'un nœud de schéma : fond (`fill` null : contour seul), contour,
+ * couleur du libellé et couleur de l'icône.
  */
 export interface NodeStyle {
   label: string;
   fill: string | null;
   stroke: string;
+  text: string;
+  accent: string;
 }
 
 export const NODE_STATUS_STYLES: Record<NodeStatus, NodeStyle> = {
-  new: { label: "Nouveau", fill: "#11201a", stroke: "#2c6b3a" },
-  modified: { label: "Modifié", fill: "#151a2b", stroke: "#36407a" },
-  impacted: { label: "Impacté", fill: "#13161f", stroke: "#2a2f3d" },
-  existing: { label: "Existant", fill: "#13161f", stroke: "#2a2f3d" },
-  finding: { label: "Constat", fill: "#221416", stroke: "#6b2a2d" },
-  missing: { label: "Manquant", fill: null, stroke: "#6b2a2d" },
+  new: { label: "Nouveau", fill: "#11201a", stroke: "#2c6b3a", text: "#bfeccd", accent: "#3fb950" },
+  modified: { label: "Modifié", fill: "#151a2b", stroke: "#36407a", text: "#d5daff", accent: "#8b97ff" },
+  impacted: { label: "Impacté, non modifié", fill: "#13161f", stroke: "#2a2f3d", text: "#7b8396", accent: "#646b7b" },
+  existing: { label: "Existant", fill: "#13161f", stroke: "#2a2f3d", text: "#9aa1b1", accent: "#646b7b" },
+  finding: { label: "Constat", fill: "#221416", stroke: "#6b2a2d", text: "#f0a09a", accent: "#f0625a" },
+  missing: { label: "Attendu, absent", fill: null, stroke: "#6b2a2d", text: "#f0776f", accent: "#b0605b" },
 };

@@ -1691,3 +1691,180 @@ button.diff-num:hover {
 .notice-close:hover {
   color: var(--text);
 }
+
+/* --- Schémas -------------------------------------------------------------- */
+
+.diagram-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  margin-bottom: 18px;
+}
+
+.diagram-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 14px 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.diagram-pick:hover {
+  color: var(--text);
+}
+
+.diagram-pick.is-active {
+  background: var(--surface-current);
+  border-color: var(--border-strong);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.diagram-meta {
+  font-size: 11.5px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.diagram-card {
+  background: var(--panel);
+  border-color: var(--divider);
+  overflow: hidden;
+}
+
+.diagram-area {
+  position: relative;
+  min-height: 320px;
+  overflow: hidden;
+}
+
+.diagram-svg {
+  display: block;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.diagram-svg:active {
+  cursor: grabbing;
+}
+
+.diagram-header {
+  font-size: 10.5px;
+  font-weight: 600;
+  fill: var(--faintest);
+  letter-spacing: 0.02em;
+}
+
+.diagram-link {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.diagram-link-label {
+  font-size: 10.5px;
+  fill: var(--faint);
+}
+
+.diagram-label {
+  font-family: var(--font-sans);
+}
+
+.diagram-label.mono {
+  font-family: var(--font-mono);
+}
+
+.diagram-node.is-clickable {
+  cursor: pointer;
+}
+
+.diagram-node.is-clickable:hover .diagram-shape,
+.diagram-node.is-clickable:focus-visible .diagram-shape {
+  stroke: var(--accent-soft);
+}
+
+.diagram-node:focus-visible {
+  outline: none;
+}
+
+.diagram-footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 20px 18px 24px;
+}
+
+.diagram-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #7b8396;
+}
+
+.legend-swatch {
+  width: 12px;
+  height: 12px;
+  border: 1px solid;
+  border-radius: 3px;
+}
+
+.legend-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.diagram-zoom .icon-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+
+.diagram-empty {
+  padding: 28px 32px;
+  text-align: center;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.diagram-empty .empty-title {
+  margin-bottom: 8px;
+}
+
+.diagram-error {
+  display: flex;
+  gap: 12px;
+  padding: 18px 22px;
+  border-color: #6b2a2d;
+}
+
+.diagram-error svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.diagram-error-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.diagram-error-text {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}

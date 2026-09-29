@@ -58,7 +58,7 @@ npm test        # node --test sur dist/test
 | `src/gui-worker.ts` | Processus GUI : serveur Hono, SSE `/api/events`, fichiers statiques, enregistrement auprès du proxy. |
 | `src/core/` | Logique métier (répertoires de données et de logs). |
 | `src/cli/setup-mcp.ts` | Commande `--claude-setup-mcp`. |
-| `shared/` | Code commun au backend et à la GUI (schémas zod). |
+| `shared/` | Code commun au backend et à la GUI : schémas zod, prompt de retour, placement des schémas (`diagram-layout.ts`). |
 | `gui/` | Application Vite + React 19 + zustand. |
 | `test/` | Tests `node --test`. |
 

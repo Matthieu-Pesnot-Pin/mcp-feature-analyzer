@@ -3,6 +3,7 @@ import { MODE_LABELS } from '@shared/labels'
 import { diffTotals, plural, relativeTime } from '../utils/format'
 import { FEATURE_TABS, hrefs, navigate, type FeatureTab } from '../utils/router'
 import { FilesTab } from './FilesTab'
+import { DiagramsTab } from './DiagramsTab'
 import { FindingsTab } from './FindingsTab'
 import { SummaryTab } from './SummaryTab'
 import { firstFileToReview } from './review-model'
@@ -11,12 +12,14 @@ const TAB_LABELS: Record<FeatureTab, string> = {
   summary: 'Résumé',
   files: 'Fichiers',
   findings: 'Constats',
+  diagrams: 'Schémas',
 }
 
 /** Compteur affiché à côté du nom d'un onglet ; null pour aucun. */
 function tabCount(analysis: Analysis, tab: FeatureTab): number | null {
   if (tab === 'files') return analysis.files.length
   if (tab === 'findings') return analysis.findings.length
+  if (tab === 'diagrams') return analysis.diagrams.length
   return null
 }
 
@@ -71,6 +74,7 @@ export function FeatureScreen({ analysis, tab }: { analysis: Analysis; tab: Feat
         {tab === 'summary' && <SummaryTab analysis={analysis} />}
         {tab === 'files' && <FilesTab analysis={analysis} />}
         {tab === 'findings' && <FindingsTab analysis={analysis} />}
+        {tab === 'diagrams' && <DiagramsTab analysis={analysis} />}
       </div>
     </div>
   )
