@@ -12,8 +12,19 @@ import { APP_VERSION } from "./version.js";
 import { resolveDataDir } from "./core/data-dir.js";
 import { resolveLogDir } from "./core/log-dir.js";
 import { AnalysisStore } from "./core/analysis-store.js";
+import { AnalysisError, NotFoundError, RevisionConflictError } from "./core/errors.js";
 import { DEFAULT_HEAD_REF } from "./core/git.js";
-import { IPCMessageSchema, type IPCMessage } from "../shared/schemas/ipc.schema.js";
+import { addNote, deleteNote, setFileReviewed, setFindingStatus, submitReview } from "./core/review-actions.js";
+import { GUI_REQUEST_TYPES, IPCMessageSchema, type IPCMessage, type IpcErrorKind } from "../shared/schemas/ipc.schema.js";
+import {
+  AddNoteRequestSchema,
+  AnalysisRequestSchema,
+  DeleteNoteRequestSchema,
+  SetFileReviewedRequestSchema,
+  SetFindingStatusRequestSchema,
+  SubmitReviewRequestSchema,
+} from "../shared/schemas/api.schema.js";
+import type { z } from "zod";
 import {
   ANALYSIS_MODES,
   DIAGRAM_KINDS,
@@ -127,6 +138,10 @@ function reply(msg: IPCMessage, type: string, data: unknown) {
   broadcastToGUI({ type, correlationId: msg.correlationId, data, timestamp: new Date().toISOString() });
 }
 
+function replyError(msg: IPCMessage, type: string, error: string, errorKind: IpcErrorKind) {
+  broadcastToGUI({ type, correlationId: msg.correlationId, error, errorKind, timestamp: new Date().toISOString() });
+}
+
 /** Notifie la GUI qu'une analyse a changé côté agent, pour qu'elle se rafraîchisse. */
 function notifyAnalysisChanged(analysisId: string) {
   broadcastToGUI({ type: "ANALYSIS_UPDATED", data: { analysisId }, timestamp: new Date().toISOString() });
@@ -136,6 +151,87 @@ function notifyAnalysisChanged(analysisId: string) {
 function notifyAnalysesListChanged() {
   broadcastToGUI({ type: "ANALYSES_UPDATED", data: { analyses: store.list().analyses }, timestamp: new Date().toISOString() });
 }
+
+/** Données IPC d'une requête de la GUI, validées par `schema` ; une donnée invalide est une erreur de la requête. */
+function parseRequest<S extends z.ZodType>(schema: S, data: unknown): z.infer<S> {
+  const parsed = schema.safeParse(data);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((issue) => `${issue.path.map(String).join(".") || "(root)"} ${issue.message}`);
+    throw new AnalysisError(`Invalid request: ${issues.join("; ")}.`);
+  }
+  return parsed.data;
+}
+
+/** Nature d'une erreur levée en traitant une requête de la GUI. */
+function errorKindOf(err: unknown): IpcErrorKind {
+  if (err instanceof RevisionConflictError) return "conflict";
+  if (err instanceof NotFoundError) return "not_found";
+  if (err instanceof AnalysisError) return "invalid";
+  return "internal";
+}
+
+/** Modification faite depuis la GUI : la liste des analyses et l'analyse sont renvoyées à tous les clients. */
+function afterUserMutation(analysisId: string) {
+  notifyAnalysisChanged(analysisId);
+  notifyAnalysesListChanged();
+}
+
+/** Traite une requête de la GUI et renvoie ses données de réponse ; lève une erreur métier sinon. */
+function handleGuiRequest(msg: IPCMessage): unknown {
+  switch (msg.type) {
+    case "GET_CONFIG":
+      return { dataDir, version: APP_VERSION };
+
+    case "LIST_ANALYSES":
+      return store.list();
+
+    case "GET_ANALYSIS":
+      return { analysis: store.get(parseRequest(AnalysisRequestSchema, msg.data).analysisId) };
+
+    case "GET_DIFF":
+      return { diff: store.getSnapshot(parseRequest(AnalysisRequestSchema, msg.data).analysisId) };
+
+    case "SET_FILE_REVIEWED": {
+      const request = parseRequest(SetFileReviewedRequestSchema, msg.data);
+      const analysis = setFileReviewed(store, request.analysisId, request.body);
+      afterUserMutation(analysis.id);
+      return { analysis };
+    }
+
+    case "SET_FINDING_STATUS": {
+      const request = parseRequest(SetFindingStatusRequestSchema, msg.data);
+      const analysis = setFindingStatus(store, request.analysisId, request.findingId, request.body);
+      afterUserMutation(analysis.id);
+      return { analysis };
+    }
+
+    case "ADD_NOTE": {
+      const request = parseRequest(AddNoteRequestSchema, msg.data);
+      const analysis = addNote(store, request.analysisId, request.body);
+      afterUserMutation(analysis.id);
+      return { analysis };
+    }
+
+    case "DELETE_NOTE": {
+      const request = parseRequest(DeleteNoteRequestSchema, msg.data);
+      const analysis = deleteNote(store, request.analysisId, request.noteId, request.body);
+      afterUserMutation(analysis.id);
+      return { analysis };
+    }
+
+    case "SUBMIT_REVIEW": {
+      const request = parseRequest(SubmitReviewRequestSchema, msg.data);
+      const analysis = submitReview(store, request.analysisId, request.body);
+      afterUserMutation(analysis.id);
+      return { analysis };
+    }
+
+    default:
+      return undefined;
+  }
+}
+
+const GUI_REQUESTS = new Set<string>(GUI_REQUEST_TYPES);
 
 /**
  * Messages du GUI worker. READY et ALREADY_RUNNING sont d'abord traités par
@@ -166,11 +262,17 @@ function handleIPCMessage(raw: unknown) {
       });
       return;
 
-    case "GET_CONFIG":
-      reply(msg, "GET_CONFIG_RESPONSE", { dataDir, version: APP_VERSION });
-      return;
-
     default:
+      if (GUI_REQUESTS.has(msg.type)) {
+        try {
+          reply(msg, `${msg.type}_RESPONSE`, handleGuiRequest(msg));
+        } catch (err: any) {
+          const kind = errorKindOf(err);
+          if (kind === "internal") logger.error(`GUI request ${msg.type} failed: ${err?.stack ?? err}`);
+          replyError(msg, `${msg.type}_RESPONSE`, err?.message ?? String(err), kind);
+        }
+        return;
+      }
       logger.debug(`Unhandled IPC message type: ${msg.type}`);
   }
 }

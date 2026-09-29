@@ -12,8 +12,9 @@ function readyStateLabel(state: number): string {
 }
 
 /**
- * Canal descendant serveur -> GUI : état initial au chargement, puis
- * évènements poussés par le maître MCP quand l'agent modifie une analyse.
+ * Canal descendant serveur -> GUI : état initial à la connexion, puis
+ * évènements poussés par le maître MCP quand une analyse change. Chaque
+ * évènement recharge ce qui est affiché.
  */
 export function useIPC() {
   useEffect(() => {
@@ -68,8 +69,19 @@ export function useIPC() {
         return // ping / connected : messages non-JSON attendus
       }
 
-      if (message.type === 'INITIAL_STATE') {
-        void useAnalysisStore.getState().loadConfig()
+      // La liste poussée ne signale pas les analyses illisibles : elle est relue par l'API.
+      const store = useAnalysisStore.getState()
+      switch (message.type) {
+        case 'INITIAL_STATE':
+          void store.loadAnalyses()
+          void store.reloadCurrent()
+          return
+        case 'ANALYSES_UPDATED':
+          void store.loadAnalyses()
+          return
+        case 'ANALYSIS_UPDATED':
+          if (store.current?.id === message.data.analysisId) void store.reloadCurrent()
+          return
       }
     }
 

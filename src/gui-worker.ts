@@ -7,7 +7,17 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 
-import { IPCMessageSchema, PUSHED_EVENT_TYPES, type IPCMessage } from "../shared/schemas/ipc.schema.js";
+import { IPCMessageSchema, PUSHED_EVENT_TYPES, type IPCMessage, type IpcErrorKind } from "../shared/schemas/ipc.schema.js";
+import {
+  AddNoteBodySchema,
+  DeleteNoteBodySchema,
+  SetFileReviewedBodySchema,
+  SetFindingStatusBodySchema,
+  SubmitReviewBodySchema,
+} from "../shared/schemas/api.schema.js";
+import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { z } from "zod";
 import { resolveLogDir } from "./core/log-dir.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -104,7 +114,7 @@ const sseStreams = new Set<SSEStreamingApi>();
 const pendingRequests = new Map<string, (message: IpcResponse) => void>();
 
 /** Réponse d'une requête IPC : le message du master, ou une erreur locale (timeout, IPC absent). */
-type IpcResponse = Pick<IPCMessage, "data" | "error">;
+type IpcResponse = Pick<IPCMessage, "data" | "error" | "errorKind">;
 
 function safeSend(message: IPCMessage): boolean {
   if (process.send && process.connected) {
@@ -242,11 +252,79 @@ app.post("/api/client-diagnostics", async (c) => {
   return c.json({ ok: true });
 });
 
-app.get("/api/config", async (c) => {
-  const result = await ipcRequest("GET_CONFIG");
-  if (result.error) return c.json({ error: result.error }, 500);
+/** Code HTTP d'une erreur renvoyée par le master ; une erreur locale (timeout, IPC absent) est une erreur serveur. */
+const HTTP_STATUS_BY_ERROR_KIND: Record<IpcErrorKind, ContentfulStatusCode> = {
+  invalid: 400,
+  not_found: 404,
+  conflict: 409,
+  internal: 500,
+};
+
+/** Transmet une requête au master et renvoie sa réponse, ou `{ error }` avec le code HTTP correspondant. */
+async function forward(c: Context, type: string, data?: unknown) {
+  const result = await ipcRequest(type, data);
+  if (result.error !== undefined) {
+    return c.json({ error: result.error }, HTTP_STATUS_BY_ERROR_KIND[result.errorKind ?? "internal"]);
+  }
   return c.json(result.data);
+}
+
+/** Lit et valide le corps JSON d'une requête ; renvoie une réponse 400 explicite s'il est invalide. */
+async function readBody<S extends z.ZodType>(c: Context, schema: S): Promise<{ body: z.infer<S> } | { response: Response }> {
+  let raw: unknown;
+  try {
+    raw = await c.req.json();
+  } catch (err: any) {
+    return { response: c.json({ error: `The request body is not valid JSON: ${err?.message ?? err}` }, 400) };
+  }
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((issue) => `${issue.path.map(String).join(".") || "(root)"} ${issue.message}`);
+    return { response: c.json({ error: `Invalid request body: ${issues.join("; ")}.` }, 400) };
+  }
+  return { body: parsed.data };
+}
+
+app.get("/api/config", (c) => forward(c, "GET_CONFIG"));
+
+app.get("/api/analyses", (c) => forward(c, "LIST_ANALYSES"));
+
+app.get("/api/analyses/:id", (c) => forward(c, "GET_ANALYSIS", { analysisId: c.req.param("id") }));
+
+app.get("/api/analyses/:id/diff", (c) => forward(c, "GET_DIFF", { analysisId: c.req.param("id") }));
+
+app.post("/api/analyses/:id/files/reviewed", async (c) => {
+  const read = await readBody(c, SetFileReviewedBodySchema);
+  if ("response" in read) return read.response;
+  return forward(c, "SET_FILE_REVIEWED", { analysisId: c.req.param("id"), body: read.body });
 });
+
+app.post("/api/analyses/:id/findings/:findingId/status", async (c) => {
+  const read = await readBody(c, SetFindingStatusBodySchema);
+  if ("response" in read) return read.response;
+  return forward(c, "SET_FINDING_STATUS", { analysisId: c.req.param("id"), findingId: c.req.param("findingId"), body: read.body });
+});
+
+app.post("/api/analyses/:id/notes", async (c) => {
+  const read = await readBody(c, AddNoteBodySchema);
+  if ("response" in read) return read.response;
+  return forward(c, "ADD_NOTE", { analysisId: c.req.param("id"), body: read.body });
+});
+
+app.delete("/api/analyses/:id/notes/:noteId", async (c) => {
+  const read = await readBody(c, DeleteNoteBodySchema);
+  if ("response" in read) return read.response;
+  return forward(c, "DELETE_NOTE", { analysisId: c.req.param("id"), noteId: c.req.param("noteId"), body: read.body });
+});
+
+app.post("/api/analyses/:id/review", async (c) => {
+  const read = await readBody(c, SubmitReviewBodySchema);
+  if ("response" in read) return read.response;
+  return forward(c, "SUBMIT_REVIEW", { analysisId: c.req.param("id"), body: read.body });
+});
+
+/** Route d'API inconnue : 404 explicite plutôt que la page de la SPA. */
+app.all("/api/*", (c) => c.json({ error: `Unknown API route: ${c.req.method} ${c.req.path}` }, 404));
 
 // Fichiers statiques de la SPA
 app.use("/assets/*", serveStatic({ root: path.relative(process.cwd(), absoluteStaticRoot) }));

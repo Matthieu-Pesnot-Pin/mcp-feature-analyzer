@@ -12,7 +12,7 @@ import {
 } from "../../shared/schemas/analysis.schema.js";
 import { DiffSnapshotSchema, type DiffSnapshot } from "../../shared/schemas/diff.schema.js";
 import { emptySeverityCounts } from "../../shared/severity.js";
-import { AnalysisError } from "./errors.js";
+import { AnalysisError, NotFoundError, RevisionConflictError } from "./errors.js";
 import type { ComputedSnapshot } from "./git.js";
 import { analysisId } from "./ids.js";
 import { assertInvariants, assertSnapshotFieldsUnchanged } from "./invariants.js";
@@ -135,8 +135,8 @@ export class AnalysisStore {
     }
   }
 
-  private notFound(id: string): AnalysisError {
-    return new AnalysisError(`Analysis "${id}" not found. Use list_analyses to see the available analyses.`);
+  private notFound(id: string): NotFoundError {
+    return new NotFoundError(`Analysis "${id}" not found. Use list_analyses to see the available analyses.`);
   }
 
   /**
@@ -410,7 +410,7 @@ export class AnalysisStore {
 
   private assertBaseRevision(current: Analysis, options: MutateOptions): void {
     if (options.baseRevision !== undefined && options.baseRevision !== current.revision) {
-      throw new AnalysisError(
+      throw new RevisionConflictError(
         `Analysis "${current.id}" has changed since it was loaded: the edit is based on revision ${options.baseRevision}, ` +
           `the stored analysis is at revision ${current.revision}. Reload it and apply the change again.`
       );
