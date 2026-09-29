@@ -5,7 +5,16 @@ import { SEVERITY_STYLES } from '@shared/labels'
 import { splitLines } from '@shared/text'
 import { Icon } from '../components/Icon'
 import { FindingNumber } from '../components/MarginFindingCard'
-import { replacedLinesLabel, type HunkRows, type NumberedFinding, type RowBar } from './review-diff-model'
+import {
+  FIX_MODE_LABELS,
+  replacedLinesLabel,
+  sameAnchor,
+  type DiffAnchor,
+  type FixMode,
+  type HunkRows,
+  type NumberedFinding,
+  type RowBar,
+} from './review-diff-model'
 
 /** Ligne où s'ouvre la saisie d'une remarque ; `line` null vise le fichier entier. */
 export type ComposerTarget = { line: number | null } | null
@@ -15,8 +24,10 @@ interface DiffViewProps {
   hunks: HunkRows[]
   /** Lignes portant au moins une remarque. */
   notedLines: ReadonlySet<number>
-  /** Ligne mise en évidence (paramètre `?line=N`). */
-  targetLine: number | null
+  mode: FixMode
+  onModeChange: (mode: FixMode) => void
+  /** Élément mis en évidence (paramètre `?line=N`). */
+  target: DiffAnchor | null
   onLineNote: (line: number) => void
   onHideFix: (findingId: string) => void
 }
@@ -32,41 +43,132 @@ function barClasses(bar: RowBar | null): string {
   return bar.muted ? ' has-bar is-bar-muted' : ' has-bar'
 }
 
-/** Bandeau d'un correctif affiché dans le diff, avant les lignes qu'il remplace. */
-function FixStrip({ entry, bar, onHide }: { entry: NumberedFinding; bar: RowBar; onHide: () => void }) {
-  const removes = splitLines(entry.finding.suggestion ?? '').length === 0
-  const target = replacedLinesLabel(entry.startLine, entry.endLine)
+/** Pastilles numérotées des constats dont le correctif n'est pas dans le diff. */
+function DiffPills({ entries }: { entries: NumberedFinding[] }) {
   return (
-    <div className={`fix-strip${barClasses(bar)}`} style={barStyle(bar)} data-fix={entry.finding.id}>
+    <span className="diff-pills">
+      {entries.map((entry) => (
+        <span key={entry.finding.id} className={entry.finding.status === 'open' ? undefined : 'is-muted'} title={entry.finding.title}>
+          <FindingNumber entry={entry} small />
+        </span>
+      ))}
+    </span>
+  )
+}
+
+interface FixStripProps {
+  entry: NumberedFinding
+  bar: RowBar
+  pills: NumberedFinding[]
+  applied: boolean
+  isTarget: boolean
+  onHide: () => void
+}
+
+/**
+ * Bandeau d'un correctif dans le diff : avant les lignes qu'il remplace, ou,
+ * correctif appliqué, avant les lignes proposées qui en tiennent lieu.
+ */
+function FixStrip({ entry, bar, pills, applied, isTarget, onHide }: FixStripProps) {
+  const removes = splitLines(entry.finding.suggestion ?? '').length === 0
+  const lines = replacedLinesLabel(entry.startLine, entry.endLine)
+  const action = removes ? `supprime ${lines}` : `remplace ${lines}`
+  return (
+    <div
+      className={`fix-strip${applied ? ' is-applied' : ''}${barClasses(bar)}${isTarget ? ' is-target' : ''}`}
+      style={barStyle(bar)}
+      data-fix={entry.finding.id}
+    >
       <FindingNumber entry={entry} small />
       <Icon name="sparkles" color="#8b97ff" />
       <span className="fix-strip-text">
-        Correctif proposé par l'agent — {removes ? `supprime ${target}` : `remplace ${target}`}
+        {applied ? `Correctif ${entry.number} appliqué — ${action}` : `Correctif proposé par l'agent — ${action}`}
       </span>
+      {pills.length > 0 && <DiffPills entries={pills} />}
       <button type="button" className="fix-strip-hide" onClick={onHide}>
-        Masquer le correctif
+        {applied ? 'Retirer le correctif' : 'Masquer le correctif'}
       </button>
     </div>
   )
 }
 
+/** Choix de l'affichage des correctifs, commun à tous les fichiers. */
+function FixModeControl({ mode, onChange }: { mode: FixMode; onChange: (mode: FixMode) => void }) {
+  return (
+    <div className="diff-toolbar">
+      <span className="diff-toolbar-label" id="fix-mode-label">
+        Correctifs
+      </span>
+      <div className="segmented segmented-small" role="group" aria-labelledby="fix-mode-label">
+        {(Object.keys(FIX_MODE_LABELS) as FixMode[]).map((entry) => (
+          <button
+            key={entry}
+            type="button"
+            className={`segmented-item${entry === mode ? ' is-active' : ''}`}
+            aria-pressed={entry === mode}
+            onClick={() => onChange(entry)}
+          >
+            {FIX_MODE_LABELS[entry]}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** Légende des fonds du diff, limitée à ceux que le mode affiche. */
+function DiffLegend({ mode }: { mode: FixMode }) {
+  return (
+    <div className="diff-legend">
+      <span className="legend-item">
+        <span className="legend-swatch" style={{ background: '#11201a', borderColor: '#2c6b3a' }} />
+        Ajouté par la feature
+      </span>
+      {mode === 'before-after' && (
+        <span className="legend-item">
+          <span className="legend-swatch" style={{ background: '#2a1618', borderColor: '#6b2a2d' }} />
+          Lignes remplacées par le correctif
+        </span>
+      )}
+      {mode !== 'off' && (
+        <span className="legend-item">
+          <span className="legend-swatch" style={{ background: '#1a1c35', borderColor: '#36407a' }} />
+          {mode === 'applied' ? 'Correctif appliqué' : 'Correctif proposé'}
+        </span>
+      )}
+    </div>
+  )
+}
+
 /**
- * Diff d'un fichier : en-têtes de bloc, numéros de ligne du côté « nouveau »,
- * correctifs affichés à leur place, repère de gravité le long des lignes visées
- * et pastille numérotée des constats dont le correctif n'est pas affiché. Un
- * clic sur un numéro ouvre la saisie d'une remarque sur cette ligne.
+ * Diff d'un fichier : choix de l'affichage des correctifs, en-têtes de bloc,
+ * numéros de ligne du côté « nouveau », correctifs affichés à leur place,
+ * repère de gravité le long des lignes visées et pastille numérotée des
+ * constats dont le correctif n'est pas affiché. Un clic sur un numéro ouvre la
+ * saisie d'une remarque sur cette ligne ; les lignes proposées n'ont pas de numéro.
  */
-export function DiffView({ file, hunks, notedLines, targetLine, onLineNote, onHideFix }: DiffViewProps) {
+export function DiffView({ file, hunks, notedLines, mode, onModeChange, target, onLineNote, onHideFix }: DiffViewProps) {
   const canNote = file.contentAvailable
 
   return (
     <div className="diff">
+      <FixModeControl mode={mode} onChange={onModeChange} />
       {hunks.map((hunk, hunkIndex) => (
         <div key={hunkIndex} className="hunk">
           <div className="hunk-header mono">{hunk.header}</div>
           {hunk.rows.map((row, rowIndex) => {
             if (row.kind === 'fix-strip') {
-              return <FixStrip key={rowIndex} entry={row.entry} bar={row.bar} onHide={() => onHideFix(row.entry.finding.id)} />
+              return (
+                <FixStrip
+                  key={rowIndex}
+                  entry={row.entry}
+                  bar={row.bar}
+                  pills={row.pills}
+                  applied={mode === 'applied'}
+                  isTarget={sameAnchor(target, { kind: 'fix', entry: row.entry })}
+                  onHide={() => onHideFix(row.entry.finding.id)}
+                />
+              )
             }
             if (row.kind === 'fix-line') {
               return (
@@ -85,7 +187,7 @@ export function DiffView({ file, hunks, notedLines, targetLine, onLineNote, onHi
               `is-${line.type}`,
               row.replaced ? 'is-replaced' : '',
               barClasses(row.bar).trim(),
-              lineNo !== null && lineNo === targetLine ? 'is-target' : '',
+              lineNo !== null && sameAnchor(target, { kind: 'line', line: lineNo }) ? 'is-target' : '',
             ]
             return (
               <div key={rowIndex} className={classes.filter(Boolean).join(' ')} style={barStyle(row.bar)} data-line={lineNo ?? undefined}>
@@ -99,34 +201,13 @@ export function DiffView({ file, hunks, notedLines, targetLine, onLineNote, onHi
                 )}
                 <span className="diff-marker">{MARKERS[line.type]}</span>
                 <span className="diff-code">{line.text}</span>
-                {row.pills.length > 0 && (
-                  <span className="diff-pills">
-                    {row.pills.map((entry) => (
-                      <span key={entry.finding.id} className={entry.finding.status === 'open' ? undefined : 'is-muted'} title={entry.finding.title}>
-                        <FindingNumber entry={entry} small />
-                      </span>
-                    ))}
-                  </span>
-                )}
+                {row.pills.length > 0 && <DiffPills entries={row.pills} />}
               </div>
             )
           })}
         </div>
       ))}
-      <div className="diff-legend">
-        <span className="legend-item">
-          <span className="legend-swatch" style={{ background: '#11201a', borderColor: '#2c6b3a' }} />
-          Ajouté par la feature
-        </span>
-        <span className="legend-item">
-          <span className="legend-swatch" style={{ background: '#2a1618', borderColor: '#6b2a2d' }} />
-          Lignes remplacées par le correctif
-        </span>
-        <span className="legend-item">
-          <span className="legend-swatch" style={{ background: '#1a1c35', borderColor: '#36407a' }} />
-          Correctif proposé
-        </span>
-      </div>
+      <DiffLegend mode={mode} />
     </div>
   )
 }

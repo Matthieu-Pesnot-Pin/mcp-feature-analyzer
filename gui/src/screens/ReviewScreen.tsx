@@ -10,7 +10,10 @@ import { hrefs, navigate } from '../utils/router'
 import { DiffView, type ComposerTarget } from './DiffView'
 import { FindingsMargin } from './FindingsMargin'
 import {
+  anchorSelector,
+  appliedRemovals,
   buildDiffRows,
+  lineAnchorOf,
   lineNotesOfFile,
   numberedFindingsOfFile,
   resolveFixDisplays,
@@ -151,6 +154,8 @@ function FileHeader({
 export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; path: string | null; line: number | null }) {
   const diff = useAnalysisStore((state) => state.diff)
   const diffError = useAnalysisStore((state) => state.diffError)
+  const fixMode = useAnalysisStore((state) => state.fixMode)
+  const setFixMode = useAnalysisStore((state) => state.setFixMode)
   // La saisie d'une remarque est liée au fichier où elle a été ouverte.
   const [composerState, setComposerState] = useState<{ path: string; line: number | null } | null>(null)
   const composer: ComposerTarget = composerState && composerState.path === path ? { line: composerState.line } : null
@@ -169,15 +174,27 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const fileDiff = diff?.id === analysis.id ? diff.snapshot.files.find((entry) => entry.path === path) : undefined
   const failed = diffError !== null && diff?.id !== analysis.id
 
-  // Ligne ciblée par `?line=N` : centrée à l'écran ; sans ligne, retour en haut du fichier.
+  const numbered = path === null ? [] : numberedFindingsOfFile(analysis, path)
+  const fixes = resolveFixDisplays(
+    numbered,
+    fileDiff ?? { path: path ?? '', hunks: [], newContent: null },
+    (finding) => fixChoices[finding.id] ?? (finding.suggestion !== null && finding.status === 'open'),
+    fixMode,
+  )
+  const removed = appliedRemovals(numbered, fixes, fixMode)
+  // Élément ciblé par `?line=N` : la ligne, ou le bandeau du correctif appliqué qui la retire.
+  const target = line === null ? null : lineAnchorOf(line, removed)
+  const targetSelector = target === null ? null : anchorSelector(target)
+
+  // Élément ciblé centré à l'écran ; sans ligne, retour en haut du fichier.
   useEffect(() => {
     if (!fileDiff) return
-    if (line === null) {
+    if (targetSelector === null) {
       bodyRef.current?.scrollTo({ top: 0 })
       return
     }
-    bodyRef.current?.querySelector(`[data-line="${line}"]`)?.scrollIntoView({ block: 'center' })
-  }, [fileDiff, line, path])
+    bodyRef.current?.querySelector(targetSelector)?.scrollIntoView({ block: 'center' })
+  }, [fileDiff, targetSelector, path])
 
   if (path === null) {
     return (
@@ -188,13 +205,7 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   }
 
   const gaps = analysis.files[0]?.path === path ? unlocatedFindings(analysis) : []
-  const numbered = numberedFindingsOfFile(analysis, path)
-  const fixes = resolveFixDisplays(
-    numbered,
-    fileDiff ?? { path, hunks: [], newContent: null },
-    (finding) => fixChoices[finding.id] ?? (finding.suggestion !== null && finding.status === 'open'),
-  )
-  const hunks = fileDiff ? buildDiffRows(fileDiff, numbered, fixes) : []
+  const hunks = fileDiff ? buildDiffRows(fileDiff, numbered, fixes, fixMode) : []
   const shownLines = fileDiff ? shownLineNumbers(fileDiff) : failed ? new Set<number>() : null
   const lineNotes = lineNotesOfFile(analysis, path)
   const notedLines = new Set(lineNotes.map((note) => note.location.line))
@@ -245,7 +256,9 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
                       file={file}
                       hunks={hunks}
                       notedLines={notedLines}
-                      targetLine={line}
+                      mode={fixMode}
+                      onModeChange={setFixMode}
+                      target={target}
                       onLineNote={(lineNo) => setComposer({ line: lineNo })}
                       onHideFix={(findingId) => setFixShown(findingId, false)}
                     />
@@ -256,6 +269,8 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
                   file={file}
                   numbered={numbered}
                   fixes={fixes}
+                  mode={fixMode}
+                  removed={removed}
                   lineNotes={lineNotes}
                   shownLines={shownLines}
                   composer={composer}

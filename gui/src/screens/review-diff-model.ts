@@ -39,6 +39,20 @@ export function firstShownLine(shown: ReadonlySet<number>, start: number, end: n
 }
 
 /**
+ * Affichage des correctifs dans le diff :
+ * - `off` : aucun correctif n'est dessiné ;
+ * - `before-after` : lignes visées barrées, lignes proposées en dessous ;
+ * - `applied` : lignes proposées à la place des lignes visées.
+ */
+export type FixMode = 'off' | 'before-after' | 'applied'
+
+export const FIX_MODE_LABELS: Record<FixMode, string> = {
+  off: 'Sans correctif',
+  'before-after': 'Avant / après',
+  applied: 'Code corrigé',
+}
+
+/**
  * Affichage du correctif d'un constat :
  * - `none` : pas de correctif proposé ;
  * - `shown` / `hidden` : correctif affiché dans le diff, ou masqué par le relecteur ;
@@ -62,14 +76,15 @@ function inOneHunk(fileDiff: FileDiff, start: number, end: number): boolean {
 
 /**
  * Affichage du correctif de chaque constat. `requested` dit si le relecteur
- * veut voir le correctif d'un constat. Les correctifs sont placés dans l'ordre
- * des numéros ; un correctif dont les lignes recouvrent un correctif déjà placé
- * n'est pas affiché dans le diff.
+ * veut voir le correctif d'un constat ; en mode `off`, aucun n'est affiché.
+ * Les correctifs sont placés dans l'ordre des numéros ; un correctif dont les
+ * lignes recouvrent un correctif déjà placé n'est pas affiché dans le diff.
  */
 export function resolveFixDisplays(
   numbered: NumberedFinding[],
   fileDiff: FileDiff,
   requested: (finding: Finding) => boolean,
+  mode: FixMode,
 ): Map<string, FixDisplay> {
   const result = new Map<string, FixDisplay>()
   const placed: NumberedFinding[] = []
@@ -79,7 +94,7 @@ export function resolveFixDisplays(
       result.set(finding.id, { state: 'none' })
     } else if (!inOneHunk(fileDiff, entry.startLine, entry.endLine)) {
       result.set(finding.id, { state: 'outside' })
-    } else if (!requested(finding)) {
+    } else if (mode === 'off' || !requested(finding)) {
       result.set(finding.id, { state: 'hidden' })
     } else {
       const overlap = placed.find((other) => other.startLine <= entry.endLine && entry.startLine <= other.endLine)
@@ -104,18 +119,88 @@ export type DiffRow =
   | {
       kind: 'line'
       line: DiffLine
-      /** Ligne visée par un correctif affiché : barrée. */
+      /** Ligne visée par un correctif affiché avant / après : barrée. */
       replaced: boolean
       bar: RowBar | null
-      /** Pastilles des constats dont c'est la première ligne affichée et dont le correctif n'est pas dans le diff. */
+      /** Pastilles des constats ancrés sur cette ligne dont le correctif n'est pas dans le diff. */
       pills: NumberedFinding[]
     }
-  | { kind: 'fix-strip'; entry: NumberedFinding; bar: RowBar }
+  | {
+      kind: 'fix-strip'
+      entry: NumberedFinding
+      bar: RowBar
+      /** Pastilles des constats ancrés sur ce bandeau : leurs lignes affichées sont retirées par ce correctif appliqué. */
+      pills: NumberedFinding[]
+    }
   | { kind: 'fix-line'; text: string; entry: NumberedFinding; bar: RowBar }
 
 export interface HunkRows {
   header: string
   rows: DiffRow[]
+}
+
+/** Élément du diff sur lequel s'aligne un constat ou une remarque : une ligne, ou le bandeau d'un correctif. */
+export type DiffAnchor = { kind: 'line'; line: number } | { kind: 'fix'; entry: NumberedFinding }
+
+/** Sélecteur de l'élément du diff désigné par `anchor`. */
+export function anchorSelector(anchor: DiffAnchor): string {
+  return anchor.kind === 'line' ? lineAnchor(anchor.line) : fixAnchor(anchor.entry.finding.id)
+}
+
+/** Position de `anchor` dans le diff, en numéro de ligne ; un bandeau précède sa première ligne visée. */
+export function anchorOrder(anchor: DiffAnchor): number {
+  return anchor.kind === 'line' ? anchor.line : anchor.entry.startLine - 0.5
+}
+
+/** Vrai quand `a` et `b` désignent le même élément du diff. */
+export function sameAnchor(a: DiffAnchor | null, b: DiffAnchor | null): boolean {
+  if (a === null || b === null) return false
+  if (a.kind === 'line') return b.kind === 'line' && a.line === b.line
+  return b.kind === 'fix' && a.entry.finding.id === b.entry.finding.id
+}
+
+/**
+ * Lignes retirées de l'affichage en mode `applied`, associées au constat dont
+ * le correctif les remplace. Vide dans les autres modes.
+ */
+export function appliedRemovals(
+  numbered: NumberedFinding[],
+  fixes: Map<string, FixDisplay>,
+  mode: FixMode,
+): Map<number, NumberedFinding> {
+  const removed = new Map<number, NumberedFinding>()
+  if (mode !== 'applied') return removed
+  for (const entry of numbered) {
+    if (fixes.get(entry.finding.id)?.state !== 'shown') continue
+    for (let line = entry.startLine; line <= entry.endLine; line++) removed.set(line, entry)
+  }
+  return removed
+}
+
+/** Ancre d'une ligne du fichier : la ligne elle-même, ou le bandeau du correctif appliqué qui la retire. */
+export function lineAnchorOf(line: number, removed: ReadonlyMap<number, NumberedFinding>): DiffAnchor {
+  const entry = removed.get(line)
+  return entry ? { kind: 'fix', entry } : { kind: 'line', line }
+}
+
+/**
+ * Ancre d'un constat : le bandeau de son correctif quand celui-ci est dans le
+ * diff, sinon la première ligne visible de sa plage, sinon le bandeau du
+ * correctif appliqué qui retire sa première ligne affichée. Null quand aucune
+ * de ses lignes n'est affichée.
+ */
+export function findingAnchor(
+  entry: NumberedFinding,
+  fixes: Map<string, FixDisplay>,
+  shown: ReadonlySet<number>,
+  removed: ReadonlyMap<number, NumberedFinding>,
+): DiffAnchor | null {
+  if (fixes.get(entry.finding.id)?.state === 'shown') return { kind: 'fix', entry }
+  for (let line = entry.startLine; line <= entry.endLine; line++) {
+    if (shown.has(line) && !removed.has(line)) return { kind: 'line', line }
+  }
+  const first = firstShownLine(shown, entry.startLine, entry.endLine)
+  return first === null ? null : lineAnchorOf(first, removed)
 }
 
 function barOf(finding: Finding): RowBar {
@@ -136,29 +221,57 @@ function lineBar(numbered: NumberedFinding[], lineNo: number): RowBar | null {
   return best ? barOf(best) : null
 }
 
+/** Lignes proposées par le correctif de `entry`. */
+function proposedRows(entry: NumberedFinding): DiffRow[] {
+  return splitLines(entry.finding.suggestion ?? '').map((text) => ({ kind: 'fix-line', text, entry, bar: barOf(entry.finding) }))
+}
+
 /**
  * Lignes du diff, bloc par bloc, avec les correctifs affichés insérés à leur
- * place : bandeau avant la première ligne visée, lignes visées barrées, lignes
- * proposées après la dernière ligne visée.
+ * place. En mode `before-after` : bandeau avant la première ligne visée, lignes
+ * visées barrées, lignes proposées après la dernière ligne visée. En mode
+ * `applied` : bandeau et lignes proposées à la place des lignes visées, qui ne
+ * sont pas affichées. En mode `off`, `fixes` n'affiche aucun correctif.
  */
-export function buildDiffRows(fileDiff: FileDiff, numbered: NumberedFinding[], fixes: Map<string, FixDisplay>): HunkRows[] {
+export function buildDiffRows(
+  fileDiff: FileDiff,
+  numbered: NumberedFinding[],
+  fixes: Map<string, FixDisplay>,
+  mode: FixMode,
+): HunkRows[] {
   const shown = shownLineNumbers(fileDiff)
+  const removed = appliedRemovals(numbered, fixes, mode)
   const placed = numbered.filter((entry) => fixes.get(entry.finding.id)?.state === 'shown')
   const pillsByLine = new Map<number, NumberedFinding[]>()
+  const pillsByFix = new Map<string, NumberedFinding[]>()
   for (const entry of numbered) {
     if (fixes.get(entry.finding.id)?.state === 'shown') continue
-    const anchor = firstShownLine(shown, entry.startLine, entry.endLine)
-    if (anchor !== null) pillsByLine.set(anchor, [...(pillsByLine.get(anchor) ?? []), entry])
+    const anchor = findingAnchor(entry, fixes, shown, removed)
+    if (anchor?.kind === 'line') pillsByLine.set(anchor.line, [...(pillsByLine.get(anchor.line) ?? []), entry])
+    if (anchor?.kind === 'fix') {
+      const id = anchor.entry.finding.id
+      pillsByFix.set(id, [...(pillsByFix.get(id) ?? []), entry])
+    }
   }
+  const strip = (entry: NumberedFinding): DiffRow => ({
+    kind: 'fix-strip',
+    entry,
+    bar: barOf(entry.finding),
+    pills: pillsByFix.get(entry.finding.id) ?? [],
+  })
 
   return fileDiff.hunks.map((hunk) => {
     const rows: DiffRow[] = []
     for (const line of hunk.lines) {
       const lineNo = line.newNo
-      const fixStart = lineNo === null ? undefined : placed.find((entry) => entry.startLine === lineNo)
-      if (fixStart) rows.push({ kind: 'fix-strip', entry: fixStart, bar: barOf(fixStart.finding) })
-
       const fix = lineNo === null ? undefined : placed.find((entry) => lineNo >= entry.startLine && lineNo <= entry.endLine)
+
+      if (mode === 'applied' && fix) {
+        if (fix.startLine === lineNo) rows.push(strip(fix), ...proposedRows(fix))
+        continue
+      }
+
+      if (fix && fix.startLine === lineNo) rows.push(strip(fix))
       rows.push({
         kind: 'line',
         line,
@@ -166,13 +279,7 @@ export function buildDiffRows(fileDiff: FileDiff, numbered: NumberedFinding[], f
         bar: fix ? barOf(fix.finding) : lineNo === null ? null : lineBar(numbered, lineNo),
         pills: lineNo === null ? [] : (pillsByLine.get(lineNo) ?? []),
       })
-
-      const fixEnd = lineNo === null ? undefined : placed.find((entry) => entry.endLine === lineNo)
-      if (fixEnd) {
-        for (const text of splitLines(fixEnd.finding.suggestion ?? '')) {
-          rows.push({ kind: 'fix-line', text, entry: fixEnd, bar: barOf(fixEnd.finding) })
-        }
-      }
+      if (fix && fix.endLine === lineNo) rows.push(...proposedRows(fix))
     }
     return { header: hunk.header, rows }
   })

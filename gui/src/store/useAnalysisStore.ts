@@ -5,6 +5,7 @@ import { ApiError, api } from '../utils/api'
 import { copyText } from '../utils/clipboard'
 import type { AppConfig, AnalysisListing } from '../types'
 import type { HomeFilter } from '../screens/home-model'
+import type { FixMode } from '../screens/review-diff-model'
 
 /** Message bref affiché en bas de l'écran. */
 export interface Notice {
@@ -45,10 +46,13 @@ interface AnalysisState {
   homeFilter: HomeFilter
   /** Projets repliés sur l'accueil. */
   collapsedProjects: ReadonlySet<string>
+  /** Affichage des correctifs dans le diff de l'écran Revue, commun à tous les fichiers. */
+  fixMode: FixMode
 
   setConnected: (connected: boolean) => void
   setHomeFilter: (filter: HomeFilter) => void
   toggleProject: (project: string) => void
+  setFixMode: (mode: FixMode) => void
   loadConfig: () => Promise<void>
   setListing: (listing: AnalysisListing) => void
   loadAnalyses: () => Promise<void>
@@ -120,6 +124,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     notice: null,
     homeFilter: 'to_review',
     collapsedProjects: new Set(),
+    fixMode: 'before-after',
 
     setConnected: (connected) => set({ connected }),
 
@@ -131,6 +136,8 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
       else next.add(project)
       set({ collapsedProjects: next })
     },
+
+    setFixMode: (fixMode) => set({ fixMode }),
 
     loadConfig: async () => {
       try {

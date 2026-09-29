@@ -4,7 +4,17 @@ import { NOTE_STYLE, SEVERITY_STYLES } from '@shared/labels'
 import { MarginFindingCard } from '../components/MarginFindingCard'
 import { NoteCard, NoteComposer } from '../components/Notes'
 import type { ComposerTarget } from './DiffView'
-import { firstShownLine, fixAnchor, lineAnchor, type FixDisplay, type LineNote, type NumberedFinding } from './review-diff-model'
+import {
+  anchorOrder,
+  anchorSelector,
+  findingAnchor,
+  firstShownLine,
+  lineAnchorOf,
+  type FixDisplay,
+  type FixMode,
+  type LineNote,
+  type NumberedFinding,
+} from './review-diff-model'
 import { useMarginLayout } from './useMarginLayout'
 
 interface FindingsMarginProps {
@@ -12,6 +22,9 @@ interface FindingsMarginProps {
   file: FileEntry
   numbered: NumberedFinding[]
   fixes: Map<string, FixDisplay>
+  mode: FixMode
+  /** Lignes retirées du diff par un correctif appliqué, avec le constat qui les remplace. */
+  removed: ReadonlyMap<number, NumberedFinding>
   lineNotes: LineNote[]
   /** Lignes affichées par le diff ; null tant que le diff charge. */
   shownLines: ReadonlySet<number> | null
@@ -43,6 +56,8 @@ export function FindingsMargin({
   file,
   numbered,
   fixes,
+  mode,
+  removed,
   lineNotes,
   shownLines,
   composer,
@@ -62,6 +77,7 @@ export function FindingsMargin({
       analysis={analysis}
       entry={entry}
       fix={fixes.get(entry.finding.id)!}
+      mode={mode}
       onToggleFix={(value) => onToggleFix(entry.finding.id, value)}
       onAddNote={canNote ? () => setComposer({ line: noteLine }) : undefined}
     />
@@ -71,19 +87,19 @@ export function FindingsMargin({
   const aligned: AlignedItem[] = []
   const outside: ReactNode[] = []
   for (const entry of numbered) {
-    const anchorLine = firstShownLine(shown, entry.startLine, entry.endLine)
-    if (anchorLine === null) {
+    const anchor = findingAnchor(entry, fixes, shown, removed)
+    const noteLine = firstShownLine(shown, entry.startLine, entry.endLine)
+    if (anchor === null || noteLine === null) {
       outside.push(<div key={entry.finding.id}>{findingCard(entry, entry.startLine)}</div>)
       continue
     }
-    const fixShown = fixes.get(entry.finding.id)?.state === 'shown'
     aligned.push({
       key: `finding-${entry.finding.id}`,
-      anchor: fixShown ? fixAnchor(entry.finding.id) : lineAnchor(anchorLine),
-      line: fixShown ? entry.startLine - 0.5 : anchorLine,
+      anchor: anchorSelector(anchor),
+      line: anchorOrder(anchor),
       rank: entry.number,
       color: entry.finding.status === 'open' ? SEVERITY_STYLES[entry.finding.severity].color : '#3a4050',
-      content: findingCard(entry, anchorLine),
+      content: findingCard(entry, noteLine),
     })
   }
   for (const note of lineNotes) {
@@ -91,10 +107,11 @@ export function FindingsMargin({
       outside.push(<NoteCard key={note.id} note={note} />)
       continue
     }
+    const anchor = lineAnchorOf(note.location.line, removed)
     aligned.push({
       key: `note-${note.id}`,
-      anchor: lineAnchor(note.location.line),
-      line: note.location.line,
+      anchor: anchorSelector(anchor),
+      line: anchorOrder(anchor),
       rank: 1000,
       color: NOTE_STYLE.color,
       content: <NoteCard note={note} />,
@@ -103,10 +120,11 @@ export function FindingsMargin({
   const composerLine = composer?.line ?? null
   const composerAligned = composer !== null && composerLine !== null && shown.has(composerLine)
   if (composerAligned) {
+    const anchor = lineAnchorOf(composerLine, removed)
     aligned.push({
       key: 'composer',
-      anchor: lineAnchor(composerLine),
-      line: composerLine,
+      anchor: anchorSelector(anchor),
+      line: anchorOrder(anchor),
       rank: 2000,
       color: '#6d7cff',
       content: composerCard(composerLine),
