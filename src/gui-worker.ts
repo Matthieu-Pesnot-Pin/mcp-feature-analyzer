@@ -19,6 +19,7 @@ import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 import { resolveLogDir } from "./core/log-dir.js";
+import { LISTEN_HOST, allowedHostnames, checkRequest } from "./core/request-guard.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -109,6 +110,26 @@ const parentCheckInterval = setInterval(() => {
 }, 2000);
 
 const app = new Hono();
+
+// Contrôle de l'hôte appelé et des requêtes de modification, avant toute route.
+const allowedHosts = allowedHostnames(guiMode.kind === "proxy" ? guiMode.proxyUrl : undefined);
+app.use("*", async (c, next) => {
+  const rejection = checkRequest(
+    {
+      method: c.req.method,
+      host: c.req.header("host"),
+      origin: c.req.header("origin"),
+      contentType: c.req.header("content-type"),
+    },
+    allowedHosts
+  );
+  if (rejection !== null) {
+    logger.warn(`Request refused (${rejection.status}) ${c.req.method} ${c.req.path}: ${rejection.error}`);
+    return c.json({ error: rejection.error }, rejection.status);
+  }
+  await next();
+});
+
 let proxyClient: ProxyClient | null = null;
 const sseStreams = new Set<SSEStreamingApi>();
 const pendingRequests = new Map<string, (message: IpcResponse) => void>();
@@ -359,8 +380,8 @@ app.get("/*", (c, next) => {
  * l'utilisateur ouvre : via le proxy, ou directement en localhost.
  */
 function listen(port: number, publicUrl: string, isProxied: boolean) {
-  const serverInstance = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, (info) => {
-    logger.info(`Feature Analyzer GUI listening on port ${info.port}`);
+  const serverInstance = serve({ fetch: app.fetch, port, hostname: LISTEN_HOST }, (info) => {
+    logger.info(`Feature Analyzer GUI listening on port ${info.port} (${LISTEN_HOST})`);
     safeSend(
       IPCMessageSchema.parse({
         type: "READY",

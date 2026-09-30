@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import http from "node:http";
 import net from "node:net";
+import os from "node:os";
 import test, { after, before } from "node:test";
 
 import { McpClient, baseEnv, makeGitRepo, makeTempDir } from "./helpers.js";
@@ -228,4 +230,73 @@ test("an unknown API route answers 404 in JSON", async () => {
   const { status, json } = await call("GET", "nothing-here");
   assert.equal(status, 404);
   assert.match(json.error, /Unknown API route/);
+});
+
+/** Requête HTTP brute : `fetch` interdit de fixer l'en-tête Host. */
+function raw(method: string, route: string, headers: Record<string, string>, body?: string): Promise<{ status: number; json: any }> {
+  const { hostname, port } = new URL(baseUrl);
+  return new Promise((resolve, reject) => {
+    const request = http.request({ hostname, port, path: `/api/${route}`, method, headers }, (response) => {
+      let text = "";
+      response.on("data", (chunk) => (text += chunk));
+      response.on("end", () => resolve({ status: response.statusCode ?? 0, json: JSON.parse(text) }));
+    });
+    request.on("error", reject);
+    if (body !== undefined) request.write(body);
+    request.end();
+  });
+}
+
+test("the worker listens on the loopback interface only", async () => {
+  const external = Object.values(os.networkInterfaces())
+    .flat()
+    .find((address) => address !== undefined && address.family === "IPv4" && !address.internal);
+  if (external === undefined) return;
+  const { port } = new URL(baseUrl);
+  const reached = await new Promise<boolean>((resolve) => {
+    const socket = net.connect({ host: external.address, port: Number(port) });
+    socket.setTimeout(2000);
+    socket.once("connect", () => (socket.destroy(), resolve(true)));
+    socket.once("error", () => resolve(false));
+    socket.once("timeout", () => (socket.destroy(), resolve(false)));
+  });
+  assert.equal(reached, false, `the worker answered on ${external.address}:${port}`);
+});
+
+test("a request whose Host is not the local machine is refused", async () => {
+  const { status, json } = await raw("GET", "analyses", { Host: "attacker.example:80" });
+  assert.equal(status, 403);
+  assert.match(json.error, /Host "attacker\.example:80" is not allowed/);
+});
+
+test("a modification without a JSON content type is refused", async () => {
+  const body = JSON.stringify({ path: "src/app.ts", reviewed: true, baseRevision: await revision() });
+  const { status, json } = await raw("POST", `analyses/${analysisId}/files/reviewed`, { "Content-Type": "text/plain" }, body);
+  assert.equal(status, 415);
+  assert.match(json.error, /Content-Type must be application\/json/);
+});
+
+test("a modification from another origin is refused", async () => {
+  const body = JSON.stringify({ path: "src/app.ts", reviewed: true, baseRevision: await revision() });
+  const { port } = new URL(baseUrl);
+  const { status, json } = await raw(
+    "POST",
+    `analyses/${analysisId}/files/reviewed`,
+    { "Content-Type": "application/json", Host: `localhost:${port}`, Origin: "http://attacker.example" },
+    body
+  );
+  assert.equal(status, 403);
+  assert.match(json.error, /Cross-origin request refused/);
+});
+
+test("a modification from the GUI's own origin is accepted", async () => {
+  const { port } = new URL(baseUrl);
+  const body = JSON.stringify({ path: "src/app.ts", reviewed: false, baseRevision: await revision() });
+  const { status, json } = await raw(
+    "POST",
+    `analyses/${analysisId}/files/reviewed`,
+    { "Content-Type": "application/json", Host: `localhost:${port}`, Origin: `http://localhost:${port}` },
+    body
+  );
+  assert.equal(status, 200, json.error);
 });
