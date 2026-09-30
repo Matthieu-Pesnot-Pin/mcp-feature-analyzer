@@ -269,34 +269,33 @@ test("a request whose Host is not the local machine is refused", async () => {
   assert.match(json.error, /Host "attacker\.example:80" is not allowed/);
 });
 
-test("a modification without a JSON content type is refused", async () => {
-  const body = JSON.stringify({ path: "src/app.ts", reviewed: true, baseRevision: await revision() });
-  const { status, json } = await raw("POST", `analyses/${analysisId}/files/reviewed`, { "Content-Type": "text/plain" }, body);
-  assert.equal(status, 415);
-  assert.match(json.error, /Content-Type must be application\/json/);
-});
-
-test("a modification from another origin is refused", async () => {
-  const body = JSON.stringify({ path: "src/app.ts", reviewed: true, baseRevision: await revision() });
+async function markReviewed(reviewed: boolean, headers: Record<string, string>) {
   const { port } = new URL(baseUrl);
-  const { status, json } = await raw(
+  const body = JSON.stringify({ path: "src/app.ts", reviewed, baseRevision: await revision() });
+  return raw(
     "POST",
     `analyses/${analysisId}/files/reviewed`,
-    { "Content-Type": "application/json", Host: `localhost:${port}`, Origin: "http://attacker.example" },
+    { "Content-Type": "application/json", Host: `localhost:${port}`, ...headers },
     body
   );
-  assert.equal(status, 403);
-  assert.match(json.error, /Cross-origin request refused/);
+}
+
+test("a modification sent from another site is refused", async () => {
+  const bySecFetch = await markReviewed(true, { Origin: "http://localhost:3000", "Sec-Fetch-Site": "cross-site" });
+  assert.equal(bySecFetch.status, 403);
+  assert.match(bySecFetch.json.error, /Cross-site request refused/);
+  const byOrigin = await markReviewed(true, { Origin: "http://attacker.example" });
+  assert.equal(byOrigin.status, 403);
+  assert.match(byOrigin.json.error, /Cross-site request refused/);
 });
 
-test("a modification from the GUI's own origin is accepted", async () => {
-  const { port } = new URL(baseUrl);
-  const body = JSON.stringify({ path: "src/app.ts", reviewed: false, baseRevision: await revision() });
-  const { status, json } = await raw(
-    "POST",
-    `analyses/${analysisId}/files/reviewed`,
-    { "Content-Type": "application/json", Host: `localhost:${port}`, Origin: `http://localhost:${port}` },
-    body
-  );
-  assert.equal(status, 200, json.error);
+test("a modification relayed by the proxy, whose origin differs from the worker's Host, is accepted", async () => {
+  const local = await markReviewed(true, { Origin: "http://localhost:3000", "Sec-Fetch-Site": "same-origin" });
+  assert.equal(local.status, 200, local.json.error);
+  const external = Object.values(os.networkInterfaces())
+    .flat()
+    .find((address) => address !== undefined && address.family === "IPv4" && !address.internal);
+  const lanOrigin = `http://${external?.address ?? "127.0.0.1"}:3000`;
+  const fromLan = await markReviewed(false, { Origin: lanOrigin });
+  assert.equal(fromLan.status, 200, fromLan.json.error);
 });

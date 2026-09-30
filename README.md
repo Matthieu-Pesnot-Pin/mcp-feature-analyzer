@@ -259,11 +259,11 @@ Le serveur lance `git` sans shell, uniquement en lecture (`rev-parse`, `diff`, `
 
 ### Exposition réseau de la GUI
 
-La GUI montre le code des dépôts analysés et ses retours sont lus par l'agent : elle n'est joignable que depuis la machine elle-même (`src/core/request-guard.ts`).
+La GUI montre le code des dépôts analysés et ses retours sont lus par l'agent : elle n'est joignable que depuis la machine elle-même, avec la garde de requêtes de `@imenam/mcp-gui-interface` (`honoGuiGuard`).
 
-- Le worker écoute sur `127.0.0.1` uniquement. Le proxy le joint par `localhost` ; l'accès depuis un autre poste passe par le proxy et son authentification.
-- L'en-tête `Host` doit désigner la boucle locale, la machine (nom ou adresse) ou l'hôte du proxy : une page tierce qui fait pointer son propre domaine vers `127.0.0.1` est refusée (`403`).
-- Une requête de modification exige `Content-Type: application/json` (`415` sinon) et, quand le navigateur envoie un en-tête `Origin`, la même origine que l'hôte appelé (`403` sinon) : une page web ouverte dans le navigateur ne peut pas soumettre de revue à la place du relecteur.
+- Le worker écoute sur `127.0.0.1` uniquement (`GUI_LISTEN_HOST`). L'accès depuis un autre poste passe par le proxy ou le gateway manager et leur authentification ; tous deux relaient vers `localhost:<port>`.
+- L'en-tête `Host` doit désigner la boucle locale : une page tierce qui fait pointer son propre domaine vers `127.0.0.1` est refusée (`403`).
+- Une requête de modification venant d'un autre site est refusée (`403`) : `Sec-Fetch-Site` doit valoir `same-origin` ou `none` et, en son absence, l'hôte de l'`Origin` doit être la machine ou le proxy. Une page web ouverte dans le navigateur ne peut pas soumettre de revue à la place du relecteur.
 
 ---
 
