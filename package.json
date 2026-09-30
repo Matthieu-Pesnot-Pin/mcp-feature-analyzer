@@ -1,6 +1,6 @@
 {
   "name": "@imenam/mcp-feature-analyzer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server that helps a human review a feature developed by an AI agent: summary, changed files, frozen diff, findings ranked by severity, diagrams, and structured feedback the agent reads back.",
   "main": "dist/src/index.js",
   "scripts": {
