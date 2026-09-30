@@ -54,17 +54,26 @@ export function parseHash(hash: string): Route {
   return { name: 'not_found', hash }
 }
 
+/**
+ * Adresse de la page courante suivie de `hash`. Un lien `#/…` seul serait
+ * résolu contre le `<base href>`, qui diffère de l'adresse de la page quand un
+ * relais (gateway manager, `/_gui/…`) la sert sous un autre chemin.
+ */
+function inPage(hash: string): string {
+  return `${window.location.pathname}${window.location.search}${hash}`
+}
+
 /** Liens vers chaque écran ; le chemin d'un fichier est encodé en un seul segment. */
 export const hrefs = {
-  home: () => '#/',
+  home: () => inPage('#/'),
   feature: (id: string, tab: FeatureTab = 'summary') =>
-    tab === 'summary' ? `#/${encodeURIComponent(id)}` : `#/${encodeURIComponent(id)}/${tab}`,
+    inPage(tab === 'summary' ? `#/${encodeURIComponent(id)}` : `#/${encodeURIComponent(id)}/${tab}`),
   review: (id: string, path?: string | null, line?: number | null) => {
     const base = `#/${encodeURIComponent(id)}/review`
-    if (!path) return base
-    return `${base}/${encodeURIComponent(path)}${line ? `?line=${line}` : ''}`
+    if (!path) return inPage(base)
+    return inPage(`${base}/${encodeURIComponent(path)}${line ? `?line=${line}` : ''}`)
   },
-  finish: (id: string) => `#/${encodeURIComponent(id)}/finish`,
+  finish: (id: string) => inPage(`#/${encodeURIComponent(id)}/finish`),
 }
 
 /** Change d'écran ; `replace` remplace l'entrée courante de l'historique. */
@@ -72,7 +81,7 @@ export function navigate(href: string, options: { replace?: boolean } = {}) {
   if (options.replace) {
     window.location.replace(href)
   } else {
-    window.location.hash = href
+    window.location.assign(href)
   }
 }
 
