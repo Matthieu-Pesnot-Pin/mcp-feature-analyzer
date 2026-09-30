@@ -1,10 +1,11 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "child_process";
+import { execFileSync, spawn, spawnSync, type ChildProcessWithoutNullStreams } from "child_process";
 import { fileURLToPath } from "url";
 import { AnalysisStore } from "../src/core/analysis-store.js";
 import type { ComputedSnapshot } from "../src/core/git.js";
+import type { ExecStep, Run, StepResult } from "../src/core/gateway-exec.js";
 import type { Analysis, Finding } from "../shared/schemas/analysis.schema.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -131,10 +132,47 @@ export function baseEnv(): Record<string, string | undefined> {
     "MCP_FEATURE_ANALYZER_DATA_DIR",
     "MCP_DATA_DIR",
     "MCP_LOG_DIR",
+    "MCP_FEATURE_ANALYZER_ROLE",
   ]) {
     delete env[key];
   }
   return env;
+}
+
+/** Taille maximale de sortie conservée par le relais agent de mcp-http-gateway. */
+const RELAY_MAX_OUTPUT_BYTES = 1024 * 1024;
+
+function relayOutput(bytes: Buffer): string {
+  if (bytes.length <= RELAY_MAX_OUTPUT_BYTES) return bytes.toString("utf8");
+  return `${bytes.subarray(0, RELAY_MAX_OUTPUT_BYTES).toString("utf8")}\n[sortie tronquée à ${RELAY_MAX_OUTPUT_BYTES} octets]`;
+}
+
+/**
+ * Exécute les étapes comme le relais agent de mcp-http-gateway : dans l'ordre, sans
+ * shell, `cwd` résolu depuis `root`, arrêt à la première étape en échec, sorties
+ * tronquées au-delà de 1 Mio. `rounds` compte les demandes reçues.
+ */
+export function fakeRelay(root: string): { run: Run; rounds: () => number } {
+  let rounds = 0;
+  const run: Run = async (steps: ExecStep[]) => {
+    rounds++;
+    const results: StepResult[] = [];
+    for (const step of steps) {
+      const child = spawnSync(step.command, step.args, {
+        cwd: path.resolve(root, step.cwd ?? "."),
+        env: { ...process.env, ...step.env },
+        maxBuffer: 64 * 1024 * 1024,
+        windowsHide: true,
+      });
+      const result: StepResult = child.error
+        ? { code: null, stdout: "", stderr: "", error: `lancement impossible : ${child.error.message}` }
+        : { code: child.status, stdout: relayOutput(child.stdout), stderr: relayOutput(child.stderr) };
+      results.push(result);
+      if (result.code !== 0) break;
+    }
+    return results;
+  };
+  return { run, rounds: () => rounds };
 }
 
 /** Exécute git dans `cwd` et renvoie stdout. */

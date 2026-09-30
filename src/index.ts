@@ -13,7 +13,10 @@ import { resolveDataDir } from "./core/data-dir.js";
 import { resolveLogDir } from "./core/log-dir.js";
 import { AnalysisStore } from "./core/analysis-store.js";
 import { AnalysisError, NotFoundError, RevisionConflictError } from "./core/errors.js";
-import { DEFAULT_HEAD_REF } from "./core/git.js";
+import { DEFAULT_HEAD_REF, localRepo, type RepoAccess } from "./core/git.js";
+import { agentRepo } from "./core/agent-repo.js";
+import { EXEC_ARG, handleAgentExec } from "./core/gateway-exec.js";
+import { resolveRole, type Role } from "./core/role.js";
 import { addNote, deleteNote, setFileReviewed, setFindingStatus, submitReview } from "./core/review-actions.js";
 import { GUI_REQUEST_TYPES, IPCMessageSchema, type IPCMessage, type IpcErrorKind } from "../shared/schemas/ipc.schema.js";
 import {
@@ -87,6 +90,15 @@ function getConfig() {
 }
 
 getConfig();
+
+let role: Role;
+try {
+  role = resolveRole();
+} catch (err: any) {
+  logger.error(err.message);
+  console.error(err.message);
+  process.exit(1);
+}
 
 const dataDir = resolveDataDir(rootDir);
 const store = new AnalysisStore(dataDir);
@@ -412,7 +424,13 @@ const TOOLS = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        repo_path: { type: "string", description: "Absolute path of the root of the git repository." },
+        repo_path: {
+          type: "string",
+          description:
+            role === "remote"
+              ? "Absolute path of the root of the git repository on your machine: git runs there, through the agent relay of mcp-http-gateway."
+              : "Absolute path of the root of the git repository.",
+        },
         project: { type: "string", description: PROJECT_DOC },
         title: { type: "string", description: "Short title of the feature, e.g. \"OAuth token refresh\"." },
         mode: {
@@ -685,9 +703,23 @@ function afterMutation({ result, analysisId }: MutationResult): ToolResult {
   return { ...result, content: [{ type: "text", text: result.content[0].text + guiHint(analysisId) }] };
 }
 
+/**
+ * Donne à `fn` l'accès aux dépôts du rôle : git local en `standalone` ; en `remote`,
+ * commandes exécutées sur la machine de l'agent par le relais, qui annonce cette
+ * possibilité dans l'argument `exec`.
+ */
+function withRepoAccess(
+  exec: unknown,
+  fn: (repoFor: (repoPath: string) => RepoAccess) => Promise<ToolResult>
+): Promise<ToolResult> {
+  if (role === "standalone") return fn(localRepo);
+  return handleAgentExec(exec, (run) => fn((repoPath) => agentRepo(repoPath, run)));
+}
+
 server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
   const { name, arguments: args } = request.params;
-  const params = (args ?? {}) as Record<string, unknown>;
+  // L'argument réservé du relais agent accompagne tous les appels d'une route listée dans GATEWAY_EXEC_ROUTES.
+  const { [EXEC_ARG]: exec, ...params } = (args ?? {}) as Record<string, unknown>;
 
   try {
     switch (name) {
@@ -700,11 +732,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
       case "get_review_feedback":
         return getReviewFeedback(store, params);
 
-      case "create_analysis": {
-        const mutation = await createAnalysis(store, params);
-        notifyAnalysesListChanged();
-        return afterMutation(mutation);
-      }
+      case "create_analysis":
+        return await withRepoAccess(exec, async (repoFor) => {
+          const mutation = await createAnalysis(store, params, repoFor);
+          notifyAnalysesListChanged();
+          return afterMutation(mutation);
+        });
       case "update_analysis":
         return afterMutation(updateAnalysis(store, params));
       case "add_findings":
@@ -718,7 +751,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
       case "delete_diagram":
         return afterMutation(deleteDiagram(store, params));
       case "refresh_analysis":
-        return afterMutation(await refreshAnalysis(store, params));
+        return await withRepoAccess(exec, async (repoFor) => afterMutation(await refreshAnalysis(store, params, repoFor)));
       case "delete_analysis": {
         const { result, analysisId } = deleteAnalysis(store, params);
         notifyAnalysisChanged(analysisId);
@@ -740,7 +773,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  logger.info(`MCP Server connected and running on stdio (data dir: ${dataDir})`);
+  logger.info(`MCP Server connected and running on stdio (role: ${role}, data dir: ${dataDir})`);
   launchGUI();
 }
 

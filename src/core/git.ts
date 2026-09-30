@@ -39,6 +39,25 @@ export interface ComputedSnapshot {
 }
 
 /**
+ * Accès au dépôt sur la machine qui le porte : git et copie de travail.
+ * Un contenu `null` dépasse ce que l'accès sait transférer.
+ */
+export interface RepoAccess {
+  /** Vérifie que le chemin du dépôt désigne la racine d'un dépôt git. */
+  assertRepoRoot(): Promise<void>;
+  /** Résout une ref en sha de commit ; erreur explicite si elle est inconnue. */
+  resolveCommit(ref: string, role: string): Promise<string>;
+  /** Sortie de `git diff` (DIFF_ARGS) pour `range`, par ex. `["<base>...<head>"]` ou `["HEAD"]`. */
+  diff(range: string[]): Promise<string>;
+  /** Contenu des fichiers `paths` dans le commit `commit`. */
+  readCommitFiles(commit: string, paths: string[]): Promise<Map<string, Buffer | null>>;
+  /** Fichiers non suivis et non ignorés, chemins POSIX relatifs au dépôt. */
+  untrackedFiles(): Promise<string[]>;
+  /** Contenu des fichiers `paths` de la copie de travail ; un lien symbolique donne sa cible. */
+  readWorkingFiles(paths: string[]): Promise<Map<string, Buffer | null>>;
+}
+
+/**
  * Lance git sans shell, dans `cwd`, et renvoie stdout (texte UTF-8 ou octets bruts).
  * `input` est écrit sur l'entrée standard de la commande.
  */
@@ -101,9 +120,7 @@ async function assertRepoRoot(repoPath: string): Promise<void> {
 
 /** Résout une ref en sha de commit ; erreur explicite si elle est inconnue. */
 async function resolveCommit(repoPath: string, ref: string, role: string): Promise<string> {
-  if (ref.startsWith("-")) {
-    throw new GitError(`Invalid ${role} ref "${ref}": a ref cannot start with "-".`);
-  }
+  assertRefShape(ref, role);
   try {
     return (await runGit(repoPath, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], "utf-8")).trim();
   } catch {
@@ -113,7 +130,7 @@ async function resolveCommit(repoPath: string, ref: string, role: string): Promi
   }
 }
 
-const DIFF_ARGS = [
+export const DIFF_ARGS = [
   "-c",
   "diff.noprefix=false",
   "-c",
@@ -129,7 +146,7 @@ const DIFF_ARGS = [
 ];
 
 /** Vrai si le contenu contient un octet nul dans ses 8000 premiers octets (même règle que git). */
-function looksBinary(content: Buffer): boolean {
+export function looksBinary(content: Buffer): boolean {
   return content.subarray(0, 8000).includes(0);
 }
 
@@ -156,9 +173,9 @@ function readWorkingFile(repoPath: string, filePath: string): Buffer {
   return fs.readFileSync(absolute);
 }
 
-/** Texte conservé dans le snapshot, ou null quand le contenu dépasse MAX_SNAPSHOT_FILE_BYTES. */
-function snapshotText(content: Buffer): string | null {
-  if (content.length > MAX_SNAPSHOT_FILE_BYTES) return null;
+/** Texte conservé dans le snapshot, ou null quand le contenu est absent ou dépasse MAX_SNAPSHOT_FILE_BYTES. */
+function snapshotText(content: Buffer | null | undefined): string | null {
+  if (content == null || content.length > MAX_SNAPSHOT_FILE_BYTES) return null;
   return content.toString("utf-8");
 }
 
@@ -184,8 +201,8 @@ function toEntry(parsed: ParsedFileDiff, newContent: string | null): { entry: Fi
  * quel que soit leur nombre : `ls-tree` donne l'objet de chaque chemin, puis
  * `cat-file --batch` lit tous les objets d'un coup.
  */
-async function readCommitFiles(repoPath: string, commit: string, paths: string[]): Promise<Map<string, Buffer>> {
-  const contents = new Map<string, Buffer>();
+async function readCommitFiles(repoPath: string, commit: string, paths: string[]): Promise<Map<string, Buffer | null>> {
+  const contents = new Map<string, Buffer | null>();
   if (paths.length === 0) return contents;
 
   const blobs = new Map<string, string>();
@@ -220,38 +237,57 @@ async function readCommitFiles(repoPath: string, commit: string, paths: string[]
   return contents;
 }
 
-async function branchSnapshot(repoPath: string, base: string, head: string) {
-  const baseCommit = await resolveCommit(repoPath, base, "base");
-  const headCommit = await resolveCommit(repoPath, head, "head");
-  const output = await runGit(repoPath, [...DIFF_ARGS, `${baseCommit}...${headCommit}`, "--"], "utf-8");
+/** Accès direct au dépôt, sur la machine de ce serveur. */
+export function localRepo(repoPath: string): RepoAccess {
+  return {
+    assertRepoRoot: () => assertRepoRoot(repoPath),
+    resolveCommit: (ref, role) => resolveCommit(repoPath, ref, role),
+    diff: (range) => runGit(repoPath, [...DIFF_ARGS, ...range, "--"], "utf-8"),
+    readCommitFiles: (commit, paths) => readCommitFiles(repoPath, commit, paths),
+    untrackedFiles: async () =>
+      (await runGit(repoPath, ["ls-files", "--others", "--exclude-standard", "-z"], "utf-8"))
+        .split("\0")
+        .filter((entry) => entry !== "")
+        .map(toPosixPath),
+    readWorkingFiles: async (paths) => new Map(paths.map((filePath) => [filePath, readWorkingFile(repoPath, filePath)])),
+  };
+}
+
+/** Vérifie une ref fournie par l'agent avant de la passer à git. */
+export function assertRefShape(ref: string, role: string): void {
+  if (ref.startsWith("-")) {
+    throw new GitError(`Invalid ${role} ref "${ref}": a ref cannot start with "-".`);
+  }
+}
+
+async function branchSnapshot(repo: RepoAccess, base: string, head: string) {
+  const baseCommit = await repo.resolveCommit(base, "base");
+  const headCommit = await repo.resolveCommit(head, "head");
+  const output = await repo.diff([`${baseCommit}...${headCommit}`]);
 
   const parsedFiles = parseUnifiedDiff(output);
   const withContent = parsedFiles.filter((parsed) => parsed.status !== "deleted" && !parsed.binary).map((parsed) => parsed.path);
-  const contents = await readCommitFiles(repoPath, headCommit, withContent);
-  const results = parsedFiles.map((parsed) => {
-    const content = contents.get(parsed.path);
-    return toEntry(parsed, content === undefined ? null : snapshotText(content));
-  });
+  const contents = await repo.readCommitFiles(headCommit, withContent);
+  const results = parsedFiles.map((parsed) => toEntry(parsed, snapshotText(contents.get(parsed.path))));
   return { baseCommit, headCommit, results };
 }
 
-async function workingTreeSnapshot(repoPath: string) {
-  const baseCommit = await resolveCommit(repoPath, "HEAD", "base");
-  const output = await runGit(repoPath, [...DIFF_ARGS, "HEAD", "--"], "utf-8");
+async function workingTreeSnapshot(repo: RepoAccess) {
+  const baseCommit = await repo.resolveCommit("HEAD", "base");
+  const parsedFiles = parseUnifiedDiff(await repo.diff(["HEAD"]));
+  const withContent = parsedFiles.filter((parsed) => parsed.status !== "deleted" && !parsed.binary).map((parsed) => parsed.path);
+  const contents = await repo.readWorkingFiles(withContent);
+  const results = parsedFiles.map((parsed) => toEntry(parsed, snapshotText(contents.get(parsed.path))));
 
-  const results: Array<{ entry: FileEntry; diff: FileDiff }> = [];
-  for (const parsed of parseUnifiedDiff(output)) {
-    const content =
-      parsed.status !== "deleted" && !parsed.binary ? snapshotText(readWorkingFile(repoPath, parsed.path)) : null;
-    results.push(toEntry(parsed, content));
-  }
-
-  const untracked = (await runGit(repoPath, ["ls-files", "--others", "--exclude-standard", "-z"], "utf-8"))
-    .split("\0")
-    .filter((entry) => entry !== "")
-    .map(toPosixPath);
+  const untracked = await repo.untrackedFiles();
+  const untrackedContents = await repo.readWorkingFiles(untracked);
   for (const filePath of untracked) {
-    const raw = readWorkingFile(repoPath, filePath);
+    const raw = untrackedContents.get(filePath);
+    if (raw == null) {
+      throw new GitError(
+        `The untracked file "${filePath}" is too large to be transferred from the repository's machine. Add it to .gitignore or remove it, then try again.`
+      );
+    }
     const binary = looksBinary(raw);
     const content = binary ? null : snapshotText(raw);
     const lines = binary ? [] : splitLines(raw.toString("utf-8"));
@@ -267,15 +303,18 @@ async function workingTreeSnapshot(repoPath: string) {
 }
 
 /**
- * Calcule le snapshot d'une analyse avec git.
+ * Calcule le snapshot d'une analyse avec git, par `repo` (accès local par défaut).
  * - `branch` : diff `base...head` (head vaut `HEAD` par défaut), contenu lu dans le commit de tête ;
  * - `working_tree` : diff de HEAD vers la copie de travail, index compris, fichiers non suivis
  *   présentés comme ajoutés, contenu lu sur disque.
  * Les fichiers sont triés par chemin ; `reviewed` vaut false partout.
  */
-export async function computeSnapshot(request: SnapshotRequest): Promise<ComputedSnapshot> {
+export async function computeSnapshot(
+  request: SnapshotRequest,
+  repo: RepoAccess = localRepo(request.repoPath)
+): Promise<ComputedSnapshot> {
   const { repoPath, mode } = request;
-  await assertRepoRoot(repoPath);
+  await repo.assertRepoRoot();
 
   let base: string;
   let head: string | null;
@@ -285,7 +324,7 @@ export async function computeSnapshot(request: SnapshotRequest): Promise<Compute
     if (!requestedBase) throw new GitError(`"base" is required in branch mode: give the ref the feature branched from.`);
     base = requestedBase;
     head = request.head?.trim() || DEFAULT_HEAD_REF;
-    computed = await branchSnapshot(repoPath, base, head);
+    computed = await branchSnapshot(repo, base, head);
   } else if (mode === "working_tree") {
     if (request.head != null && request.head.trim() !== "") {
       throw new GitError(`"head" is not accepted in working_tree mode: the working tree is compared against HEAD.`);
@@ -295,7 +334,7 @@ export async function computeSnapshot(request: SnapshotRequest): Promise<Compute
     }
     base = "HEAD";
     head = null;
-    computed = await workingTreeSnapshot(repoPath);
+    computed = await workingTreeSnapshot(repo);
   } else {
     throw new GitError(`Unknown mode "${String(mode)}": use "branch" or "working_tree".`);
   }

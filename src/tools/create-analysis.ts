@@ -1,5 +1,5 @@
 import type { AnalysisStore } from "../core/analysis-store.js";
-import { computeSnapshot } from "../core/git.js";
+import { computeSnapshot, localRepo, type RepoAccess } from "../core/git.js";
 import { ANALYSIS_MODES } from "../../shared/schemas/analysis.schema.js";
 import { fileLine, fileTotals, snapshotLabel } from "./format.js";
 import {
@@ -14,8 +14,12 @@ import {
 
 const FIELDS = ["repo_path", "project", "title", "mode", "base", "head", "request_text", "request_source"] as const;
 
-/** Calcule et fige le diff du dépôt, puis crée l'analyse. */
-export async function createAnalysis(store: AnalysisStore, args: Args): Promise<MutationResult> {
+/** Calcule et fige le diff du dépôt, lu par `repoFor(repo_path)` (git local par défaut), puis crée l'analyse. */
+export async function createAnalysis(
+  store: AnalysisStore,
+  args: Args,
+  repoFor: (repoPath: string) => RepoAccess = localRepo
+): Promise<MutationResult> {
   rejectUnknownFields(args, FIELDS);
   const repoPath = requireString(args, "repo_path");
   const project = requireString(args, "project");
@@ -29,7 +33,7 @@ export async function createAnalysis(store: AnalysisStore, args: Args): Promise<
     throw new Error(`"request_source" describes the initial request: give "request_text" too.`);
   }
 
-  const computed = await computeSnapshot({ repoPath, mode, base, head });
+  const computed = await computeSnapshot({ repoPath, mode, base, head }, repoFor(repoPath));
   const analysis = store.create(
     { project, title, request: requestText === undefined ? null : { text: requestText, source: requestSource ?? null } },
     computed

@@ -20,7 +20,7 @@ Le serveur n'appelle aucun LLM et n'écrit jamais dans le dépôt : il lit git, 
 npm install -g @imenam/mcp-feature-analyzer
 ```
 
-Ou directement via `npx`, sans installation. Le serveur communique en JSON-RPC sur stdio : il est lancé par le client MCP (Claude Code, par exemple), pas à la main. Il doit tourner sur la machine qui héberge le dépôt, puisqu'il y exécute `git` lui-même.
+Ou directement via `npx`, sans installation. Le serveur communique en JSON-RPC sur stdio : il est lancé par le client MCP (Claude Code, par exemple), pas à la main. Par défaut, il tourne sur la machine qui héberge le dépôt et y exécute `git` lui-même ; derrière un gateway, sur une autre machine, voir [Derrière mcp-http-gateway](#derrière-mcp-http-gateway).
 
 ### Déclaration dans un projet
 
@@ -82,8 +82,49 @@ Elles se renseignent dans le champ `env` de `.mcp.json`, ou dans un fichier `.en
 | `APP_GROUP` | Section repliable du dashboard du proxy (facultatif). |
 | `MCP_FEATURE_ANALYZER_DATA_DIR` | Répertoire de stockage des analyses. À défaut : `MCP_DATA_DIR`, puis `<package>/.feature-analyzer-data`. |
 | `MCP_LOG_DIR` | Répertoire des logs. Défaut : `<données>/logs`. Lu au démarrage, depuis la déclaration du serveur. |
+| `MCP_FEATURE_ANALYZER_ROLE` | `standalone` (défaut) : `git` s'exécute sur la machine du serveur. `remote` : le serveur est derrière mcp-http-gateway et fait exécuter `git` sur la machine de l'agent. Une autre valeur fait refuser le démarrage. Lu au démarrage. |
 
 `PROXY_URL` et `APP_PORT` s'excluent : `PROXY_URL` prime si les deux sont renseignés. **Si aucune des deux n'est définie, la GUI est désactivée** ; les outils MCP continuent de fonctionner. Un `APP_PORT` qui n'est pas un entier entre 1 et 65535 désactive aussi la GUI : le worker s'arrête en écrivant la raison sur sa sortie d'erreur.
+
+### Derrière mcp-http-gateway
+
+Placé dans un gateway ([mcp-http-gateway](https://www.npmjs.com/package/@imenam/mcp-http-gateway), éventuellement piloté par le gateway manager), le serveur tourne sur la machine du gateway et n'y trouve pas les dépôts de l'agent. En rôle `remote`, `create_analysis` et `refresh_analysis` font exécuter `git` et la lecture des fichiers **sur la machine de l'agent**, par son relais `mcp-http-gateway --mcp` (convention `_gateway_exec`). Le snapshot figé est ensuite conservé côté gateway, et les autres outils comme la GUI n'ont plus besoin du dépôt.
+
+Côté gateway, dans le bloc `env` du serveur :
+
+```json
+{
+  "MCP_SERVER_ROUTE": "/feature-analyzer",
+  "MCP_FEATURE_ANALYZER_ROLE": "remote"
+}
+```
+
+Côté agent, la route doit figurer dans la liste blanche d'exécution du relais :
+
+```json
+{
+  "mcpServers": {
+    "gateway": {
+      "command": "npx",
+      "args": ["-y", "@imenam/mcp-http-gateway", "--mcp"],
+      "env": {
+        "GATEWAY_URL": "https://gateway.example.com",
+        "GATEWAY_TOKEN": "…",
+        "GATEWAY_EXEC_ROUTES": "/feature-analyzer"
+      }
+    }
+  }
+}
+```
+
+- `repo_path` est le chemin absolu de la racine du dépôt **sur la machine de l'agent**. `git` et `node` doivent y être dans le `PATH` : `node` lit les fichiers de la copie de travail.
+- Sans `GATEWAY_EXEC_ROUTES`, `create_analysis` et `refresh_analysis` échouent en indiquant la route à ajouter ; aucun `git` n'est lancé côté gateway.
+- Le relais limite la sortie de chaque commande à 1 Mio. Le diff est donc demandé fichier par fichier :
+  - le diff d'un seul fichier qui dépasse 1 Mio fait échouer l'analyse, avec le nom du fichier ;
+  - un fichier modifié de plus de 1 Mio est conservé sans contenu, comme en local ;
+  - un fichier non suivi de plus de 1 Mio fait échouer l'analyse en mode `working_tree`.
+- Les commandes sont envoyées au relais par paquets de 25. Le relais accepte 50 allers-retours par appel d'outil, soit environ 550 fichiers modifiés par analyse.
+- L'endpoint natif `/mcp` du gateway n'a pas de relais agent : `create_analysis` et `refresh_analysis` n'y fonctionnent pas en rôle `remote`.
 
 ---
 
@@ -248,14 +289,14 @@ Toute modification, qu'elle vienne d'un outil ou de la GUI, passe par `AnalysisS
 
 ### Les deux modes de diff
 
-- **`branch`** — `git diff --find-renames <base>...<head>` : ce que la branche apporte depuis son point de départ. `head` vaut `HEAD` par défaut. Le contenu des fichiers est lu dans le commit de tête, en deux commandes git quel que soit le nombre de fichiers (`ls-tree`, puis `cat-file --batch`).
+- **`branch`** — `git diff --find-renames <base>...<head>` : ce que la branche apporte depuis son point de départ. `head` vaut `HEAD` par défaut. Le contenu des fichiers est lu dans le commit de tête : en local, en deux commandes git quel que soit le nombre de fichiers (`ls-tree`, puis `cat-file --batch`) ; en rôle `remote`, par un `cat-file blob <commit>:<chemin>` par fichier.
 - **`working_tree`** — `git diff --find-renames HEAD` : les modifications non commitées, index compris, plus les fichiers non suivis (hors `.gitignore`), présentés comme ajoutés. Le contenu est lu sur disque.
 
 Le diff est **figé** à la création. `refresh_analysis` le recalcule : un fichier revu dont le diff n'a pas changé reste revu, les autres repassent à revoir ; un constat ouvert dont les lignes ne correspondent plus au texte copié passe à « obsolète », un constat obsolète dont les lignes correspondent de nouveau redevient ouvert ; la revue repart vierge.
 
 ### Rien n'est écrit dans le dépôt
 
-Le serveur lance `git` sans shell, uniquement en lecture (`rev-parse`, `diff`, `ls-tree`, `cat-file`, `ls-files`), et lit les fichiers de la copie de travail. Les correctifs proposés ne sont qu'affichés et transmis dans le prompt. `repo_path` doit être la racine absolue d'un dépôt git ; tout autre chemin est refusé avec un message explicite.
+Le serveur lance `git` sans shell, uniquement en lecture (`rev-parse`, `diff`, `ls-tree`, `cat-file`, `ls-files`), et lit les fichiers de la copie de travail. En rôle `remote`, ce sont les mêmes commandes `git`, plus un `node` qui écrit un fichier sur sa sortie standard, exécutées par le relais agent dans `repo_path`, avec `GIT_LITERAL_PATHSPECS=1` pour qu'un nom de fichier ne soit jamais lu comme un motif. Les correctifs proposés ne sont qu'affichés et transmis dans le prompt. `repo_path` doit être la racine absolue d'un dépôt git ; tout autre chemin est refusé avec un message explicite.
 
 ### Exposition réseau de la GUI
 
@@ -281,13 +322,13 @@ cd gui && npm run lint   # oxlint
 | `src/index.ts` | Maître MCP : déclaration des outils, `instructions`, IPC, lancement de la GUI. |
 | `src/gui-worker.ts` | Worker GUI : Hono, REST, SSE, fichiers statiques, proxy. |
 | `src/tools/` | Un fichier par outil, `(store, args) => résultat`. |
-| `src/core/` | Stockage, git, parseur de diff, emplacements, invariants, recalcul, actions du relecteur. |
+| `src/core/` | Stockage, git (local : `git.ts` ; machine de l'agent : `agent-repo.ts`, `gateway-exec.ts`), rôle, parseur de diff, emplacements, invariants, recalcul, actions du relecteur. |
 | `src/cli/setup-mcp.ts` | Commande `--claude-setup-mcp`. |
 | `shared/` | Code commun au serveur et à la GUI. |
 | `gui/` | Application Vite + React 19 + zustand, CSS écrit à la main. |
 | `test/` | Tests `node --test`. |
 
-La suite comprend des tests unitaires (parseur de diff, git sur de vrais dépôts temporaires, store, invariants, emplacements, recalcul, prompt, placement des schémas), des tests de chaque outil, et deux suites qui lancent un vrai serveur sur stdio :
+La suite comprend des tests unitaires (parseur de diff, git sur de vrais dépôts temporaires, en local et à travers un relais agent simulé, store, invariants, emplacements, recalcul, prompt, placement des schémas), des tests de chaque outil, et deux suites qui lancent un vrai serveur sur stdio :
 
 - `test/gui-api.test.ts` — la GUI en mode standalone sur un port libre : API REST et boucle agent → GUI → agent. Elle ne dépend de rien d'extérieur.
 - `test/e2e.test.ts` — l'enregistrement auprès du proxy (`E2E_PROXY_URL`, défaut `http://localhost:3000`), la balise `<base>`, le SSE et `reconnect_gui`. Sans proxy joignable, elle est ignorée plutôt qu'en échec.

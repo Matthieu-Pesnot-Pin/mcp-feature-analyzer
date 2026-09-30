@@ -1,23 +1,25 @@
 import type { AnalysisStore } from "../core/analysis-store.js";
-import { computeSnapshot } from "../core/git.js";
+import { computeSnapshot, localRepo, type RepoAccess } from "../core/git.js";
 import { snapshotLabel } from "./format.js";
 import { rejectUnknownFields, requireString, textResult, type Args, type MutationResult } from "./types.js";
 
 /**
- * Recalcule le snapshot avec le dépôt, le mode et les refs de l'analyse ; la
- * revue repart à l'état `pending` sans décision, sélection ni prompt.
+ * Recalcule le snapshot avec le dépôt, le mode et les refs de l'analyse, lus par
+ * `repoFor` (git local par défaut) ; la revue repart à l'état `pending` sans décision, sélection ni prompt.
  */
-export async function refreshAnalysis(store: AnalysisStore, args: Args): Promise<MutationResult> {
+export async function refreshAnalysis(
+  store: AnalysisStore,
+  args: Args,
+  repoFor: (repoPath: string) => RepoAccess = localRepo
+): Promise<MutationResult> {
   rejectUnknownFields(args, ["analysis_id"]);
   const id = requireString(args, "analysis_id");
   const current = store.get(id);
 
-  const computed = await computeSnapshot({
-    repoPath: current.repoPath,
-    mode: current.mode,
-    base: current.base,
-    head: current.head,
-  });
+  const computed = await computeSnapshot(
+    { repoPath: current.repoPath, mode: current.mode, base: current.base, head: current.head },
+    repoFor(current.repoPath)
+  );
   const { analysis, stats, previousReview } = store.replaceSnapshot(id, "agent", computed);
 
   const outdated = analysis.findings.filter((finding) => finding.status === "outdated");
