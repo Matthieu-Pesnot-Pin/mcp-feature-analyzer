@@ -35,8 +35,11 @@ export const addProject: MigrationStep = (doc) => {
 /** Ajoute `overview` à null : l'analyse n'a pas encore de vue d'ensemble. */
 export const addOverview: MigrationStep = (doc) => (doc.overview !== undefined ? null : { ...doc, overview: null });
 
+/** Ajoute `explanations` vide : l'analyse n'a pas encore d'explication. */
+export const addExplanations: MigrationStep = (doc) => (doc.explanations !== undefined ? null : { ...doc, explanations: [] });
+
 /** Étapes appliquées aux analyses (`analyses/<id>.json`), dans l'ordre. */
-export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [addProject, addOverview];
+export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [addProject, addOverview, addExplanations];
 
 /** Étapes appliquées aux snapshots de diff (`diffs/<id>.json`), dans l'ordre. */
 export const SNAPSHOT_MIGRATIONS: readonly MigrationStep[] = [];

@@ -174,6 +174,28 @@ test("POST notes adds a note, refuses an invalid line, and DELETE removes a note
   assert.equal(again.status, 404);
 });
 
+test("PATCH notes replaces the text of a note and refuses an empty text or an unknown note", async () => {
+  const added = await call("POST", `analyses/${analysisId}/notes`, { path: "logo.bin", text: "First wording", baseRevision: await revision() });
+  assert.equal(added.status, 200, added.json.error);
+  const note = added.json.analysis.notes.find((entry: { text: string }) => entry.text === "First wording");
+
+  const updated = await call("PATCH", `analyses/${analysisId}/notes/${note.id}`, { text: "  Second wording  ", baseRevision: await revision() });
+  assert.equal(updated.status, 200, updated.json.error);
+  const edited = updated.json.analysis.notes.find((entry: { id: string }) => entry.id === note.id);
+  assert.equal(edited.text, "Second wording");
+  assert.deepEqual(edited.location, note.location);
+  assert.equal(edited.createdAt, note.createdAt);
+
+  const empty = await call("PATCH", `analyses/${analysisId}/notes/${note.id}`, { text: "   ", baseRevision: await revision() });
+  assert.equal(empty.status, 400);
+
+  const unknown = await call("PATCH", `analyses/${analysisId}/notes/n_none`, { text: "Text", baseRevision: await revision() });
+  assert.equal(unknown.status, 404);
+
+  const deleted = await call("DELETE", `analyses/${analysisId}/notes/${note.id}`, { baseRevision: await revision() });
+  assert.equal(deleted.status, 200, deleted.json.error);
+});
+
 test("a change based on an old revision is refused with 409", async () => {
   const stale = (await revision()) - 1;
   const conflict = await call("POST", `analyses/${analysisId}/files/reviewed`, { path: "src/app.ts", reviewed: false, baseRevision: stale });
@@ -216,11 +238,19 @@ test("POST review submits the review, and get_review_feedback returns it to the 
   assert.match(feedback.text, /\[Reviewer note\] src\/app\.ts:2 — Use the shared helper/);
   assert.doesNotMatch(feedback.text, /Style/);
 
+  const reworded = await call("PATCH", `analyses/${analysisId}/notes/${noteId}`, {
+    text: "Reuse the shared helper",
+    baseRevision: submitted.json.analysis.revision,
+  });
+  assert.equal(reworded.status, 200, reworded.json.error);
+  assert.match(reworded.json.analysis.review.prompt, /src\/app\.ts:2 — Reuse the shared helper/);
+  assert.doesNotMatch(reworded.json.analysis.review.prompt, /Use the shared helper/);
+
   const resubmitted = await call("POST", `analyses/${analysisId}/review`, {
     decision: "approve",
     findingIds: [],
     noteIds: [],
-    baseRevision: submitted.json.analysis.revision,
+    baseRevision: reworded.json.analysis.revision,
   });
   assert.equal(resubmitted.status, 200, resubmitted.json.error);
   assert.equal(resubmitted.json.analysis.review.decision, "approve");

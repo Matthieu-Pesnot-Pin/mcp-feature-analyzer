@@ -5,11 +5,26 @@ import { formatDateTime, formatShortDateTime } from '../utils/format'
 import { Icon } from './Icon'
 import { NotePill } from './Pills'
 
-/** Remarque du relecteur affichée dans le diff, avec sa suppression. */
+/** Remarque du relecteur affichée dans le diff, avec sa modification et sa suppression. */
 export function NoteCard({ note }: { note: Note }) {
+  const updateNote = useAnalysisStore((state) => state.updateNote)
   const deleteNote = useAnalysisStore((state) => state.deleteNote)
   const saving = useAnalysisStore((state) => state.saving)
+  const [editing, setEditing] = useState(false)
   const where = note.location?.line ? `ligne ${note.location.line}` : 'fichier entier'
+
+  if (editing) {
+    return (
+      <NoteForm
+        id={`note-edit-${note.id}`}
+        label={`Modifier la remarque (${where})`}
+        initialText={note.text}
+        submitLabel="Enregistrer la modification"
+        onSubmit={(text) => (text === note.text ? Promise.resolve(true) : updateNote(note.id, text))}
+        onClose={() => setEditing(false)}
+      />
+    )
+  }
 
   return (
     <div className="note-card">
@@ -18,6 +33,10 @@ export function NoteCard({ note }: { note: Note }) {
         <span className="note-meta" title={`${where} · ${formatDateTime(note.createdAt)}`}>
           {where} · {formatShortDateTime(note.createdAt)}
         </span>
+        <button type="button" className="link-button muted" disabled={saving} onClick={() => setEditing(true)}>
+          <Icon name="pencil" size={13} />
+          Modifier
+        </button>
         <button type="button" className="link-button muted" disabled={saving} onClick={() => void deleteNote(note.id)}>
           <Icon name="trash" size={13} />
           Supprimer
@@ -31,12 +50,41 @@ export function NoteCard({ note }: { note: Note }) {
 /** Saisie d'une remarque sur une ligne (`line`) ou sur le fichier entier (`line` null). */
 export function NoteComposer({ path, line, onClose }: { path: string; line: number | null; onClose: () => void }) {
   const addNote = useAnalysisStore((state) => state.addNote)
+
+  return (
+    <NoteForm
+      id={`note-${line ?? 'file'}`}
+      label={line === null ? 'Remarque sur le fichier' : `Remarque sur la ligne ${line}`}
+      initialText=""
+      submitLabel="Enregistrer la remarque"
+      onSubmit={(text) => addNote(path, line, text)}
+      onClose={onClose}
+    />
+  )
+}
+
+/** Formulaire de texte d'une remarque : `onSubmit` reçoit le texte épuré et renvoie true quand il est enregistré. */
+function NoteForm({
+  id,
+  label,
+  initialText,
+  submitLabel,
+  onSubmit,
+  onClose,
+}: {
+  id: string
+  label: string
+  initialText: string
+  submitLabel: string
+  onSubmit: (text: string) => Promise<boolean>
+  onClose: () => void
+}) {
   const saving = useAnalysisStore((state) => state.saving)
-  const [text, setText] = useState('')
+  const [text, setText] = useState(initialText)
 
   const submit = async () => {
     if (text.trim() === '') return
-    if (await addNote(path, line, text.trim())) onClose()
+    if (await onSubmit(text.trim())) onClose()
   }
 
   return (
@@ -47,16 +95,17 @@ export function NoteComposer({ path, line, onClose }: { path: string; line: numb
         void submit()
       }}
     >
-      <label className="note-composer-label" htmlFor={`note-${line ?? 'file'}`}>
-        {line === null ? 'Remarque sur le fichier' : `Remarque sur la ligne ${line}`}
+      <label className="note-composer-label" htmlFor={id}>
+        {label}
       </label>
       <textarea
-        id={`note-${line ?? 'file'}`}
+        id={id}
         autoFocus
         rows={3}
         value={text}
         placeholder="Ce que l'agent doit revoir…"
         onChange={(event) => setText(event.target.value)}
+        onFocus={(event) => event.currentTarget.setSelectionRange(event.currentTarget.value.length, event.currentTarget.value.length)}
         onKeyDown={(event) => {
           if (event.key === 'Escape') onClose()
           if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
@@ -71,7 +120,7 @@ export function NoteComposer({ path, line, onClose }: { path: string; line: numb
           Annuler
         </button>
         <button type="submit" className="button button-primary button-small" disabled={saving || text.trim() === ''}>
-          Enregistrer la remarque
+          {submitLabel}
         </button>
       </div>
     </form>

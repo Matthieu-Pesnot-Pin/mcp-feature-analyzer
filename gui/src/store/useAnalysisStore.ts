@@ -50,12 +50,15 @@ interface AnalysisState {
   fixMode: FixMode
   /** Bandeau des exigences manquantes replié sur l'écran Revue, pour tous les fichiers. */
   gapsCollapsed: boolean
+  /** Explications de l'agent affichées dans le diff de l'écran Revue, pour tous les fichiers. */
+  explanationsShown: boolean
 
   setConnected: (connected: boolean) => void
   setHomeFilter: (filter: HomeFilter) => void
   toggleProject: (project: string) => void
   setFixMode: (mode: FixMode) => void
   setGapsCollapsed: (collapsed: boolean) => void
+  setExplanationsShown: (shown: boolean) => void
   loadConfig: () => Promise<void>
   setListing: (listing: AnalysisListing) => void
   loadAnalyses: () => Promise<void>
@@ -69,6 +72,7 @@ interface AnalysisState {
   setFileReviewed: (path: string, reviewed: boolean) => Promise<boolean>
   setFindingStatus: (findingId: string, status: FindingStatus) => Promise<boolean>
   addNote: (path: string, line: number | null, text: string) => Promise<boolean>
+  updateNote: (noteId: string, text: string) => Promise<boolean>
   deleteNote: (noteId: string) => Promise<boolean>
   submitReview: (decision: ReviewDecision, findingIds: string[], noteIds: string[]) => Promise<boolean>
 
@@ -129,6 +133,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     collapsedProjects: new Set(),
     fixMode: 'before-after',
     gapsCollapsed: false,
+    explanationsShown: true,
 
     setConnected: (connected) => set({ connected }),
 
@@ -144,6 +149,8 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     setFixMode: (fixMode) => set({ fixMode }),
 
     setGapsCollapsed: (gapsCollapsed) => set({ gapsCollapsed }),
+
+    setExplanationsShown: (explanationsShown) => set({ explanationsShown }),
 
     loadConfig: async () => {
       try {
@@ -218,6 +225,11 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     addNote: (path, line, text) =>
       mutate('Remarque non enregistrée', (analysis) =>
         api.addNote(analysis.id, { path, line, text, baseRevision: analysis.revision }),
+      ),
+
+    updateNote: (noteId, text) =>
+      mutate('Remarque non modifiée', (analysis) =>
+        api.updateNote(analysis.id, noteId, { text, baseRevision: analysis.revision }),
       ),
 
     deleteNote: (noteId) =>

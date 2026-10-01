@@ -1,5 +1,5 @@
-import type { FileEntry } from "../../shared/schemas/analysis.schema.js";
-import type { DiffSnapshot } from "../../shared/schemas/diff.schema.js";
+import type { ExplanationLocation, ExplanationSide, FileEntry } from "../../shared/schemas/analysis.schema.js";
+import type { DiffSnapshot, FileDiff } from "../../shared/schemas/diff.schema.js";
 import { splitLines } from "../../shared/text.js";
 import { AnalysisError } from "./errors.js";
 
@@ -31,13 +31,22 @@ function unavailableReason(file: FileEntry): string {
   return "it is larger than the snapshot size limit";
 }
 
+/** Indication donnée à un constat dont le fichier n'a pas de contenu conservé. */
+const FINDING_UNAVAILABLE_HINT =
+  "Anchor the point on lines of another changed file, or omit the location (allowed for requirement_gap findings).";
+
 /**
  * Vérifie un emplacement (lignes du côté « nouveau ») contre le snapshot et
  * renvoie le texte des lignes visées. Erreur explicite si le fichier n'est pas
  * dans l'analyse, si son contenu n'est pas disponible ou si les lignes sortent
- * du fichier.
+ * du fichier ; `unavailableHint` complète le message d'un contenu indisponible.
  */
-export function resolveLocation(snapshot: DiffSnapshot, files: FileEntry[], request: LocationRequest): ResolvedLocation {
+export function resolveLocation(
+  snapshot: DiffSnapshot,
+  files: FileEntry[],
+  request: LocationRequest,
+  unavailableHint = FINDING_UNAVAILABLE_HINT
+): ResolvedLocation {
   const endLine = request.endLine ?? request.startLine;
   const { path, startLine } = request;
 
@@ -53,8 +62,7 @@ export function resolveLocation(snapshot: DiffSnapshot, files: FileEntry[], requ
   const diff = snapshot.files.find((entry) => entry.path === path);
   if (!file.contentAvailable || !diff || diff.newContent === null) {
     throw new AnalysisError(
-      `Cannot anchor on lines of "${path}": its content is not available because ${unavailableReason(file)}. ` +
-        `Anchor the point on lines of another changed file, or omit the location (allowed for requirement_gap findings).`
+      `Cannot anchor on lines of "${path}": its content is not available because ${unavailableReason(file)}. ${unavailableHint}`
     );
   }
   const lines = splitLines(diff.newContent);
@@ -65,6 +73,106 @@ export function resolveLocation(snapshot: DiffSnapshot, files: FileEntry[], requ
     );
   }
   return { path, startLine, endLine, anchorText: lines.slice(startLine - 1, endLine).join("\n") };
+}
+
+/** Texte des lignes du côté « ancien » que montre le diff (lignes supprimées et contexte), par numéro. */
+function oldSideLines(diff: FileDiff): Map<number, { text: string; removed: boolean }> {
+  const lines = new Map<number, { text: string; removed: boolean }>();
+  for (const hunk of diff.hunks) {
+    for (const line of hunk.lines) {
+      if (line.oldNo !== null) lines.set(line.oldNo, { text: line.text, removed: line.type === "del" });
+    }
+  }
+  return lines;
+}
+
+/**
+ * Texte actuel des lignes décrites par une explication, ou null quand elles ne
+ * sont plus lisibles : côté `new`, dans le contenu conservé du fichier ; côté
+ * `old`, dans les lignes du côté « ancien » que montre le diff.
+ */
+export function explanationText(diff: FileDiff | undefined, location: ExplanationLocation): string | null {
+  if (!diff || location.startLine > location.endLine) return null;
+  if (location.side === "new") {
+    if (diff.newContent === null) return null;
+    const lines = splitLines(diff.newContent);
+    if (location.startLine < 1 || location.endLine > lines.length) return null;
+    return lines.slice(location.startLine - 1, location.endLine).join("\n");
+  }
+  const old = oldSideLines(diff);
+  const texts: string[] = [];
+  for (let line = location.startLine; line <= location.endLine; line++) {
+    const entry = old.get(line);
+    if (!entry) return null;
+    texts.push(entry.text);
+  }
+  return texts.join("\n");
+}
+
+export interface ExplanationLocationRequest extends LocationRequest {
+  side: ExplanationSide;
+}
+
+/**
+ * Vérifie l'emplacement d'une explication et renvoie le texte des lignes décrites.
+ * - côté `new` : mêmes règles qu'un constat ;
+ * - côté `old` : toutes les lignes doivent figurer dans le diff (numéros de la
+ *   première colonne de get_diff), et au moins une doit être supprimée.
+ */
+export function resolveExplanationLocation(
+  snapshot: DiffSnapshot,
+  files: FileEntry[],
+  request: ExplanationLocationRequest
+): ExplanationLocation & { anchorText: string } {
+  if (request.side === "new") {
+    const resolved = resolveLocation(
+      snapshot,
+      files,
+      request,
+      `Explain its removed lines on the old side ("side": "old"), or explain lines of another changed file.`
+    );
+    return { path: resolved.path, side: "new", startLine: resolved.startLine, endLine: resolved.endLine, anchorText: resolved.anchorText };
+  }
+
+  const endLine = request.endLine ?? request.startLine;
+  const { path, startLine } = request;
+  if (!files.some((entry) => entry.path === path)) {
+    throw new AnalysisError(`File "${path}" is not part of this analysis (${describeFiles(files)}).`);
+  }
+  if (!Number.isInteger(startLine) || !Number.isInteger(endLine) || startLine < 1 || endLine < startLine) {
+    throw new AnalysisError(
+      `Invalid line range ${startLine}-${endLine} for "${path}": lines are 1-based integers and end_line must be >= start_line.`
+    );
+  }
+  const diff = snapshot.files.find((entry) => entry.path === path);
+  const old = diff ? oldSideLines(diff) : new Map<number, { text: string; removed: boolean }>();
+  const missing: number[] = [];
+  let removed = false;
+  for (let line = startLine; line <= endLine; line++) {
+    const entry = old.get(line);
+    if (!entry) missing.push(line);
+    else if (entry.removed) removed = true;
+  }
+  if (missing.length > 0) {
+    throw new AnalysisError(
+      `Old-side lines ${startLine}-${endLine} of "${path}" are not all in the diff (missing: ${lineList(missing)}). ` +
+        `Old-side numbers are those of the first column of get_diff; an old-side explanation covers removed lines and their context.`
+    );
+  }
+  if (!removed) {
+    throw new AnalysisError(
+      `Old-side lines ${startLine}-${endLine} of "${path}" contain no removed line. ` +
+        `The old side is for removed code: explain kept or added code on the new side ("side": "new").`
+    );
+  }
+  const location: ExplanationLocation = { path, side: "old", startLine, endLine };
+  return { ...location, anchorText: explanationText(diff, location)! };
+}
+
+/** `3, 4, 9` ; au-delà de dix numéros, les dix premiers suivis de `…`. */
+function lineList(lines: number[]): string {
+  const shown = lines.slice(0, 10).join(", ");
+  return lines.length > 10 ? `${shown}, …` : shown;
 }
 
 /**

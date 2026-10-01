@@ -360,6 +360,7 @@ export class AnalysisStore {
       summary: input.summary ?? [],
       files: snapshot.files.map((file) => ({ ...file, reviewed: false })),
       findings: [],
+      explanations: [],
       notes: [],
       diagrams: [],
       review: pendingReview(),

@@ -16,12 +16,14 @@ function duplicates(ids: string[]): string[] {
  * Liste les violations des règles de cohérence d'une analyse :
  * - refs cohérentes avec le mode : `branch` a une ref et un commit de tête ; `working_tree`
  *   compare à HEAD, sans ref ni commit de tête ;
- * - identifiants uniques (fichiers, constats, remarques, schémas, nœuds d'un schéma) ;
+ * - identifiants uniques (fichiers, constats, explications, remarques, schémas, nœuds d'un schéma) ;
  * - un constat `issue` a un emplacement, un `requirement_gap` peut ne pas en avoir ;
  * - un emplacement de constat porte un `anchorText` ; sans emplacement, ni `anchorText` ni `suggestion` ;
  * - un constat `open` vise un fichier de l'analyse dont le contenu est disponible, avec
  *   1 ≤ startLine ≤ endLine ≤ nombre de lignes ; un constat `ignored` ou `outdated` garde
  *   l'emplacement qu'il avait, même si le snapshot a changé depuis ;
+ * - une explication `current` vise un fichier de l'analyse ; côté `new`, son contenu est
+ *   disponible et endLine ≤ nombre de lignes ;
  * - les liens d'un schéma relient des nœuds existants ; en `layers`, chaque nœud a une couche
  *   déclarée dans `layers`, sans doublon ;
  * - la revue ne sélectionne que des constats et remarques existants, et son état est cohérent.
@@ -40,6 +42,7 @@ export function findInvariantViolations(analysis: Analysis): string[] {
   for (const [label, ids] of [
     ["file path", analysis.files.map((file) => file.path)],
     ["finding id", analysis.findings.map((finding) => finding.id)],
+    ["explanation id", analysis.explanations.map((explanation) => explanation.id)],
     ["note id", analysis.notes.map((note) => note.id)],
     ["diagram id", analysis.diagrams.map((diagram) => diagram.id)],
   ] as const) {
@@ -72,6 +75,29 @@ export function findInvariantViolations(analysis: Analysis): string[] {
     } else if (location.endLine > file.lineCount) {
       problems.push(
         `${where} targets lines ${location.startLine}-${location.endLine} of "${location.path}", ` +
+          `which has ${file.lineCount} line(s)`
+      );
+    }
+  }
+
+  for (const explanation of analysis.explanations) {
+    const where = `explanation "${explanation.id}"`;
+    const location = explanation.location;
+    if (location.startLine > location.endLine) {
+      problems.push(`${where} has startLine ${location.startLine} after endLine ${location.endLine}`);
+    }
+    if (explanation.status !== "current") continue;
+    const file = files.get(location.path);
+    if (!file) {
+      problems.push(`${where} describes "${location.path}", which is not a changed file of this analysis`);
+      continue;
+    }
+    if (location.side !== "new") continue;
+    if (!file.contentAvailable) {
+      problems.push(`${where} describes new-side lines of "${location.path}", whose content is not available`);
+    } else if (location.endLine > file.lineCount) {
+      problems.push(
+        `${where} describes lines ${location.startLine}-${location.endLine} of "${location.path}", ` +
           `which has ${file.lineCount} line(s)`
       );
     }

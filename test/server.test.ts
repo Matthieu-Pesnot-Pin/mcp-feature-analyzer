@@ -31,10 +31,12 @@ test("the server answers tools/list and exposes reconnect_gui", async () => {
 });
 
 const EXPECTED_TOOLS = [
+  "add_explanations",
   "add_findings",
   "create_analysis",
   "delete_analysis",
   "delete_diagram",
+  "delete_explanations",
   "delete_findings",
   "get_analysis",
   "get_diff",
@@ -44,10 +46,11 @@ const EXPECTED_TOOLS = [
   "refresh_analysis",
   "set_diagram",
   "update_analysis",
+  "update_explanation",
   "update_finding",
 ];
 
-test("tools/list exposes exactly the 14 tools, each with a description and an object input schema", async () => {
+test("tools/list exposes exactly the 17 tools, each with a description and an object input schema", async () => {
   const result = await client.request("tools/list");
   const names = result.tools.map((tool: { name: string }) => tool.name).sort();
   assert.deepEqual(names, EXPECTED_TOOLS);

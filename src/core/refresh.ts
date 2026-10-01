@@ -1,8 +1,9 @@
-import type { Analysis, FileEntry, Finding } from "../../shared/schemas/analysis.schema.js";
+import type { Analysis, Explanation, FileEntry, Finding } from "../../shared/schemas/analysis.schema.js";
 import type { DiffSnapshot, FileDiff, Hunk } from "../../shared/schemas/diff.schema.js";
 import { splitLines } from "../../shared/text.js";
 import { AnalysisError } from "./errors.js";
 import type { ComputedSnapshot } from "./git.js";
+import { explanationText } from "./locations.js";
 
 /** Bilan d'un recalcul, pour le message renvoyé à l'agent. */
 export interface RefreshStats {
@@ -17,10 +18,14 @@ export interface RefreshStats {
   findingsOutdated: number;
   /** Constats `outdated` revenus à `open`. */
   findingsRestored: number;
+  /** Explications `current` passées à `outdated`. */
+  explanationsOutdated: number;
+  /** Explications `outdated` revenues à `current`. */
+  explanationsRestored: number;
 }
 
 export interface RefreshResult {
-  fields: Pick<Analysis, "baseCommit" | "headCommit" | "snapshotAt" | "files" | "findings">;
+  fields: Pick<Analysis, "baseCommit" | "headCommit" | "snapshotAt" | "files" | "findings" | "explanations">;
   stats: RefreshStats;
 }
 
@@ -72,7 +77,9 @@ function currentText(finding: Finding, diffs: Map<string, FileDiff>): string | n
  * - un constat `open` dont les lignes ne correspondent plus à `anchorText`, ou dont le
  *   fichier a quitté le diff, passe à `outdated` ;
  * - un constat `outdated` dont les lignes correspondent de nouveau revient à `open` ;
- * - un constat `ignored` reste `ignored`, un constat sans emplacement ne change pas.
+ * - un constat `ignored` reste `ignored`, un constat sans emplacement ne change pas ;
+ * - une explication dont les lignes ne correspondent plus à `anchorText` passe à
+ *   `outdated`, et revient à `current` quand elles correspondent de nouveau.
  */
 export function applyRefresh(analysis: Analysis, oldSnapshot: DiffSnapshot, next: ComputedSnapshot): RefreshResult {
   if (next.repoPath !== analysis.repoPath || next.mode !== analysis.mode || next.base !== analysis.base || next.head !== analysis.head) {
@@ -93,6 +100,8 @@ export function applyRefresh(analysis: Analysis, oldSnapshot: DiffSnapshot, next
     reviewedReset: 0,
     findingsOutdated: 0,
     findingsRestored: 0,
+    explanationsOutdated: 0,
+    explanationsRestored: 0,
   };
 
   const files = next.files.map((entry): FileEntry => {
@@ -128,6 +137,19 @@ export function applyRefresh(analysis: Analysis, oldSnapshot: DiffSnapshot, next
     return finding;
   });
 
+  const explanations = analysis.explanations.map((explanation): Explanation => {
+    const matches = explanationText(newDiffs.get(explanation.location.path), explanation.location) === explanation.anchorText;
+    if (explanation.status === "current" && !matches) {
+      stats.explanationsOutdated++;
+      return { ...explanation, status: "outdated" };
+    }
+    if (explanation.status === "outdated" && matches) {
+      stats.explanationsRestored++;
+      return { ...explanation, status: "current" };
+    }
+    return explanation;
+  });
+
   return {
     fields: {
       baseCommit: next.baseCommit,
@@ -135,6 +157,7 @@ export function applyRefresh(analysis: Analysis, oldSnapshot: DiffSnapshot, next
       snapshotAt: next.snapshotAt,
       files,
       findings,
+      explanations,
     },
     stats,
   };

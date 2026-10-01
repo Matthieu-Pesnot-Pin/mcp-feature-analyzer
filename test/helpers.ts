@@ -297,6 +297,7 @@ export function sampleAnalysis(overrides: Partial<Analysis> = {}): Analysis {
     summary: [],
     files: structuredClone(snapshot.files),
     findings: [],
+    explanations: [],
     notes: [],
     diagrams: [],
     review: { state: "pending", decision: null, selectedFindingIds: [], selectedNoteIds: [], prompt: null, submittedAt: null },

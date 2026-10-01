@@ -37,6 +37,10 @@
   --replaced-strike: #d09a4a;
   --proposed-bg: #1a1c35;
   --proposed-border: #36407a;
+  /* Explications de l'agent : teinte sarcelle, distincte des gravités et des correctifs. */
+  --explanation: #3cc4b4;
+  --explanation-bg: #0f1d20;
+  --explanation-border: #1d4541;
   --ok: #3fb950;
   --danger: #f0625a;
   --warning: #e3a33b;
@@ -1626,6 +1630,119 @@ code {
 .legend-swatch.is-proposed {
   background: var(--proposed-bg);
   border-color: var(--proposed-border);
+}
+
+/* Filet vertical : rappelle celui des lignes décrites par une explication. */
+.legend-swatch.is-explained {
+  background: linear-gradient(var(--explanation), var(--explanation)) left / 2px 100% no-repeat, var(--surface);
+  border-color: var(--border-strong);
+}
+
+.diff-line.is-explained {
+  box-shadow: inset 2px 0 0 var(--explanation);
+}
+
+.diff-toolbar .segmented + .diff-toolbar-label {
+  margin-left: 12px;
+}
+
+.explanation-block {
+  position: relative;
+  background: var(--explanation-bg);
+  border-top: 1px solid var(--explanation-border);
+  border-bottom: 1px solid var(--explanation-border);
+  box-shadow: inset 2px 0 0 var(--explanation);
+  font-family: var(--font-sans);
+}
+
+.explanation-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 14px 0 12px;
+  font-size: 12px;
+  text-align: left;
+}
+
+.explanation-head:hover .explanation-title {
+  color: var(--text);
+}
+
+.explanation-kind {
+  font-weight: 600;
+  color: var(--explanation);
+}
+
+.explanation-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  color: var(--text-soft);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.explanation-lines {
+  font-size: 11px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.explanation-side {
+  color: var(--del);
+  background: #2a1719;
+}
+
+.explanation-outdated-tag {
+  color: #c9a15a;
+  background: #2a2010;
+}
+
+.explanation-body {
+  padding: 0 16px 14px 56px;
+}
+
+.explanation-text {
+  max-width: 96ch;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--text-soft);
+  white-space: pre-wrap;
+}
+
+.explanation-outdated {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #c9a15a;
+}
+
+.explanation-block.is-outdated {
+  box-shadow: inset 2px 0 0 #4a5a58;
+}
+
+.explanation-block.is-outdated .explanation-kind {
+  color: var(--muted);
+}
+
+.explanation-block.is-outdated .explanation-text {
+  color: var(--muted);
+}
+
+.explanations-unplaced {
+  border-bottom: 1px solid var(--divider);
+}
+
+.explanations-unplaced-title {
+  padding: 8px 14px 6px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.explanations-unplaced .explanation-block + .explanation-block {
+  border-top: none;
 }
 
 /* Reste visible en haut de la zone de défilement de la revue. */

@@ -31,6 +31,7 @@ export function analysisId(title: string): string {
 /** Préfixe des identifiants générés, par type d'élément. */
 export const ITEM_ID_PREFIXES = {
   finding: "f",
+  explanation: "x",
   note: "n",
   diagram: "d",
   node: "nd",

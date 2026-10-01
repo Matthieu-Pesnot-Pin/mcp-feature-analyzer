@@ -57,9 +57,10 @@ export async function createAnalysis(
     "Next steps:",
     `1. Read the frozen diff with get_diff (analysis_id "${analysis.id}"); anchor findings on its new-side line numbers.`,
     "2. Write the overview (objective, approach, attention_points) and the summary (the functional changes of the feature) with update_analysis.",
-    "3. Record problems with add_findings, including requirement_gap findings for requested behaviour that is missing.",
-    "4. Add diagrams with set_diagram when a picture helps the reviewer: one subject each, 5 to 12 nodes, no crossing.",
-    "5. Ask the user to review the analysis in the GUI, then read the outcome with get_review_feedback."
+    "3. Explain every long (about 30 lines or more) or complex block of added or removed code with add_explanations: what it does and how it works.",
+    "4. Record problems with add_findings, including requirement_gap findings for requested behaviour that is missing.",
+    "5. Add diagrams with set_diagram when a picture helps the reviewer: one subject each, 5 to 12 nodes, no crossing.",
+    "6. Ask the user to review the analysis in the GUI, then read the outcome with get_review_feedback."
   );
 
   return { result: textResult(lines.join("\n")), analysisId: analysis.id };

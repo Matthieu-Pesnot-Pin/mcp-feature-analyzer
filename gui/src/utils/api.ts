@@ -5,6 +5,7 @@ import type {
   SetFileReviewedBody,
   SetFindingStatusBody,
   SubmitReviewBody,
+  UpdateNoteBody,
 } from '@shared/schemas/api.schema'
 import type { AnalysisListing, AnalysisResponse, AppConfig } from '../types'
 
@@ -46,7 +47,7 @@ function analysisPath(id: string): string {
   return `analyses/${encodeURIComponent(id)}`
 }
 
-function send<T>(method: 'POST' | 'DELETE', path: string, body: unknown): Promise<T> {
+function send<T>(method: 'POST' | 'PATCH' | 'DELETE', path: string, body: unknown): Promise<T> {
   return request<T>(path, { method, body: JSON.stringify(body) })
 }
 
@@ -66,6 +67,9 @@ export const api = {
     send<AnalysisResponse>('POST', `${analysisPath(id)}/findings/${encodeURIComponent(findingId)}/status`, body),
 
   addNote: (id: string, body: AddNoteBody) => send<AnalysisResponse>('POST', `${analysisPath(id)}/notes`, body),
+
+  updateNote: (id: string, noteId: string, body: UpdateNoteBody) =>
+    send<AnalysisResponse>('PATCH', `${analysisPath(id)}/notes/${encodeURIComponent(noteId)}`, body),
 
   deleteNote: (id: string, noteId: string, body: DeleteNoteBody) =>
     send<AnalysisResponse>('DELETE', `${analysisPath(id)}/notes/${encodeURIComponent(noteId)}`, body),

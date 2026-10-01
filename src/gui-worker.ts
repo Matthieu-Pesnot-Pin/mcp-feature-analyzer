@@ -14,6 +14,7 @@ import {
   SetFileReviewedBodySchema,
   SetFindingStatusBodySchema,
   SubmitReviewBodySchema,
+  UpdateNoteBodySchema,
 } from "../shared/schemas/api.schema.js";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -316,6 +317,12 @@ app.post("/api/analyses/:id/notes", async (c) => {
   const read = await readBody(c, AddNoteBodySchema);
   if ("response" in read) return read.response;
   return forward(c, "ADD_NOTE", { analysisId: c.req.param("id"), body: read.body });
+});
+
+app.patch("/api/analyses/:id/notes/:noteId", async (c) => {
+  const read = await readBody(c, UpdateNoteBodySchema);
+  if ("response" in read) return read.response;
+  return forward(c, "UPDATE_NOTE", { analysisId: c.req.param("id"), noteId: c.req.param("noteId"), body: read.body });
 });
 
 app.delete("/api/analyses/:id/notes/:noteId", async (c) => {

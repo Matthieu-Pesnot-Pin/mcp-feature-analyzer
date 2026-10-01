@@ -60,7 +60,8 @@ export function getDiff(store: AnalysisStore, args: Args): ToolResult {
   const lines = [
     `Frozen diff of "${analysis.title}" (${analysis.id}): ${snapshotLabel(analysis)}.`,
     "Columns: old line | new line, then + (added), - (removed) or a space (context). " +
-      "Anchor findings on the NEW-side numbers (second column).",
+      "Anchor findings and explanations of added code on the NEW-side numbers (second column); " +
+      'explanations of removed code use the OLD-side numbers (first column) with "side": "old".',
   ];
   if (entries.length === 0) lines.push("", "The analysis has no changed files.");
   for (const entry of entries) {

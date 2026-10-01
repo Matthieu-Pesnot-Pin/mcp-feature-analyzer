@@ -5,6 +5,8 @@ export const FILE_STATUSES = ["added", "modified", "deleted", "renamed"] as cons
 export const SEVERITIES = ["critical", "major", "minor", "trivial"] as const;
 export const FINDING_KINDS = ["issue", "requirement_gap"] as const;
 export const FINDING_STATUSES = ["open", "ignored", "outdated"] as const;
+export const EXPLANATION_SIDES = ["new", "old"] as const;
+export const EXPLANATION_STATUSES = ["current", "outdated"] as const;
 export const DIAGRAM_KINDS = ["flow", "layers", "mindmap"] as const;
 export const NODE_SHAPES = ["box", "pill", "decision"] as const;
 export const NODE_STATUSES = ["new", "modified", "impacted", "existing", "finding", "missing"] as const;
@@ -61,6 +63,31 @@ export const FindingSchema = z.object({
   /** Prompt fourni par l'agent ; remplace le corps généré dans le retour. */
   prompt: z.string().nullable(),
   status: z.enum(FINDING_STATUSES),
+  createdAt: IsoDateSchema,
+});
+
+/**
+ * Plage de lignes décrite par une explication, bornes incluses : côté `new` (numéros
+ * du côté « nouveau », code ajouté ou conservé) ou côté `old` (numéros du côté
+ * « ancien », code supprimé).
+ */
+export const ExplanationLocationSchema = z.object({
+  path: z.string().min(1),
+  side: z.enum(EXPLANATION_SIDES),
+  startLine: LineSchema,
+  endLine: LineSchema,
+});
+
+/** Description, par l'agent, de ce que fait un bloc de code et de la façon dont il le fait. */
+export const ExplanationSchema = z.object({
+  id: ItemIdSchema,
+  title: z.string().min(1),
+  body: z.string().min(1),
+  location: ExplanationLocationSchema,
+  /** Texte exact des lignes décrites au moment où l'explication a été ancrée. */
+  anchorText: z.string(),
+  /** `outdated` quand les lignes décrites ont changé depuis, au recalcul du snapshot. */
+  status: z.enum(EXPLANATION_STATUSES),
   createdAt: IsoDateSchema,
 });
 
@@ -159,6 +186,7 @@ export const AnalysisSchema = z.object({
   summary: z.array(z.string().min(1)),
   files: z.array(FileEntrySchema),
   findings: z.array(FindingSchema),
+  explanations: z.array(ExplanationSchema),
   notes: z.array(NoteSchema),
   diagrams: z.array(DiagramSchema),
   review: ReviewSchema,
@@ -173,6 +201,8 @@ export type FileStatus = (typeof FILE_STATUSES)[number];
 export type Severity = (typeof SEVERITIES)[number];
 export type FindingKind = (typeof FINDING_KINDS)[number];
 export type FindingStatus = (typeof FINDING_STATUSES)[number];
+export type ExplanationSide = (typeof EXPLANATION_SIDES)[number];
+export type ExplanationStatus = (typeof EXPLANATION_STATUSES)[number];
 export type DiagramKind = (typeof DIAGRAM_KINDS)[number];
 export type NodeShape = (typeof NODE_SHAPES)[number];
 export type NodeStatus = (typeof NODE_STATUSES)[number];
@@ -183,6 +213,8 @@ export type Editor = (typeof EDITORS)[number];
 export type FileEntry = z.infer<typeof FileEntrySchema>;
 export type FindingLocation = z.infer<typeof FindingLocationSchema>;
 export type Finding = z.infer<typeof FindingSchema>;
+export type ExplanationLocation = z.infer<typeof ExplanationLocationSchema>;
+export type Explanation = z.infer<typeof ExplanationSchema>;
 export type NoteLocation = z.infer<typeof NoteLocationSchema>;
 export type Note = z.infer<typeof NoteSchema>;
 export type DiagramNodeLocation = z.infer<typeof DiagramNodeLocationSchema>;

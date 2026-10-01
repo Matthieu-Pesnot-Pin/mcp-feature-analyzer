@@ -1,8 +1,9 @@
 import type { CSSProperties } from 'react'
-import type { FileEntry } from '@shared/schemas/analysis.schema'
+import type { Explanation, FileEntry } from '@shared/schemas/analysis.schema'
 import type { DiffLine } from '@shared/schemas/diff.schema'
 import { SEVERITY_STYLES } from '@shared/labels'
 import { splitLines } from '@shared/text'
+import { ExplanationBlock } from '../components/ExplanationBlock'
 import { Icon } from '../components/Icon'
 import { FindingNumber } from '../components/MarginFindingCard'
 import {
@@ -26,6 +27,12 @@ interface DiffViewProps {
   notedLines: ReadonlySet<number>
   mode: FixMode
   onModeChange: (mode: FixMode) => void
+  /** Nombre d'explications du fichier ; le choix de leur affichage n'apparaît que s'il y en a. */
+  explanationCount: number
+  explanationsShown: boolean
+  onExplanationsShownChange: (shown: boolean) => void
+  /** Explications affichées dont aucune ligne n'est dans le diff : présentées avant les blocs. */
+  unplacedExplanations: Explanation[]
   /** Élément mis en évidence (paramètre `?line=N`). */
   target: DiffAnchor | null
   onLineNote: (line: number) => void
@@ -92,10 +99,34 @@ function FixStrip({ entry, bar, pills, applied, isTarget, onHide }: FixStripProp
   )
 }
 
+/** Choix de l'affichage des explications, commun à tous les fichiers. */
+function ExplanationsControl({ count, shown, onChange }: { count: number; shown: boolean; onChange: (shown: boolean) => void }) {
+  return (
+    <>
+      <span className="diff-toolbar-label" id="explanations-label">
+        Explications ({count})
+      </span>
+      <div className="segmented segmented-small" role="group" aria-labelledby="explanations-label">
+        {[true, false].map((value) => (
+          <button
+            key={String(value)}
+            type="button"
+            className={`segmented-item${value === shown ? ' is-active' : ''}`}
+            aria-pressed={value === shown}
+            onClick={() => onChange(value)}
+          >
+            {value ? 'Affichées' : 'Masquées'}
+          </button>
+        ))}
+      </div>
+    </>
+  )
+}
+
 /** Choix de l'affichage des correctifs, commun à tous les fichiers. */
 function FixModeControl({ mode, onChange }: { mode: FixMode; onChange: (mode: FixMode) => void }) {
   return (
-    <div className="diff-toolbar">
+    <>
       <span className="diff-toolbar-label" id="fix-mode-label">
         Correctifs
       </span>
@@ -112,12 +143,12 @@ function FixModeControl({ mode, onChange }: { mode: FixMode; onChange: (mode: Fi
           </button>
         ))}
       </div>
-    </div>
+    </>
   )
 }
 
 /** Légende des fonds du diff, limitée à ceux que le mode affiche. */
-function DiffLegend({ mode }: { mode: FixMode }) {
+function DiffLegend({ mode, explained }: { mode: FixMode; explained: boolean }) {
   return (
     <div className="diff-legend">
       <span className="legend-item">
@@ -140,6 +171,12 @@ function DiffLegend({ mode }: { mode: FixMode }) {
           {mode === 'applied' ? 'Correctif appliqué' : 'Correctif proposé'}
         </span>
       )}
+      {explained && (
+        <span className="legend-item">
+          <span className="legend-swatch is-explained" />
+          Code décrit par une explication
+        </span>
+      )}
     </div>
   )
 }
@@ -148,19 +185,51 @@ function DiffLegend({ mode }: { mode: FixMode }) {
  * Diff d'un fichier : choix de l'affichage des correctifs, en-têtes de bloc,
  * numéros de ligne du côté « nouveau », correctifs affichés à leur place,
  * repère de gravité le long des lignes visées et pastille numérotée des
- * constats dont le correctif n'est pas affiché. Un clic sur un numéro ouvre la
- * saisie d'une remarque sur cette ligne ; les lignes proposées n'ont pas de numéro.
+ * constats dont le correctif n'est pas affiché. Les explications de l'agent
+ * précèdent les lignes qu'elles décrivent, marquées d'un filet. Un clic sur un
+ * numéro ouvre la saisie d'une remarque sur cette ligne ; les lignes proposées
+ * n'ont pas de numéro.
  */
-export function DiffView({ file, hunks, notedLines, mode, onModeChange, target, onLineNote, onHideFix }: DiffViewProps) {
+export function DiffView({
+  file,
+  hunks,
+  notedLines,
+  mode,
+  onModeChange,
+  explanationCount,
+  explanationsShown,
+  onExplanationsShownChange,
+  unplacedExplanations,
+  target,
+  onLineNote,
+  onHideFix,
+}: DiffViewProps) {
   const canNote = file.contentAvailable
+  const explained = explanationsShown && explanationCount > 0
 
   return (
     <div className="diff">
-      <FixModeControl mode={mode} onChange={onModeChange} />
+      <div className="diff-toolbar">
+        {explanationCount > 0 && (
+          <ExplanationsControl count={explanationCount} shown={explanationsShown} onChange={onExplanationsShownChange} />
+        )}
+        <FixModeControl mode={mode} onChange={onModeChange} />
+      </div>
+      {unplacedExplanations.length > 0 && (
+        <div className="explanations-unplaced">
+          <p className="explanations-unplaced-title">Explications de lignes hors du diff affiché</p>
+          {unplacedExplanations.map((explanation) => (
+            <ExplanationBlock key={explanation.id} explanation={explanation} />
+          ))}
+        </div>
+      )}
       {hunks.map((hunk, hunkIndex) => (
         <div key={hunkIndex} className="hunk">
           <div className="hunk-header mono">{hunk.header}</div>
           {hunk.rows.map((row, rowIndex) => {
+            if (row.kind === 'explanation') {
+              return <ExplanationBlock key={`explanation-${row.explanation.id}`} explanation={row.explanation} />
+            }
             if (row.kind === 'fix-strip') {
               return (
                 <FixStrip
@@ -190,6 +259,7 @@ export function DiffView({ file, hunks, notedLines, mode, onModeChange, target, 
               'diff-line',
               `is-${line.type}`,
               row.replaced ? 'is-replaced' : '',
+              row.explained ? 'is-explained' : '',
               barClasses(row.bar).trim(),
               lineNo !== null && sameAnchor(target, { kind: 'line', line: lineNo }) ? 'is-target' : '',
             ]
@@ -211,7 +281,7 @@ export function DiffView({ file, hunks, notedLines, mode, onModeChange, target, 
           })}
         </div>
       ))}
-      <DiffLegend mode={mode} />
+      <DiffLegend mode={mode} explained={explained} />
     </div>
   )
 }

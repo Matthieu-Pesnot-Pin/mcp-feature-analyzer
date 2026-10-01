@@ -1,6 +1,7 @@
 import {
   SEVERITIES,
   type Analysis,
+  type Explanation,
   type FileEntry,
   type FileStatus,
   type Finding,
@@ -70,6 +71,12 @@ export function noteLocationLabel(note: Pick<Note, "location">): string {
 /** Ligne d'un constat : id, gravité, nature, statut, emplacement, titre. */
 export function findingLine(finding: Finding): string {
   return `${finding.id} [${finding.severity}] ${finding.kind}, ${finding.status} — ${locationLabel(finding)} — ${finding.title}`;
+}
+
+/** Ligne d'une explication : id, statut, emplacement avec son côté, titre. */
+export function explanationLine(explanation: Explanation): string {
+  const { path, side, startLine, endLine } = explanation.location;
+  return `${explanation.id} ${explanation.status} — ${path}:${lineRange(startLine, endLine)} (${side} side) — ${explanation.title}`;
 }
 
 /** `1 critical, 2 major` ; `none` quand tous les compteurs sont à zéro. */

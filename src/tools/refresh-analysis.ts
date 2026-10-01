@@ -1,6 +1,6 @@
 import type { AnalysisStore } from "../core/analysis-store.js";
 import { computeSnapshot, localRepo, type RepoAccess } from "../core/git.js";
-import { snapshotLabel } from "./format.js";
+import { explanationLine, snapshotLabel } from "./format.js";
 import { rejectUnknownFields, requireString, textResult, type Args, type MutationResult } from "./types.js";
 
 /**
@@ -30,6 +30,8 @@ export async function refreshAnalysis(
     `Reviewed files: ${stats.reviewedKept} kept (diff unchanged), ${stats.reviewedReset} reset to unreviewed (diff changed).`,
     `Findings: ${stats.findingsOutdated} became outdated (their lines changed or left the diff), ` +
       `${stats.findingsRestored} back to open (their lines match again); ${outdated.length} outdated in total.`,
+    `Explanations: ${stats.explanationsOutdated} became outdated (the code they describe changed or left the diff), ` +
+      `${stats.explanationsRestored} current again.`,
   ];
   if (previousReview.state === "submitted") {
     lines.push(
@@ -43,10 +45,16 @@ export async function refreshAnalysis(
     "Next steps:",
     "- Re-read the changed files with get_diff.",
     "- For each outdated finding: re-anchor it with update_finding (a new location reopens it), or remove it with delete_findings if it is solved.",
+    "- For each outdated explanation: re-anchor it and rewrite its body with update_explanation, or remove it with delete_explanations.",
+    "- Explain the new long or complex blocks with add_explanations.",
     "- Ask the user to review the analysis again in the GUI."
   );
   if (outdated.length > 0) {
     lines.push("", "Outdated findings:", ...outdated.map((finding) => `  ${finding.id} [${finding.severity}] ${finding.title}`));
+  }
+  const outdatedExplanations = analysis.explanations.filter((explanation) => explanation.status === "outdated");
+  if (outdatedExplanations.length > 0) {
+    lines.push("", "Outdated explanations:", ...outdatedExplanations.map((explanation) => `  ${explanationLine(explanation)}`));
   }
 
   return { result: textResult(lines.join("\n")), analysisId: analysis.id };

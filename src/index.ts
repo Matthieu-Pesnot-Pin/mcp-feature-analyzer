@@ -17,7 +17,7 @@ import { DEFAULT_HEAD_REF, localRepo, type RepoAccess } from "./core/git.js";
 import { agentRepo } from "./core/agent-repo.js";
 import { EXEC_ARG, handleAgentExec } from "./core/gateway-exec.js";
 import { resolveRole, type Role } from "./core/role.js";
-import { addNote, deleteNote, setFileReviewed, setFindingStatus, submitReview } from "./core/review-actions.js";
+import { addNote, deleteNote, setFileReviewed, setFindingStatus, submitReview, updateNote } from "./core/review-actions.js";
 import { GUI_REQUEST_TYPES, IPCMessageSchema, type IPCMessage, type IpcErrorKind } from "../shared/schemas/ipc.schema.js";
 import {
   AddNoteRequestSchema,
@@ -26,11 +26,13 @@ import {
   SetFileReviewedRequestSchema,
   SetFindingStatusRequestSchema,
   SubmitReviewRequestSchema,
+  UpdateNoteRequestSchema,
 } from "../shared/schemas/api.schema.js";
 import type { z } from "zod";
 import {
   ANALYSIS_MODES,
   DIAGRAM_KINDS,
+  EXPLANATION_SIDES,
   FINDING_KINDS,
   NODE_SHAPES,
   NODE_STATUSES,
@@ -46,6 +48,9 @@ import { updateAnalysis } from "./tools/update-analysis.js";
 import { addFindings } from "./tools/add-findings.js";
 import { updateFinding } from "./tools/update-finding.js";
 import { deleteFindings } from "./tools/delete-findings.js";
+import { addExplanations } from "./tools/add-explanations.js";
+import { updateExplanation } from "./tools/update-explanation.js";
+import { deleteExplanations } from "./tools/delete-explanations.js";
 import { DEFAULT_NODE_SHAPE, DEFAULT_NODE_STATUS, setDiagram } from "./tools/set-diagram.js";
 import { deleteDiagram } from "./tools/delete-diagram.js";
 import { getReviewFeedback } from "./tools/get-review-feedback.js";
@@ -111,6 +116,7 @@ Concepts:
 - A **project** groups the analyses of one product or feature; the GUI files analyses by project.
 - The **overview** is your global analysis of the feature: its objective (what it lets users do), its approach (architecture choices, main flow) and the attention points the reviewer should check first. The **summary** lists the functional changes of the feature, one bullet per change, not one bullet per file.
 - A **finding** is a point for the reviewer: an issue anchored on changed lines, or a requirement_gap for requested behaviour that is missing (location optional). Severity: ${SEVERITIES.join(", ")}.
+- An **explanation** describes what a block of added or removed code does and how it works, so that the reviewer understands it before judging it. It is not a finding: it judges nothing and asks for nothing. It is anchored on new-side lines (added code) or old-side lines (removed code), and shown in the diff above the lines it describes.
 - A **diagram** is a flow, layers or mindmap picture of the feature. You give nodes and links only; the GUI lays them out.
 - The **review** belongs to the reviewer: files marked reviewed, findings ignored, notes, and a submitted decision with a prompt for you.
 
@@ -118,11 +124,19 @@ Workflow:
 1. list_analyses (with project) to find an analysis of the same feature: reuse it with update_analysis and refresh_analysis instead of creating a duplicate. Otherwise create_analysis with its project once the feature is developed.
 2. get_diff to read the frozen diff.
 3. update_analysis with the overview (objective, approach, attention_points) and the summary (the functional changes).
-4. add_findings for every problem, including requirement_gap findings for requested behaviour that is missing.
-5. set_diagram when a picture helps (impacted layers, process flow, concept tree).
-6. Tell the user to review the analysis in the GUI (the link is in the tool results).
-7. get_review_feedback to read the decision, the selected points and the prompt.
-8. Fix the code, then refresh_analysis to recompute the diff for a new review round.
+4. add_explanations for the long or complex blocks of added or removed code (see Explanation rules).
+5. add_findings for every problem, including requirement_gap findings for requested behaviour that is missing.
+6. set_diagram when a picture helps (impacted layers, process flow, concept tree).
+7. Tell the user to review the analysis in the GUI (the link is in the tool results).
+8. get_review_feedback to read the decision, the selected points and the prompt.
+9. Fix the code, then refresh_analysis to recompute the diff for a new review round; re-anchor or rewrite the outdated findings and explanations.
+
+Explanation rules:
+- Write one for every added or removed block that is long (a function or a block of about 30 lines or more) or complex (non-trivial algorithm, state machine, concurrency, recursion, tricky regular expression or data transformation). A 100-line function always gets one.
+- Cover the whole block, from its first to its last line. Title: the name of the block and its role, e.g. "parseUnifiedDiff: diff text to hunks".
+- Body: what the block does (inputs, outputs, effects), then how it works, step by step, in the order of the code; name the key variables and the edge cases it handles. For removed code, say what it did and what replaces it, if anything.
+- Describe, never judge: problems go in findings.
+- Skip trivial code (imports, getters, simple wiring): an explanation there only adds noise.
 
 Diagram rules:
 - One subject per diagram, 5 to 12 nodes; split a bigger picture into several diagrams.
@@ -131,7 +145,7 @@ Diagram rules:
 - flow for a process with steps and decisions; layers for the impact perimeter across architecture layers; mindmap for a tree of concepts (one root, one parent per node).
 
 Rules:
-- Line numbers are always NEW-side numbers, as shown by get_diff.
+- Line numbers are NEW-side numbers, as shown by get_diff, except for explanations of removed code, which use OLD-side numbers (side "old").
 - Nothing is ever written to the repository: suggestions are displayed to the reviewer only.
 - The reviewer alone decides which findings are ignored and when the review is submitted; you cannot change either.`;
 
@@ -228,6 +242,13 @@ function handleGuiRequest(msg: IPCMessage): unknown {
     case "ADD_NOTE": {
       const request = parseRequest(AddNoteRequestSchema, msg.data);
       const analysis = addNote(store, request.analysisId, request.body);
+      afterUserMutation(analysis.id);
+      return { analysis };
+    }
+
+    case "UPDATE_NOTE": {
+      const request = parseRequest(UpdateNoteRequestSchema, msg.data);
+      const analysis = updateNote(store, request.analysisId, request.noteId, request.body);
       afterUserMutation(analysis.id);
       return { analysis };
     }
@@ -362,6 +383,22 @@ const LOCATION_PROPERTIES = {
   start_line: { type: "integer", minimum: 1, description: `First targeted line. ${LINE_NUMBERS_DOC}` },
   end_line: { type: "integer", minimum: 1, description: "Last targeted line, inclusive (default: start_line)." },
 } as const;
+
+const EXPLANATION_LOCATION_PROPERTIES = {
+  path: LOCATION_PROPERTIES.path,
+  side: {
+    type: "string",
+    enum: [...EXPLANATION_SIDES],
+    description:
+      'Side of the diff the lines belong to (default "new"): "new" for added or kept code, with NEW-side numbers (second column of get_diff); ' +
+      '"old" for removed code, with OLD-side numbers (first column of get_diff), all shown in the diff and at least one removed.',
+  },
+  start_line: { type: "integer", minimum: 1, description: "First described line, on the side given by side." },
+  end_line: { type: "integer", minimum: 1, description: "Last described line, inclusive (default: start_line)." },
+} as const;
+
+const EXPLANATION_BODY_DOC =
+  "What the code does (inputs, outputs, effects), then how it works, step by step in the order of the code. Describe, never judge. Plain text; line breaks are kept.";
 
 const SEVERITY_DOC = `Severity: ${SEVERITIES.join(", ")} (from most to least serious).`;
 
@@ -592,6 +629,63 @@ const TOOLS = [
     },
   },
   {
+    name: "add_explanations",
+    description:
+      "Explain blocks of added or removed code to the reviewer, as a batch: what each block does and how it works. " +
+      "Write one for every long (about 30 lines or more) or complex block; skip trivial code. An explanation judges nothing: problems go in findings. " +
+      "Each location is checked against the frozen diff and its lines are copied; if any explanation is invalid, nothing is added and every problem is reported.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        analysis_id: { type: "string", description: ANALYSIS_ID_DOC },
+        explanations: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "Optional id (letters, digits, '_' or '-'); generated when omitted." },
+              title: { type: "string", description: 'Name of the block and its role, e.g. "parseUnifiedDiff: diff text to hunks".' },
+              body: { type: "string", description: EXPLANATION_BODY_DOC },
+              ...EXPLANATION_LOCATION_PROPERTIES,
+            },
+            required: ["title", "body", "path", "start_line"],
+          },
+        },
+      },
+      required: ["analysis_id", "explanations"],
+    },
+  },
+  {
+    name: "update_explanation",
+    description:
+      "Change one explanation: title, body or location. A new location (path and start_line, with side for removed code) is checked against the diff " +
+      "and makes an outdated explanation current again; rewrite the body too when the code changed.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        analysis_id: { type: "string", description: ANALYSIS_ID_DOC },
+        explanation_id: { type: "string", description: "Id of the explanation, as shown by get_analysis." },
+        title: { type: "string", description: "New title." },
+        body: { type: "string", description: EXPLANATION_BODY_DOC },
+        ...EXPLANATION_LOCATION_PROPERTIES,
+      },
+      required: ["analysis_id", "explanation_id"],
+    },
+  },
+  {
+    name: "delete_explanations",
+    description: "Delete explanations by id, e.g. when the code they describe is gone. If any id is unknown, nothing is deleted.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        analysis_id: { type: "string", description: ANALYSIS_ID_DOC },
+        explanation_ids: { type: "array", minItems: 1, items: { type: "string" }, description: "Ids of the explanations to delete." },
+      },
+      required: ["analysis_id", "explanation_ids"],
+    },
+  },
+  {
     name: "set_diagram",
     description:
       "Create a diagram, or fully replace the one with diagram_id, when a picture helps the reviewer (impact perimeter, process flow, concept map). " +
@@ -746,6 +840,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
         return afterMutation(updateFinding(store, params));
       case "delete_findings":
         return afterMutation(deleteFindings(store, params));
+      case "add_explanations":
+        return afterMutation(addExplanations(store, params));
+      case "update_explanation":
+        return afterMutation(updateExplanation(store, params));
+      case "delete_explanations":
+        return afterMutation(deleteExplanations(store, params));
       case "set_diagram":
         return afterMutation(setDiagram(store, params));
       case "delete_diagram":

@@ -5,6 +5,7 @@ import { reviewProgress } from "../../shared/review-state.js";
 import { sortBySeverity } from "../../shared/severity.js";
 import {
   fileLine,
+  explanationLine,
   fileTotals,
   findingLine,
   noteLocationLabel,
@@ -87,6 +88,11 @@ export function getAnalysis(store: AnalysisStore, args: Args): ToolResult {
   );
   if (analysis.findings.length === 0) lines.push("  none (record them with add_findings)");
   lines.push(...sortBySeverity(analysis.findings).map((finding) => `  ${findingLine(finding)}`), "");
+
+  const outdatedExplanations = analysis.explanations.filter((explanation) => explanation.status === "outdated").length;
+  lines.push(`Explanations (${analysis.explanations.length}: ${outdatedExplanations} outdated):`);
+  if (analysis.explanations.length === 0) lines.push("  none (explain long or complex blocks with add_explanations)");
+  lines.push(...analysis.explanations.map((explanation) => `  ${explanationLine(explanation)}`), "");
 
   lines.push(`Reviewer notes (${analysis.notes.length}):`);
   if (analysis.notes.length === 0) lines.push("  none");

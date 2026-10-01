@@ -5,6 +5,7 @@ import type {
   SetFileReviewedBody,
   SetFindingStatusBody,
   SubmitReviewBody,
+  UpdateNoteBody,
 } from "../../shared/schemas/api.schema.js";
 import { buildAgentPrompt } from "../../shared/prompt.js";
 import type { AnalysisStore } from "./analysis-store.js";
@@ -78,6 +79,31 @@ export function addNote(store: AnalysisStore, analysisId: string, body: AddNoteB
         text: body.text,
         createdAt: new Date().toISOString(),
       });
+    },
+    { baseRevision: body.baseRevision }
+  );
+}
+
+/**
+ * Remplace le texte d'une remarque. Quand elle fait partie d'une revue soumise,
+ * le prompt enregistré est recalculé avec le nouveau texte.
+ */
+export function updateNote(store: AnalysisStore, analysisId: string, noteId: string, body: UpdateNoteBody): Analysis {
+  return store.mutate(
+    analysisId,
+    "user",
+    (draft) => {
+      const note = draft.notes.find((entry) => entry.id === noteId);
+      if (!note) throw new NotFoundError(`Note "${noteId}" not found in analysis "${analysisId}".`);
+      note.text = body.text;
+      const review = draft.review;
+      if (review.state === "submitted" && review.selectedNoteIds.includes(noteId)) {
+        review.prompt = buildAgentPrompt(draft, {
+          findingIds: review.selectedFindingIds,
+          noteIds: review.selectedNoteIds,
+          decision: review.decision,
+        });
+      }
     },
     { baseRevision: body.baseRevision }
   );

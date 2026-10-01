@@ -13,9 +13,11 @@ import {
   anchorSelector,
   appliedRemovals,
   buildDiffRows,
+  explanationsOfFile,
   lineAnchorOf,
   lineNotesOfFile,
   numberedFindingsOfFile,
+  placeExplanations,
   resolveFixDisplays,
   shownLineNumbers,
   type NumberedFinding,
@@ -203,6 +205,8 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const diffError = useAnalysisStore((state) => state.diffError)
   const fixMode = useAnalysisStore((state) => state.fixMode)
   const setFixMode = useAnalysisStore((state) => state.setFixMode)
+  const explanationsShown = useAnalysisStore((state) => state.explanationsShown)
+  const setExplanationsShown = useAnalysisStore((state) => state.setExplanationsShown)
   // La saisie d'une remarque est liée au fichier où elle a été ouverte.
   const [composerState, setComposerState] = useState<{ path: string; line: number | null } | null>(null)
   const composer: ComposerTarget = composerState && composerState.path === path ? { line: composerState.line } : null
@@ -258,7 +262,10 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
     )
   }
 
-  const hunks = fileDiff ? buildDiffRows(fileDiff, numbered, fixes, fixMode) : []
+  const explanations = explanationsOfFile(analysis, path)
+  const shownExplanations = explanationsShown ? explanations : []
+  const hunks = fileDiff ? buildDiffRows(fileDiff, numbered, fixes, fixMode, shownExplanations) : []
+  const unplacedExplanations = fileDiff ? placeExplanations(fileDiff, shownExplanations).unplaced : []
   const shownLines = fileDiff ? shownLineNumbers(fileDiff) : failed ? new Set<number>() : null
   const lineNotes = lineNotesOfFile(analysis, path)
   const notedLines = new Set(lineNotes.map((note) => note.location.line))
@@ -305,6 +312,10 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
                       notedLines={notedLines}
                       mode={fixMode}
                       onModeChange={setFixMode}
+                      explanationCount={explanations.length}
+                      explanationsShown={explanationsShown}
+                      onExplanationsShownChange={setExplanationsShown}
+                      unplacedExplanations={unplacedExplanations}
                       target={target}
                       onLineNote={(lineNo) => setComposer({ line: lineNo })}
                       onHideFix={(findingId) => setFixShown(findingId, false)}
