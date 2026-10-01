@@ -15,6 +15,7 @@ import {
   firstShownLine,
   lineAnchorOf,
   type FixDisplay,
+  type CodeView,
   type FixMode,
   type LineNote,
   type NumberedFinding,
@@ -88,6 +89,8 @@ interface FindingsMarginProps {
   fileDiff: FileDiff | null
   fixes: Map<string, FixDisplay>
   mode: FixMode
+  /** Code affiché dans le diff, dont dépend l'ancre des explications de lignes supprimées. */
+  codeView: CodeView
   /** Lignes retirées du diff par un correctif appliqué, avec le constat qui les remplace. */
   removed: ReadonlyMap<number, NumberedFinding>
   lineNotes: LineNote[]
@@ -160,6 +163,7 @@ export function FindingsMargin({
   fileDiff,
   fixes,
   mode,
+  codeView,
   removed,
   lineNotes,
   shownLines,
@@ -213,7 +217,7 @@ export function FindingsMargin({
     })
   }
   for (const explanation of explanations) {
-    const anchor = fileDiff === null ? null : explanationAnchor(fileDiff, explanation, removed)
+    const anchor = fileDiff === null ? null : explanationAnchor(fileDiff, explanation, removed, codeView)
     const card = <MarginExplanationCard explanation={explanation} />
     if (anchor === null) {
       outside.push(<div key={`explanation-${explanation.id}`}>{card}</div>)

@@ -205,6 +205,8 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const diffError = useAnalysisStore((state) => state.diffError)
   const fixMode = useAnalysisStore((state) => state.fixMode)
   const setFixMode = useAnalysisStore((state) => state.setFixMode)
+  const codeView = useAnalysisStore((state) => state.codeView)
+  const setCodeView = useAnalysisStore((state) => state.setCodeView)
   const copy = useAnalysisStore((state) => state.copy)
   const findingsShown = useAnalysisStore((state) => state.findingsShown)
   const setFindingsShown = useAnalysisStore((state) => state.setFindingsShown)
@@ -269,7 +271,7 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
 
   const explanations = explanationsOfFile(analysis, path)
   const shownExplanations = explanationsShown ? explanations : []
-  const hunks = fileDiff ? buildDiffRows(fileDiff, numbered, fixes, fixMode, shownExplanations) : []
+  const hunks = fileDiff ? buildDiffRows(fileDiff, numbered, fixes, fixMode, shownExplanations, codeView) : []
   const shownLines = fileDiff ? shownLineNumbers(fileDiff) : failed ? new Set<number>() : null
   const lineNotes = lineNotesOfFile(analysis, path)
   const notedLines = new Set(lineNotes.map((note) => note.location.line))
@@ -317,6 +319,8 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
                       notedLines={notedLines}
                       mode={fixMode}
                       onModeChange={setFixMode}
+                      codeView={codeView}
+                      onCodeViewChange={setCodeView}
                       explained={shownExplanations.length > 0}
                       target={target}
                       onLineNote={(lineNo) => setComposer({ line: lineNo })}
@@ -346,6 +350,7 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
                   fileDiff={fileDiff ?? null}
                   fixes={fixes}
                   mode={fixMode}
+                  codeView={codeView}
                   removed={removed}
                   lineNotes={lineNotes}
                   shownLines={shownLines}

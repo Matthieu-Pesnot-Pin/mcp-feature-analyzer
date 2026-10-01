@@ -7,9 +7,11 @@ import { Icon } from '../components/Icon'
 import { FindingNumber } from '../components/MarginFindingCard'
 import type { ThemedToken } from '../utils/syntax'
 import {
+  CODE_VIEW_LABELS,
   FIX_MODE_LABELS,
   replacedLinesLabel,
   sameAnchor,
+  type CodeView,
   type DiffAnchor,
   type FixMode,
   type HunkRows,
@@ -30,6 +32,8 @@ interface DiffViewProps {
   notedLines: ReadonlySet<number>
   mode: FixMode
   onModeChange: (mode: FixMode) => void
+  codeView: CodeView
+  onCodeViewChange: (view: CodeView) => void
   /** Des lignes sont marquées comme décrites par une explication : la légende l'indique. */
   explained: boolean
   /** Élément mis en évidence (paramètre `?line=N`). */
@@ -41,6 +45,11 @@ interface DiffViewProps {
 }
 
 const MARKERS: Record<DiffLine['type'], string> = { context: ' ', add: '+', del: '−' }
+
+/** Classe d'une ligne du diff : en vue `new`, une ligne ajoutée ne porte qu'un filet, sans fond ni marque. */
+function lineTypeClass(type: DiffLine['type'], codeView: CodeView): string {
+  return codeView === 'new' && type === 'add' ? 'is-new' : `is-${type}`
+}
 
 /** Texte d'une ligne, coloré par ses jetons quand il y en a. */
 function CodeText({ text, tokens }: { text: string; tokens: ThemedToken[] | undefined }) {
@@ -124,23 +133,32 @@ function FixStrip({ entry, bar, pills, applied, isTarget, onHide }: FixStripProp
   )
 }
 
-/** Choix de l'affichage des correctifs, commun à tous les fichiers. */
-function FixModeControl({ mode, onChange }: { mode: FixMode; onChange: (mode: FixMode) => void }) {
+interface SegmentedControlProps<T extends string> {
+  /** Identifiant du libellé, relié au groupe de boutons. */
+  id: string
+  label: string
+  labels: Record<T, string>
+  value: T
+  onChange: (value: T) => void
+}
+
+/** Libellé suivi d'un sélecteur à boutons segmentés. */
+function SegmentedControl<T extends string>({ id, label, labels, value, onChange }: SegmentedControlProps<T>) {
   return (
     <>
-      <span className="diff-toolbar-label" id="fix-mode-label">
-        Correctifs
+      <span className="diff-toolbar-label" id={id}>
+        {label}
       </span>
-      <div className="segmented segmented-small" role="group" aria-labelledby="fix-mode-label">
-        {(Object.keys(FIX_MODE_LABELS) as FixMode[]).map((entry) => (
+      <div className="segmented segmented-small" role="group" aria-labelledby={id}>
+        {(Object.keys(labels) as T[]).map((entry) => (
           <button
             key={entry}
             type="button"
-            className={`segmented-item${entry === mode ? ' is-active' : ''}`}
-            aria-pressed={entry === mode}
+            className={`segmented-item${entry === value ? ' is-active' : ''}`}
+            aria-pressed={entry === value}
             onClick={() => onChange(entry)}
           >
-            {FIX_MODE_LABELS[entry]}
+            {labels[entry]}
           </button>
         ))}
       </div>
@@ -148,18 +166,27 @@ function FixModeControl({ mode, onChange }: { mode: FixMode; onChange: (mode: Fi
   )
 }
 
-/** Légende des fonds du diff, limitée à ceux que le mode affiche. */
-function DiffLegend({ mode, explained }: { mode: FixMode; explained: boolean }) {
+/** Légende des fonds du diff, limitée à ceux que la vue et le mode affichent. */
+function DiffLegend({ mode, codeView, explained }: { mode: FixMode; codeView: CodeView; explained: boolean }) {
   return (
     <div className="diff-legend">
-      <span className="legend-item">
-        <span className="legend-swatch is-add" />
-        Ajouté par la feature
-      </span>
-      <span className="legend-item">
-        <span className="legend-swatch is-del" />
-        Supprimé par la feature
-      </span>
+      {codeView === 'new' ? (
+        <span className="legend-item">
+          <span className="legend-swatch is-new" />
+          Ajouté par la feature
+        </span>
+      ) : (
+        <>
+          <span className="legend-item">
+            <span className="legend-swatch is-add" />
+            Ajouté par la feature
+          </span>
+          <span className="legend-item">
+            <span className="legend-swatch is-del" />
+            Supprimé par la feature
+          </span>
+        </>
+      )}
       {mode === 'before-after' && (
         <span className="legend-item">
           <span className="legend-swatch is-replaced" />
@@ -183,7 +210,8 @@ function DiffLegend({ mode, explained }: { mode: FixMode; explained: boolean }) 
 }
 
 /**
- * Diff d'un fichier : choix de l'affichage des correctifs, en-têtes de bloc,
+ * Diff d'un fichier : choix du code affiché (diff git ou nouveau code seul) et
+ * de l'affichage des correctifs, en-têtes de bloc,
  * numéros de ligne du côté « nouveau », correctifs affichés à leur place,
  * repère de gravité le long des lignes visées et pastille numérotée des
  * constats dont le correctif n'est pas affiché, filet le long des lignes
@@ -192,6 +220,8 @@ function DiffLegend({ mode, explained }: { mode: FixMode; explained: boolean }) 
  * supprimée porte son numéro du côté « ancien » (`data-old-line`), sur lequel
  * s'aligne la carte d'une explication de code supprimé. Le code est coloré
  * selon le langage du fichier, sauf sur les lignes barrées par un correctif.
+ * En vue « Nouveau code », les lignes ajoutées par la feature portent un filet
+ * vert à la place de leur fond et de leur marque.
  */
 export function DiffView({
   file,
@@ -200,6 +230,8 @@ export function DiffView({
   notedLines,
   mode,
   onModeChange,
+  codeView,
+  onCodeViewChange,
   explained,
   target,
   onLineNote,
@@ -213,7 +245,9 @@ export function DiffView({
     <div className="diff">
       <div className="diff-toolbar">
         {syntax.status === 'error' && <span className="diff-toolbar-error">Coloration syntaxique indisponible : {syntax.message}</span>}
-        <FixModeControl mode={mode} onChange={onModeChange} />
+        <SegmentedControl id="code-view-label" label="Code" labels={CODE_VIEW_LABELS} value={codeView} onChange={onCodeViewChange} />
+        <span className="diff-toolbar-gap" />
+        <SegmentedControl id="fix-mode-label" label="Correctifs" labels={FIX_MODE_LABELS} value={mode} onChange={onModeChange} />
       </div>
       {hunks.map((hunk, hunkIndex) => (
         <div key={hunkIndex} className="hunk">
@@ -266,7 +300,7 @@ export function DiffView({
                   : syntax.file.newSide.get(lineNo!)
             const classes = [
               'diff-line',
-              `is-${line.type}`,
+              lineTypeClass(line.type, codeView),
               row.replaced ? 'is-replaced' : '',
               row.explained ? 'is-explained' : '',
               barClasses(row.bar).trim(),
@@ -288,7 +322,7 @@ export function DiffView({
                 ) : (
                   <span className="diff-num">{lineNo ?? ''}</span>
                 )}
-                <span className="diff-marker">{MARKERS[line.type]}</span>
+                <span className="diff-marker">{codeView === 'new' ? '' : MARKERS[line.type]}</span>
                 <CodeText text={line.text} tokens={tokens} />
                 {row.pills.length > 0 && <DiffPills entries={row.pills} />}
               </div>
@@ -296,7 +330,7 @@ export function DiffView({
           })}
         </div>
       ))}
-      <DiffLegend mode={mode} explained={explained} />
+      <DiffLegend mode={mode} codeView={codeView} explained={explained} />
     </div>
   )
 }

@@ -53,6 +53,18 @@ export const FIX_MODE_LABELS: Record<FixMode, string> = {
 }
 
 /**
+ * Code affiché dans le diff :
+ * - `diff` : diff git, lignes supprimées par la feature comprises ;
+ * - `new` : code du côté « nouveau » seul, sans les lignes supprimées.
+ */
+export type CodeView = 'diff' | 'new'
+
+export const CODE_VIEW_LABELS: Record<CodeView, string> = {
+  diff: 'Diff git',
+  new: 'Nouveau code',
+}
+
+/**
  * Affichage du correctif d'un constat :
  * - `none` : pas de correctif proposé ;
  * - `shown` / `hidden` : correctif affiché dans le diff, ou masqué par le relecteur ;
@@ -271,12 +283,15 @@ export interface ExplanationAnchor {
  * Une ligne du côté « nouveau » s'aligne comme celle d'un constat, bandeau du
  * correctif appliqué qui la retire compris ; une ligne supprimée s'aligne par son
  * numéro du côté « ancien » et se range juste avant la ligne suivante du bloc.
- * Null quand aucune des lignes couvertes n'est affichée.
+ * En vue `new`, où les lignes supprimées ne sont pas affichées, la carte d'une
+ * ligne supprimée s'aligne sur la ligne suivante du bloc, ou à défaut sur la
+ * précédente. Null quand aucune des lignes couvertes n'est affichée.
  */
 export function explanationAnchor(
   fileDiff: FileDiff,
   explanation: Explanation,
   removed: ReadonlyMap<number, NumberedFinding>,
+  codeView: CodeView,
 ): ExplanationAnchor | null {
   for (const hunk of fileDiff.hunks) {
     const index = hunk.lines.findIndex((line) => coversLine(explanation, line))
@@ -288,6 +303,12 @@ export function explanationAnchor(
     }
     const next = hunk.lines.slice(index).find((entry) => entry.newNo !== null)
     const previous = hunk.lines.slice(0, index).findLast((entry) => entry.newNo !== null)
+    if (codeView === 'new') {
+      const neighbour = next ?? previous
+      if (!neighbour) continue
+      const anchor = lineAnchorOf(neighbour.newNo!, removed)
+      return { selector: anchorSelector(anchor), order: anchorOrder(anchor) + (next ? -0.25 : 0.25) }
+    }
     const order = next ? next.newNo! - 0.25 : previous ? previous.newNo! + 0.25 : hunk.newStart
     return { selector: oldLineAnchor(line.oldNo!), order }
   }
@@ -300,7 +321,8 @@ export function explanationAnchor(
  * visées barrées, lignes proposées après la dernière ligne visée. En mode
  * `applied` : bandeau et lignes proposées à la place des lignes visées, qui ne
  * sont pas affichées. En mode `off`, `fixes` n'affiche aucun correctif. Les
- * lignes couvertes par une des `explanations` sont marquées.
+ * lignes couvertes par une des `explanations` sont marquées. En vue `new`, les
+ * lignes supprimées par la feature ne sont pas affichées.
  */
 export function buildDiffRows(
   fileDiff: FileDiff,
@@ -308,6 +330,7 @@ export function buildDiffRows(
   fixes: Map<string, FixDisplay>,
   mode: FixMode,
   explanations: Explanation[],
+  codeView: CodeView,
 ): HunkRows[] {
   const shown = shownLineNumbers(fileDiff)
   const removed = appliedRemovals(numbered, fixes, mode)
@@ -333,6 +356,7 @@ export function buildDiffRows(
   return fileDiff.hunks.map((hunk) => {
     const rows: DiffRow[] = []
     for (const line of hunk.lines) {
+      if (codeView === 'new' && line.type === 'del') continue
       const lineNo = line.newNo
       const fix = lineNo === null ? undefined : placed.find((entry) => lineNo >= entry.startLine && lineNo <= entry.endLine)
 
