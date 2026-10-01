@@ -312,6 +312,7 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
                   ) : (
                     <DiffView
                       file={file}
+                      fileDiff={fileDiff}
                       hunks={hunks}
                       notedLines={notedLines}
                       mode={fixMode}

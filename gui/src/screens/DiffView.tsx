@@ -1,11 +1,11 @@
 import type { CSSProperties } from 'react'
 import type { FileEntry } from '@shared/schemas/analysis.schema'
-import type { Hunk } from '@shared/schemas/diff.schema'
-import type { DiffLine } from '@shared/schemas/diff.schema'
+import type { DiffLine, FileDiff, Hunk } from '@shared/schemas/diff.schema'
 import { SEVERITY_STYLES } from '@shared/labels'
 import { splitLines } from '@shared/text'
 import { Icon } from '../components/Icon'
 import { FindingNumber } from '../components/MarginFindingCard'
+import type { ThemedToken } from '../utils/syntax'
 import {
   FIX_MODE_LABELS,
   replacedLinesLabel,
@@ -16,12 +16,15 @@ import {
   type NumberedFinding,
   type RowBar,
 } from './review-diff-model'
+import { useSyntaxTokens } from './useSyntaxTokens'
 
 /** Ligne où s'ouvre la saisie d'une remarque ; `line` null vise le fichier entier. */
 export type ComposerTarget = { line: number | null } | null
 
 interface DiffViewProps {
   file: FileEntry
+  /** Diff figé du fichier, source de la coloration syntaxique. */
+  fileDiff: FileDiff
   hunks: HunkRows[]
   /** Lignes portant au moins une remarque. */
   notedLines: ReadonlySet<number>
@@ -38,6 +41,30 @@ interface DiffViewProps {
 }
 
 const MARKERS: Record<DiffLine['type'], string> = { context: ' ', add: '+', del: '−' }
+
+/** Texte d'une ligne, coloré par ses jetons quand il y en a. */
+function CodeText({ text, tokens }: { text: string; tokens: ThemedToken[] | undefined }) {
+  if (!tokens) return <span className="diff-code">{text}</span>
+  return (
+    <span className="diff-code is-highlighted">
+      {tokens.map((token, index) => (
+        <span key={index} style={tokenStyle(token)}>
+          {token.content}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+/** Couleur et style d'un jeton ; `fontStyle` est un champ de bits : 1 italique, 2 gras. */
+function tokenStyle(token: ThemedToken): CSSProperties {
+  const fontStyle = token.fontStyle ?? 0
+  return {
+    color: token.color,
+    fontStyle: fontStyle & 1 ? 'italic' : undefined,
+    fontWeight: fontStyle & 2 ? 600 : undefined,
+  }
+}
 
 function barStyle(bar: RowBar | null): CSSProperties | undefined {
   return bar ? ({ '--mark': SEVERITY_STYLES[bar.severity].color } as CSSProperties) : undefined
@@ -163,10 +190,12 @@ function DiffLegend({ mode, explained }: { mode: FixMode; explained: boolean }) 
  * décrites par une explication. Un clic sur un numéro ouvre la saisie d'une
  * remarque sur cette ligne ; les lignes proposées n'ont pas de numéro. Une ligne
  * supprimée porte son numéro du côté « ancien » (`data-old-line`), sur lequel
- * s'aligne la carte d'une explication de code supprimé.
+ * s'aligne la carte d'une explication de code supprimé. Le code est coloré
+ * selon le langage du fichier, sauf sur les lignes barrées par un correctif.
  */
 export function DiffView({
   file,
+  fileDiff,
   hunks,
   notedLines,
   mode,
@@ -178,10 +207,12 @@ export function DiffView({
   onRequestExplanation,
 }: DiffViewProps) {
   const canNote = file.contentAvailable
+  const syntax = useSyntaxTokens(fileDiff)
 
   return (
     <div className="diff">
       <div className="diff-toolbar">
+        {syntax.status === 'error' && <span className="diff-toolbar-error">Coloration syntaxique indisponible : {syntax.message}</span>}
         <FixModeControl mode={mode} onChange={onModeChange} />
       </div>
       {hunks.map((hunk, hunkIndex) => (
@@ -217,13 +248,22 @@ export function DiffView({
                 <div key={rowIndex} className={`diff-line is-proposed${barClasses(row.bar)}`} style={barStyle(row.bar)}>
                   <span className="diff-num" />
                   <span className="diff-marker">›</span>
-                  <span className="diff-code">{row.text}</span>
+                  <CodeText
+                    text={row.text}
+                    tokens={syntax.status === 'ready' ? syntax.suggestion(row.entry.finding.suggestion ?? '')[row.index] : undefined}
+                  />
                 </div>
               )
             }
 
             const { line } = row
             const lineNo = line.newNo
+            const tokens =
+              syntax.status !== 'ready' || row.replaced
+                ? undefined
+                : line.type === 'del'
+                  ? syntax.file.oldSide.get(line.oldNo!)
+                  : syntax.file.newSide.get(lineNo!)
             const classes = [
               'diff-line',
               `is-${line.type}`,
@@ -249,7 +289,7 @@ export function DiffView({
                   <span className="diff-num">{lineNo ?? ''}</span>
                 )}
                 <span className="diff-marker">{MARKERS[line.type]}</span>
-                <span className="diff-code">{line.text}</span>
+                <CodeText text={line.text} tokens={tokens} />
                 {row.pills.length > 0 && <DiffPills entries={row.pills} />}
               </div>
             )

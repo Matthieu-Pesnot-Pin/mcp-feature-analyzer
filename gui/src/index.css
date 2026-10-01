@@ -678,6 +678,37 @@ code {
   white-space: nowrap;
 }
 
+.truncated-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.truncated-text-bubble {
+  position: fixed;
+  z-index: 100;
+  width: max-content;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  animation: truncated-text-in 120ms ease-out;
+}
+
+@keyframes truncated-text-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
 .home-row-meta {
   display: flex;
   gap: 6px;
@@ -1740,6 +1771,12 @@ code {
   background: var(--panel);
 }
 
+.diff-toolbar-error {
+  margin-right: auto;
+  font-size: 11.5px;
+  color: var(--danger);
+}
+
 .diff-toolbar-label {
   font-size: 11.5px;
   color: var(--faint);
@@ -1851,6 +1888,15 @@ button.diff-num:hover {
 
 .is-del .diff-code {
   color: var(--text-soft);
+}
+
+/* Code coloré : les lignes de contexte et supprimées restent en retrait des lignes ajoutées. */
+.is-context .diff-code.is-highlighted {
+  opacity: 0.78;
+}
+
+.is-del .diff-code.is-highlighted {
+  opacity: 0.7;
 }
 
 /* --- Colonne des constats ------------------------------------------------ */

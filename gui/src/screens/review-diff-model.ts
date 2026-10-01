@@ -134,7 +134,14 @@ export type DiffRow =
       /** Pastilles des constats ancrés sur ce bandeau : leurs lignes affichées sont retirées par ce correctif appliqué. */
       pills: NumberedFinding[]
     }
-  | { kind: 'fix-line'; text: string; entry: NumberedFinding; bar: RowBar }
+  | {
+      kind: 'fix-line'
+      text: string
+      /** Position de la ligne dans le correctif, à partir de 0. */
+      index: number
+      entry: NumberedFinding
+      bar: RowBar
+    }
 
 export interface HunkRows {
   /** Bloc du diff figé dont sont issues les lignes. */
@@ -226,7 +233,7 @@ function lineBar(numbered: NumberedFinding[], lineNo: number): RowBar | null {
 
 /** Lignes proposées par le correctif de `entry`. */
 function proposedRows(entry: NumberedFinding): DiffRow[] {
-  return splitLines(entry.finding.suggestion ?? '').map((text) => ({ kind: 'fix-line', text, entry, bar: barOf(entry.finding) }))
+  return splitLines(entry.finding.suggestion ?? '').map((text, index) => ({ kind: 'fix-line', text, index, entry, bar: barOf(entry.finding) }))
 }
 
 /** Explications de `path`, dans l'ordre de leur première ligne, côté ancien avant côté nouveau à ligne égale. */

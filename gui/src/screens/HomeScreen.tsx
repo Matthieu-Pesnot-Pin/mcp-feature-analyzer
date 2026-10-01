@@ -2,6 +2,7 @@ import type { AnalysisSummary } from '@shared/schemas/analysis.schema'
 import { REVIEW_PROGRESS_STYLES } from '@shared/labels'
 import { Icon } from '../components/Icon'
 import { ReviewStateBadge, SeverityDot } from '../components/Pills'
+import { TruncatedText } from '../components/TruncatedText'
 import { useAnalysisStore } from '../store/useAnalysisStore'
 import { openFindingsLabel, plural, refsLabel, relativeTime } from '../utils/format'
 import { hrefs } from '../utils/router'
@@ -26,7 +27,7 @@ function AnalysisRow({ analysis }: { analysis: AnalysisSummary }) {
   return (
     <a className="home-row" href={hrefs.feature(analysis.id)}>
       <span className="home-row-text">
-        <span className="home-row-title">{analysis.title}</span>
+        <TruncatedText className="home-row-title" text={analysis.title} />
         <span className="home-row-meta">
           <span className="mono">
             {refsLabel(analysis)}
