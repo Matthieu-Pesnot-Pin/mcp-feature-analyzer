@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Note } from '@shared/schemas/analysis.schema'
 import { useAnalysisStore } from '../store/useAnalysisStore'
 import { formatDateTime, formatShortDateTime } from '../utils/format'
@@ -63,7 +63,11 @@ export function NoteComposer({ path, line, onClose }: { path: string; line: numb
   )
 }
 
-/** Formulaire de texte d'une remarque : `onSubmit` reçoit le texte épuré et renvoie true quand il est enregistré. */
+/**
+ * Formulaire de texte d'une remarque : `onSubmit` reçoit le texte épuré et renvoie
+ * true quand il est enregistré. Le champ reçoit le focus une fois la carte placée
+ * dans la marge, pour que le navigateur fasse défiler jusqu'à sa position réelle.
+ */
 function NoteForm({
   id,
   label,
@@ -81,6 +85,9 @@ function NoteForm({
 }) {
   const saving = useAnalysisStore((state) => state.saving)
   const [text, setText] = useState(initialText)
+  const fieldRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => fieldRef.current?.focus(), [])
 
   const submit = async () => {
     if (text.trim() === '') return
@@ -100,7 +107,7 @@ function NoteForm({
       </label>
       <textarea
         id={id}
-        autoFocus
+        ref={fieldRef}
         rows={3}
         value={text}
         placeholder="Ce que l'agent doit revoir…"
