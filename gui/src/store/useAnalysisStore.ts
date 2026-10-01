@@ -50,7 +50,9 @@ interface AnalysisState {
   fixMode: FixMode
   /** Bandeau des exigences manquantes replié sur l'écran Revue, pour tous les fichiers. */
   gapsCollapsed: boolean
-  /** Explications de l'agent affichées dans le diff de l'écran Revue, pour tous les fichiers. */
+  /** Constats affichés sur l'écran Revue (marge, repères et correctifs du diff), pour tous les fichiers. */
+  findingsShown: boolean
+  /** Explications de l'agent affichées sur l'écran Revue (marge et filets du diff), pour tous les fichiers. */
   explanationsShown: boolean
 
   setConnected: (connected: boolean) => void
@@ -58,6 +60,7 @@ interface AnalysisState {
   toggleProject: (project: string) => void
   setFixMode: (mode: FixMode) => void
   setGapsCollapsed: (collapsed: boolean) => void
+  setFindingsShown: (shown: boolean) => void
   setExplanationsShown: (shown: boolean) => void
   loadConfig: () => Promise<void>
   setListing: (listing: AnalysisListing) => void
@@ -133,6 +136,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     collapsedProjects: new Set(),
     fixMode: 'before-after',
     gapsCollapsed: false,
+    findingsShown: true,
     explanationsShown: true,
 
     setConnected: (connected) => set({ connected }),
@@ -149,6 +153,8 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     setFixMode: (fixMode) => set({ fixMode }),
 
     setGapsCollapsed: (gapsCollapsed) => set({ gapsCollapsed }),
+
+    setFindingsShown: (findingsShown) => set({ findingsShown }),
 
     setExplanationsShown: (explanationsShown) => set({ explanationsShown }),
 

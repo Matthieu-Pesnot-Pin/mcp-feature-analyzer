@@ -1,6 +1,8 @@
 import { useRef, type CSSProperties, type ReactNode, type RefObject } from 'react'
-import type { Analysis, FileEntry } from '@shared/schemas/analysis.schema'
+import type { Analysis, Explanation, FileEntry } from '@shared/schemas/analysis.schema'
+import type { FileDiff } from '@shared/schemas/diff.schema'
 import { FINDING_STATUS_LABELS, NOTE_STYLE, SEVERITY_STYLES } from '@shared/labels'
+import { MarginExplanationCard } from '../components/MarginExplanationCard'
 import { FindingNumber, MarginFindingCard } from '../components/MarginFindingCard'
 import { NoteCard, NoteComposer } from '../components/Notes'
 import { linesLabel, plural } from '../utils/format'
@@ -8,6 +10,7 @@ import type { ComposerTarget } from './DiffView'
 import {
   anchorOrder,
   anchorSelector,
+  explanationAnchor,
   findingAnchor,
   firstShownLine,
   lineAnchorOf,
@@ -19,10 +22,70 @@ import {
 import { useFindingsBelow } from './useFindingsBelow'
 import { useMarginLayout } from './useMarginLayout'
 
+/** Choix des éléments affichés dans la colonne et le diff, avec le nombre d'éléments de chaque type du fichier. */
+export interface MarginFilters {
+  findingCount: number
+  explanationCount: number
+  findingsShown: boolean
+  explanationsShown: boolean
+  onFindingsShownChange: (shown: boolean) => void
+  onExplanationsShownChange: (shown: boolean) => void
+}
+
+/**
+ * Boutons « Constats » et « Explications » : chacun affiche ou masque son type,
+ * indépendamment de l'autre. Masquer les constats permet de parcourir le code
+ * avec ses seules explications, et inversement.
+ */
+function MarginFilterButtons({ filters }: { filters: MarginFilters }) {
+  const buttons = [
+    {
+      key: 'findings',
+      label: 'Constats',
+      count: filters.findingCount,
+      shown: filters.findingsShown,
+      color: '#e3a33b',
+      onChange: filters.onFindingsShownChange,
+    },
+    {
+      key: 'explanations',
+      label: 'Explications',
+      count: filters.explanationCount,
+      shown: filters.explanationsShown,
+      color: '#3cc4b4',
+      onChange: filters.onExplanationsShownChange,
+    },
+  ]
+  return (
+    <div className="margin-filters" role="group" aria-label="Éléments affichés">
+      {buttons.map((button) => (
+        <button
+          key={button.key}
+          type="button"
+          className={`margin-filter${button.shown ? ' is-on' : ''}`}
+          style={{ '--filter': button.color } as CSSProperties}
+          aria-pressed={button.shown}
+          title={button.shown ? `Masquer les ${button.label.toLowerCase()}` : `Afficher les ${button.label.toLowerCase()}`}
+          onClick={() => button.onChange(!button.shown)}
+        >
+          <span className="margin-filter-dot" aria-hidden="true" />
+          {button.label}
+          <span className="margin-filter-count">{button.count}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 interface FindingsMarginProps {
   analysis: Analysis
   file: FileEntry
   numbered: NumberedFinding[]
+  /** Explications du fichier à afficher ; vide quand le relecteur les masque. */
+  explanations: Explanation[]
+  filters: MarginFilters
+  /** Diff du fichier ; null tant qu'il charge. */
+  fileDiff: FileDiff | null
   fixes: Map<string, FixDisplay>
   mode: FixMode
   /** Lignes retirées du diff par un correctif appliqué, avec le constat qui les remplace. */
@@ -81,8 +144,9 @@ interface AlignedItem {
 
 /**
  * Colonne « Constats de ce fichier » : remarques sur le fichier et éléments
- * hors des lignes affichées en tête, puis cartes des constats et des remarques
- * alignées sur leur première ligne dans le diff, empilées sans chevauchement.
+ * hors des lignes affichées en tête, puis cartes des explications, des constats
+ * et des remarques alignées sur leur première ligne dans le diff, empilées sans
+ * chevauchement ; à hauteur égale, l'explication précède les constats.
  * L'en-tête compte les constats ouverts et porte l'index des constats ; une
  * indication collée en bas de la colonne compte les cartes de constat
  * situées sous la partie visible.
@@ -91,6 +155,9 @@ export function FindingsMargin({
   analysis,
   file,
   numbered,
+  explanations,
+  filters,
+  fileDiff,
   fixes,
   mode,
   removed,
@@ -145,6 +212,22 @@ export function FindingsMargin({
       content: findingCard(entry, noteLine),
     })
   }
+  for (const explanation of explanations) {
+    const anchor = fileDiff === null ? null : explanationAnchor(fileDiff, explanation, removed)
+    const card = <MarginExplanationCard explanation={explanation} />
+    if (anchor === null) {
+      outside.push(<div key={`explanation-${explanation.id}`}>{card}</div>)
+      continue
+    }
+    aligned.push({
+      key: `explanation-${explanation.id}`,
+      anchor: anchor.selector,
+      line: anchor.order,
+      rank: 0,
+      color: explanation.status === 'current' ? '#3cc4b4' : '#3a4050',
+      content: card,
+    })
+  }
   for (const note of lineNotes) {
     if (!shown.has(note.location.line)) {
       outside.push(<NoteCard key={note.id} note={note} />)
@@ -176,24 +259,36 @@ export function FindingsMargin({
   if (composer !== null && composerLine !== null && !composerAligned) outside.push(<div key="composer">{composerCard(composerLine)}</div>)
   aligned.sort((a, b) => a.line - b.line || a.rank - b.rank)
 
-  const empty = numbered.length === 0 && lineNotes.length === 0 && fileNotes.length === 0 && composer === null
+  const empty =
+    numbered.length === 0 && explanations.length === 0 && lineNotes.length === 0 && fileNotes.length === 0 && composer === null
+  const hiddenCount =
+    (filters.findingsShown ? 0 : filters.findingCount) + (filters.explanationsShown ? 0 : filters.explanationCount)
   const openCount = numbered.filter((entry) => entry.finding.status === 'open').length
 
   return (
-    <aside className="margin-column" aria-label="Constats de ce fichier" ref={columnRef}>
+    <aside className="margin-column" aria-label="Constats et explications de ce fichier" ref={columnRef}>
       <div className="margin-head">
         <h2 className="margin-title">
-          Constats de ce fichier{' '}
-          <span
-            className="margin-count"
-            title="Constats ouverts de ce fichier ; le total compte aussi les constats ignorés et obsolètes."
-          >
-            {plural(openCount, 'ouvert')}
-            {numbered.length !== openCount && ` · ${numbered.length} au total`}
-          </span>
+          Constats et explications{' '}
+          {filters.findingsShown && (
+            <span
+              className="margin-count"
+              title="Constats ouverts de ce fichier ; le total compte aussi les constats ignorés et obsolètes."
+            >
+              {plural(openCount, 'constat ouvert', 'constats ouverts')}
+              {numbered.length !== openCount && ` · ${numbered.length} au total`}
+            </span>
+          )}
         </h2>
-        {empty ? (
-          <p className="margin-subtitle">Aucun constat ni remarque sur ce fichier. Cliquez sur un numéro de ligne pour ajouter une remarque.</p>
+        <MarginFilterButtons filters={filters} />
+        {empty && hiddenCount > 0 ? (
+          <p className="margin-subtitle">
+            {plural(hiddenCount, 'élément masqué', 'éléments masqués')} sur ce fichier : affichez-les avec les boutons ci-dessus.
+          </p>
+        ) : empty ? (
+          <p className="margin-subtitle">
+            Aucun constat, explication ni remarque sur ce fichier. Cliquez sur un numéro de ligne pour ajouter une remarque.
+          </p>
         ) : (
           <p className="margin-subtitle is-aligned-hint">Chaque carte est alignée sur les lignes qu'elle concerne.</p>
         )}

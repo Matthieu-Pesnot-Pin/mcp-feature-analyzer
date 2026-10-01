@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import type { Analysis, FileEntry } from '@shared/schemas/analysis.schema'
+import { buildExplanationRequestPrompt } from '@shared/explanation-request'
 import { FILE_STATUS_LABELS } from '@shared/labels'
 import { FindingCard } from '../components/FindingCard'
 import { Icon } from '../components/Icon'
@@ -17,7 +18,6 @@ import {
   lineAnchorOf,
   lineNotesOfFile,
   numberedFindingsOfFile,
-  placeExplanations,
   resolveFixDisplays,
   shownLineNumbers,
   type NumberedFinding,
@@ -205,6 +205,9 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const diffError = useAnalysisStore((state) => state.diffError)
   const fixMode = useAnalysisStore((state) => state.fixMode)
   const setFixMode = useAnalysisStore((state) => state.setFixMode)
+  const copy = useAnalysisStore((state) => state.copy)
+  const findingsShown = useAnalysisStore((state) => state.findingsShown)
+  const setFindingsShown = useAnalysisStore((state) => state.setFindingsShown)
   const explanationsShown = useAnalysisStore((state) => state.explanationsShown)
   const setExplanationsShown = useAnalysisStore((state) => state.setExplanationsShown)
   // La saisie d'une remarque est liée au fichier où elle a été ouverte.
@@ -227,7 +230,9 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const fileDiff = diff?.id === analysis.id ? diff.snapshot.files.find((entry) => entry.path === path) : undefined
   const failed = diffError !== null && diff?.id !== analysis.id
 
-  const numbered = path === null ? [] : numberedFindingsOfFile(analysis, path)
+  const allFindings = path === null ? [] : numberedFindingsOfFile(analysis, path)
+  // Constats masqués par le relecteur : ni carte, ni repère, ni correctif dans le diff.
+  const numbered = findingsShown ? allFindings : []
   const fixes = resolveFixDisplays(
     numbered,
     fileDiff ?? { path: path ?? '', hunks: [], newContent: null },
@@ -265,7 +270,6 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const explanations = explanationsOfFile(analysis, path)
   const shownExplanations = explanationsShown ? explanations : []
   const hunks = fileDiff ? buildDiffRows(fileDiff, numbered, fixes, fixMode, shownExplanations) : []
-  const unplacedExplanations = fileDiff ? placeExplanations(fileDiff, shownExplanations).unplaced : []
   const shownLines = fileDiff ? shownLineNumbers(fileDiff) : failed ? new Set<number>() : null
   const lineNotes = lineNotesOfFile(analysis, path)
   const notedLines = new Set(lineNotes.map((note) => note.location.line))
@@ -291,7 +295,7 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
             <div className="review-body" ref={bodyRef}>
               <div className="review-columns">
                 <div className="review-center" ref={centerRef}>
-                  <GapBanner analysis={analysis} />
+                  {findingsShown && <GapBanner analysis={analysis} />}
 
                   {!file.contentAvailable && !file.binary && file.status !== 'deleted' && (
                     <p className="diff-notice">
@@ -312,13 +316,16 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
                       notedLines={notedLines}
                       mode={fixMode}
                       onModeChange={setFixMode}
-                      explanationCount={explanations.length}
-                      explanationsShown={explanationsShown}
-                      onExplanationsShownChange={setExplanationsShown}
-                      unplacedExplanations={unplacedExplanations}
+                      explained={shownExplanations.length > 0}
                       target={target}
                       onLineNote={(lineNo) => setComposer({ line: lineNo })}
                       onHideFix={(findingId) => setFixShown(findingId, false)}
+                      onRequestExplanation={(hunk) =>
+                        void copy(
+                          buildExplanationRequestPrompt(analysis, file, hunk),
+                          "Demande d'explication copiée : collez-la dans la conversation de l'agent.",
+                        )
+                      }
                     />
                   )}
                 </div>
@@ -326,6 +333,16 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
                   analysis={analysis}
                   file={file}
                   numbered={numbered}
+                  explanations={shownExplanations}
+                  filters={{
+                    findingCount: allFindings.length,
+                    explanationCount: explanations.length,
+                    findingsShown,
+                    explanationsShown,
+                    onFindingsShownChange: setFindingsShown,
+                    onExplanationsShownChange: setExplanationsShown,
+                  }}
+                  fileDiff={fileDiff ?? null}
                   fixes={fixes}
                   mode={fixMode}
                   removed={removed}

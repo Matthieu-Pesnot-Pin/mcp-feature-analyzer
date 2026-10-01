@@ -1,5 +1,5 @@
 import type { Analysis, Explanation, Finding, Note, Severity } from '@shared/schemas/analysis.schema'
-import type { DiffLine, FileDiff } from '@shared/schemas/diff.schema'
+import type { DiffLine, FileDiff, Hunk } from '@shared/schemas/diff.schema'
 import { compareSeverity } from '@shared/severity'
 import { splitLines } from '@shared/text'
 
@@ -135,10 +135,10 @@ export type DiffRow =
       pills: NumberedFinding[]
     }
   | { kind: 'fix-line'; text: string; entry: NumberedFinding; bar: RowBar }
-  | { kind: 'explanation'; explanation: Explanation }
 
 export interface HunkRows {
-  header: string
+  /** Bloc du diff figé dont sont issues les lignes. */
+  hunk: Hunk
   rows: DiffRow[]
 }
 
@@ -252,32 +252,48 @@ function coversLine(explanation: Explanation, line: DiffLine): boolean {
   return number !== null && number >= startLine && number <= endLine
 }
 
-/**
- * Place chaque explication avant la première ligne du diff qu'elle couvre.
- * `unplaced` rend celles dont aucune ligne n'est affichée par le diff.
- */
-export function placeExplanations(
-  fileDiff: FileDiff,
-  explanations: Explanation[],
-): { anchors: Map<DiffLine, Explanation[]>; unplaced: Explanation[] } {
-  const anchors = new Map<DiffLine, Explanation[]>()
-  const unplaced: Explanation[] = []
-  for (const explanation of explanations) {
-    const first = fileDiff.hunks.flatMap((hunk) => hunk.lines).find((line) => coversLine(explanation, line))
-    if (first) anchors.set(first, [...(anchors.get(first) ?? []), explanation])
-    else unplaced.push(explanation)
-  }
-  return { anchors, unplaced }
+/** Élément du diff sur lequel s'aligne la carte d'une explication, et sa position parmi les autres cartes. */
+export interface ExplanationAnchor {
+  selector: string
+  /** Position en numéros du côté « nouveau », comparable à `anchorOrder`. */
+  order: number
 }
 
 /**
- * Lignes du diff, bloc par bloc, avec les correctifs affichés et les
- * explications insérés à leur place. En mode `before-after` : bandeau avant la
- * première ligne visée, lignes visées barrées, lignes proposées après la
- * dernière ligne visée. En mode `applied` : bandeau et lignes proposées à la
- * place des lignes visées, qui ne sont pas affichées. En mode `off`, `fixes`
- * n'affiche aucun correctif. Chaque explication précède la première ligne
- * qu'elle couvre, et les lignes couvertes sont marquées.
+ * Ancre de la carte d'une explication : la première ligne du diff qu'elle couvre.
+ * Une ligne du côté « nouveau » s'aligne comme celle d'un constat, bandeau du
+ * correctif appliqué qui la retire compris ; une ligne supprimée s'aligne par son
+ * numéro du côté « ancien » et se range juste avant la ligne suivante du bloc.
+ * Null quand aucune des lignes couvertes n'est affichée.
+ */
+export function explanationAnchor(
+  fileDiff: FileDiff,
+  explanation: Explanation,
+  removed: ReadonlyMap<number, NumberedFinding>,
+): ExplanationAnchor | null {
+  for (const hunk of fileDiff.hunks) {
+    const index = hunk.lines.findIndex((line) => coversLine(explanation, line))
+    if (index === -1) continue
+    const line = hunk.lines[index]
+    if (line.newNo !== null) {
+      const anchor = lineAnchorOf(line.newNo, removed)
+      return { selector: anchorSelector(anchor), order: anchorOrder(anchor) }
+    }
+    const next = hunk.lines.slice(index).find((entry) => entry.newNo !== null)
+    const previous = hunk.lines.slice(0, index).findLast((entry) => entry.newNo !== null)
+    const order = next ? next.newNo! - 0.25 : previous ? previous.newNo! + 0.25 : hunk.newStart
+    return { selector: oldLineAnchor(line.oldNo!), order }
+  }
+  return null
+}
+
+/**
+ * Lignes du diff, bloc par bloc, avec les correctifs affichés insérés à leur
+ * place. En mode `before-after` : bandeau avant la première ligne visée, lignes
+ * visées barrées, lignes proposées après la dernière ligne visée. En mode
+ * `applied` : bandeau et lignes proposées à la place des lignes visées, qui ne
+ * sont pas affichées. En mode `off`, `fixes` n'affiche aucun correctif. Les
+ * lignes couvertes par une des `explanations` sont marquées.
  */
 export function buildDiffRows(
   fileDiff: FileDiff,
@@ -286,7 +302,6 @@ export function buildDiffRows(
   mode: FixMode,
   explanations: Explanation[],
 ): HunkRows[] {
-  const { anchors: explanationAnchors } = placeExplanations(fileDiff, explanations)
   const shown = shownLineNumbers(fileDiff)
   const removed = appliedRemovals(numbered, fixes, mode)
   const placed = numbered.filter((entry) => fixes.get(entry.finding.id)?.state === 'shown')
@@ -311,7 +326,6 @@ export function buildDiffRows(
   return fileDiff.hunks.map((hunk) => {
     const rows: DiffRow[] = []
     for (const line of hunk.lines) {
-      for (const explanation of explanationAnchors.get(line) ?? []) rows.push({ kind: 'explanation', explanation })
       const lineNo = line.newNo
       const fix = lineNo === null ? undefined : placed.find((entry) => lineNo >= entry.startLine && lineNo <= entry.endLine)
 
@@ -331,13 +345,18 @@ export function buildDiffRows(
       })
       if (fix && fix.endLine === lineNo) rows.push(...proposedRows(fix))
     }
-    return { header: hunk.header, rows }
+    return { hunk, rows }
   })
 }
 
 /** Sélecteur de l'élément du diff sur lequel s'aligne une carte de la marge. */
 export function lineAnchor(line: number): string {
   return `[data-line="${line}"]`
+}
+
+/** Sélecteur d'une ligne supprimée, par son numéro du côté « ancien ». */
+export function oldLineAnchor(line: number): string {
+  return `[data-old-line="${line}"]`
 }
 
 export function fixAnchor(findingId: string): string {

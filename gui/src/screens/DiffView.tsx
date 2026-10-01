@@ -1,9 +1,9 @@
 import type { CSSProperties } from 'react'
-import type { Explanation, FileEntry } from '@shared/schemas/analysis.schema'
+import type { FileEntry } from '@shared/schemas/analysis.schema'
+import type { Hunk } from '@shared/schemas/diff.schema'
 import type { DiffLine } from '@shared/schemas/diff.schema'
 import { SEVERITY_STYLES } from '@shared/labels'
 import { splitLines } from '@shared/text'
-import { ExplanationBlock } from '../components/ExplanationBlock'
 import { Icon } from '../components/Icon'
 import { FindingNumber } from '../components/MarginFindingCard'
 import {
@@ -27,16 +27,14 @@ interface DiffViewProps {
   notedLines: ReadonlySet<number>
   mode: FixMode
   onModeChange: (mode: FixMode) => void
-  /** Nombre d'explications du fichier ; le choix de leur affichage n'apparaît que s'il y en a. */
-  explanationCount: number
-  explanationsShown: boolean
-  onExplanationsShownChange: (shown: boolean) => void
-  /** Explications affichées dont aucune ligne n'est dans le diff : présentées avant les blocs. */
-  unplacedExplanations: Explanation[]
+  /** Des lignes sont marquées comme décrites par une explication : la légende l'indique. */
+  explained: boolean
   /** Élément mis en évidence (paramètre `?line=N`). */
   target: DiffAnchor | null
   onLineNote: (line: number) => void
   onHideFix: (findingId: string) => void
+  /** Copie le prompt qui demande à l'agent d'expliquer ce bloc. */
+  onRequestExplanation: (hunk: Hunk) => void
 }
 
 const MARKERS: Record<DiffLine['type'], string> = { context: ' ', add: '+', del: '−' }
@@ -96,30 +94,6 @@ function FixStrip({ entry, bar, pills, applied, isTarget, onHide }: FixStripProp
         {applied ? 'Retirer le correctif' : 'Masquer le correctif'}
       </button>
     </div>
-  )
-}
-
-/** Choix de l'affichage des explications, commun à tous les fichiers. */
-function ExplanationsControl({ count, shown, onChange }: { count: number; shown: boolean; onChange: (shown: boolean) => void }) {
-  return (
-    <>
-      <span className="diff-toolbar-label" id="explanations-label">
-        Explications ({count})
-      </span>
-      <div className="segmented segmented-small" role="group" aria-labelledby="explanations-label">
-        {[true, false].map((value) => (
-          <button
-            key={String(value)}
-            type="button"
-            className={`segmented-item${value === shown ? ' is-active' : ''}`}
-            aria-pressed={value === shown}
-            onClick={() => onChange(value)}
-          >
-            {value ? 'Affichées' : 'Masquées'}
-          </button>
-        ))}
-      </div>
-    </>
   )
 }
 
@@ -185,10 +159,11 @@ function DiffLegend({ mode, explained }: { mode: FixMode; explained: boolean }) 
  * Diff d'un fichier : choix de l'affichage des correctifs, en-têtes de bloc,
  * numéros de ligne du côté « nouveau », correctifs affichés à leur place,
  * repère de gravité le long des lignes visées et pastille numérotée des
- * constats dont le correctif n'est pas affiché. Les explications de l'agent
- * précèdent les lignes qu'elles décrivent, marquées d'un filet. Un clic sur un
- * numéro ouvre la saisie d'une remarque sur cette ligne ; les lignes proposées
- * n'ont pas de numéro.
+ * constats dont le correctif n'est pas affiché, filet le long des lignes
+ * décrites par une explication. Un clic sur un numéro ouvre la saisie d'une
+ * remarque sur cette ligne ; les lignes proposées n'ont pas de numéro. Une ligne
+ * supprimée porte son numéro du côté « ancien » (`data-old-line`), sur lequel
+ * s'aligne la carte d'une explication de code supprimé.
  */
 export function DiffView({
   file,
@@ -196,40 +171,34 @@ export function DiffView({
   notedLines,
   mode,
   onModeChange,
-  explanationCount,
-  explanationsShown,
-  onExplanationsShownChange,
-  unplacedExplanations,
+  explained,
   target,
   onLineNote,
   onHideFix,
+  onRequestExplanation,
 }: DiffViewProps) {
   const canNote = file.contentAvailable
-  const explained = explanationsShown && explanationCount > 0
 
   return (
     <div className="diff">
       <div className="diff-toolbar">
-        {explanationCount > 0 && (
-          <ExplanationsControl count={explanationCount} shown={explanationsShown} onChange={onExplanationsShownChange} />
-        )}
         <FixModeControl mode={mode} onChange={onModeChange} />
       </div>
-      {unplacedExplanations.length > 0 && (
-        <div className="explanations-unplaced">
-          <p className="explanations-unplaced-title">Explications de lignes hors du diff affiché</p>
-          {unplacedExplanations.map((explanation) => (
-            <ExplanationBlock key={explanation.id} explanation={explanation} />
-          ))}
-        </div>
-      )}
       {hunks.map((hunk, hunkIndex) => (
         <div key={hunkIndex} className="hunk">
-          <div className="hunk-header mono">{hunk.header}</div>
+          <div className="hunk-header">
+            <span className="hunk-header-text mono">{hunk.hunk.header}</span>
+            <button
+              type="button"
+              className="hunk-explain"
+              title="Copier un prompt qui demande à l'agent d'expliquer ce bloc et d'ajouter ses explications à l'analyse"
+              onClick={() => onRequestExplanation(hunk.hunk)}
+            >
+              <Icon name="bot" color="#3cc4b4" />
+              Copier une demande d'explication
+            </button>
+          </div>
           {hunk.rows.map((row, rowIndex) => {
-            if (row.kind === 'explanation') {
-              return <ExplanationBlock key={`explanation-${row.explanation.id}`} explanation={row.explanation} />
-            }
             if (row.kind === 'fix-strip') {
               return (
                 <FixStrip
@@ -264,7 +233,13 @@ export function DiffView({
               lineNo !== null && sameAnchor(target, { kind: 'line', line: lineNo }) ? 'is-target' : '',
             ]
             return (
-              <div key={rowIndex} className={classes.filter(Boolean).join(' ')} style={barStyle(row.bar)} data-line={lineNo ?? undefined}>
+              <div
+                key={rowIndex}
+                className={classes.filter(Boolean).join(' ')}
+                style={barStyle(row.bar)}
+                data-line={lineNo ?? undefined}
+                data-old-line={line.type === 'del' ? (line.oldNo ?? undefined) : undefined}
+              >
                 {lineNo !== null && notedLines.has(lineNo) && <span className="diff-note-dot" title="Remarque sur cette ligne" />}
                 {lineNo !== null && canNote ? (
                   <button type="button" className="diff-num" title={`Ajouter une remarque sur la ligne ${lineNo}`} onClick={() => onLineNote(lineNo)}>

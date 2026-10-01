@@ -1485,14 +1485,45 @@ code {
 .hunk-header {
   display: flex;
   align-items: center;
+  gap: 12px;
   height: 32px;
-  padding: 0 16px;
+  padding: 0 10px 0 16px;
   background: var(--hunk);
   font-size: 11.5px;
   color: var(--faint);
-  white-space: pre;
+}
+
+.hunk-header-text {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
+  white-space: pre;
   text-overflow: ellipsis;
+}
+
+.hunk-explain {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.hunk-explain:hover {
+  color: var(--text);
+  background: var(--explanation-bg);
+  border-color: var(--explanation-border);
+}
+
+.hunk-explain:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
 }
 
 .diff-line {
@@ -1642,55 +1673,6 @@ code {
   box-shadow: inset 2px 0 0 var(--explanation);
 }
 
-.diff-toolbar .segmented + .diff-toolbar-label {
-  margin-left: 12px;
-}
-
-.explanation-block {
-  position: relative;
-  background: var(--explanation-bg);
-  border-top: 1px solid var(--explanation-border);
-  border-bottom: 1px solid var(--explanation-border);
-  box-shadow: inset 2px 0 0 var(--explanation);
-  font-family: var(--font-sans);
-}
-
-.explanation-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 32px;
-  padding: 0 14px 0 12px;
-  font-size: 12px;
-  text-align: left;
-}
-
-.explanation-head:hover .explanation-title {
-  color: var(--text);
-}
-
-.explanation-kind {
-  font-weight: 600;
-  color: var(--explanation);
-}
-
-.explanation-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  font-weight: 500;
-  color: var(--text-soft);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.explanation-lines {
-  font-size: 11px;
-  color: var(--faint);
-  white-space: nowrap;
-}
-
 .explanation-side {
   color: var(--del);
   background: #2a1719;
@@ -1701,48 +1683,47 @@ code {
   background: #2a2010;
 }
 
-.explanation-body {
-  padding: 0 16px 14px 56px;
+.margin-explanation {
+  --severity: var(--explanation);
+  background: var(--explanation-bg);
+  border-color: var(--explanation-border);
 }
 
-.explanation-text {
-  max-width: 96ch;
-  font-size: 13px;
-  line-height: 20px;
+.margin-explanation-kind {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--explanation);
+}
+
+.margin-explanation-body {
+  margin-top: 8px;
+  font-size: 12.5px;
+  line-height: 19px;
   color: var(--text-soft);
   white-space: pre-wrap;
 }
 
+.margin-explanation-body.is-folded {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 8;
+}
+
+.margin-explanation-more {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--explanation);
+}
+
+.margin-explanation-more:hover {
+  text-decoration: underline;
+}
+
 .explanation-outdated {
-  margin-bottom: 8px;
+  margin-top: 8px;
   font-size: 12px;
   color: #c9a15a;
-}
-
-.explanation-block.is-outdated {
-  box-shadow: inset 2px 0 0 #4a5a58;
-}
-
-.explanation-block.is-outdated .explanation-kind {
-  color: var(--muted);
-}
-
-.explanation-block.is-outdated .explanation-text {
-  color: var(--muted);
-}
-
-.explanations-unplaced {
-  border-bottom: 1px solid var(--divider);
-}
-
-.explanations-unplaced-title {
-  padding: 8px 14px 6px;
-  font-size: 11.5px;
-  color: var(--faint);
-}
-
-.explanations-unplaced .explanation-block + .explanation-block {
-  border-top: none;
 }
 
 /* Reste visible en haut de la zone de défilement de la revue. */
@@ -1902,6 +1883,60 @@ button.diff-num:hover {
   margin-top: 5px;
   font-size: 11.5px;
   line-height: 16px;
+  color: var(--faint);
+}
+
+.margin-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.margin-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--faint);
+  transition:
+    background-color 0.12s,
+    border-color 0.12s,
+    color 0.12s;
+}
+
+.margin-filter:hover {
+  color: var(--text-soft);
+}
+
+.margin-filter.is-on {
+  color: var(--text);
+  background: var(--surface-raised);
+  border-color: color-mix(in srgb, var(--filter) 55%, var(--border-strong));
+}
+
+.margin-filter:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+.margin-filter-dot {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--filter);
+  border-radius: 50%;
+}
+
+.margin-filter.is-on .margin-filter-dot {
+  background: var(--filter);
+}
+
+.margin-filter-count {
+  font-variant-numeric: tabular-nums;
   color: var(--faint);
 }
 
