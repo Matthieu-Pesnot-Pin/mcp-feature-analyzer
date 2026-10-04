@@ -65,6 +65,18 @@ export const CODE_VIEW_LABELS: Record<CodeView, string> = {
 }
 
 /**
+ * Étendue du code affiché dans le diff :
+ * - `changes` : les blocs du diff, entourés de quelques lignes de contexte ;
+ * - `file` : le fichier entier, lignes inchangées comprises.
+ */
+export type DiffScope = 'changes' | 'file'
+
+export const DIFF_SCOPE_LABELS: Record<DiffScope, string> = {
+  changes: 'Modifications',
+  file: 'Fichier entier',
+}
+
+/**
  * Affichage du correctif d'un constat :
  * - `none` : pas de correctif proposé ;
  * - `shown` / `hidden` : correctif affiché dans le diff, ou masqué par le relecteur ;

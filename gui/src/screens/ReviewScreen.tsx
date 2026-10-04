@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { Analysis, FileEntry } from '@shared/schemas/analysis.schema'
 import { buildExplanationRequestPrompt } from '@shared/explanation-request'
 import { FILE_STATUS_LABELS } from '@shared/labels'
+import { wholeFileDiff } from '@shared/whole-file-diff'
 import { FindingCard } from '../components/FindingCard'
 import { Icon } from '../components/Icon'
 import { SeverityDot } from '../components/Pills'
@@ -207,6 +208,8 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const setFixMode = useAnalysisStore((state) => state.setFixMode)
   const codeView = useAnalysisStore((state) => state.codeView)
   const setCodeView = useAnalysisStore((state) => state.setCodeView)
+  const diffScope = useAnalysisStore((state) => state.diffScope)
+  const setDiffScope = useAnalysisStore((state) => state.setDiffScope)
   const copy = useAnalysisStore((state) => state.copy)
   const findingsShown = useAnalysisStore((state) => state.findingsShown)
   const setFindingsShown = useAnalysisStore((state) => state.setFindingsShown)
@@ -229,7 +232,14 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   }, [path, fallbackPath, analysis.id])
 
   const file = analysis.files.find((entry) => entry.path === path) ?? null
-  const fileDiff = diff?.id === analysis.id ? diff.snapshot.files.find((entry) => entry.path === path) : undefined
+  const snapshotDiff = diff?.id === analysis.id ? diff.snapshot.files.find((entry) => entry.path === path) : undefined
+  const wholeFileAvailable = snapshotDiff !== undefined && snapshotDiff.newContent !== null
+  const scope = wholeFileAvailable ? diffScope : 'changes'
+  // Diff affiché : celui du snapshot, ou le fichier entier ; mémorisé pour ne pas relancer la coloration syntaxique.
+  const fileDiff = useMemo(
+    () => (scope === 'file' && snapshotDiff ? (wholeFileDiff(snapshotDiff) ?? undefined) : snapshotDiff),
+    [scope, snapshotDiff],
+  )
   const failed = diffError !== null && diff?.id !== analysis.id
 
   const allFindings = path === null ? [] : numberedFindingsOfFile(analysis, path)
@@ -309,7 +319,7 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
                     <p className="diff-message is-error">{diffError}</p>
                   ) : !fileDiff ? (
                     <p className="diff-message">Chargement du diff…</p>
-                  ) : fileDiff.hunks.length === 0 ? (
+                  ) : snapshotDiff?.hunks.length === 0 ? (
                     <EmptyDiffMessage file={file} />
                   ) : (
                     <DiffView
@@ -321,6 +331,9 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
                       onModeChange={setFixMode}
                       codeView={codeView}
                       onCodeViewChange={setCodeView}
+                      scope={scope}
+                      onScopeChange={setDiffScope}
+                      wholeFileAvailable={wholeFileAvailable}
                       explained={shownExplanations.length > 0}
                       target={target}
                       onLineNote={(lineNo) => setComposer({ line: lineNo })}

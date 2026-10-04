@@ -603,6 +603,15 @@ code {
   color: var(--text);
 }
 
+.segmented-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.segmented-item:disabled:hover {
+  color: var(--muted);
+}
+
 .segmented-item.is-active {
   background: var(--surface-current);
   color: var(--text);

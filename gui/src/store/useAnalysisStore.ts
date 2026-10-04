@@ -5,7 +5,7 @@ import { ApiError, api } from '../utils/api'
 import { copyText } from '../utils/clipboard'
 import type { AppConfig, AnalysisListing } from '../types'
 import type { HomeFilter } from '../screens/home-model'
-import type { CodeView, FixMode } from '../screens/review-diff-model'
+import type { CodeView, DiffScope, FixMode } from '../screens/review-diff-model'
 
 /** Message bref affiché en bas de l'écran. */
 export interface Notice {
@@ -50,6 +50,8 @@ interface AnalysisState {
   fixMode: FixMode
   /** Code affiché dans le diff de l'écran Revue, commun à tous les fichiers. */
   codeView: CodeView
+  /** Étendue du code affiché dans le diff de l'écran Revue, commune à tous les fichiers. */
+  diffScope: DiffScope
   /** Bandeau des exigences manquantes replié sur l'écran Revue, pour tous les fichiers. */
   gapsCollapsed: boolean
   /** Constats affichés sur l'écran Revue (marge, repères et correctifs du diff), pour tous les fichiers. */
@@ -62,6 +64,7 @@ interface AnalysisState {
   toggleProject: (project: string) => void
   setFixMode: (mode: FixMode) => void
   setCodeView: (view: CodeView) => void
+  setDiffScope: (scope: DiffScope) => void
   setGapsCollapsed: (collapsed: boolean) => void
   setFindingsShown: (shown: boolean) => void
   setExplanationsShown: (shown: boolean) => void
@@ -139,6 +142,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     collapsedProjects: new Set(),
     fixMode: 'before-after',
     codeView: 'diff',
+    diffScope: 'changes',
     gapsCollapsed: false,
     findingsShown: true,
     explanationsShown: true,
@@ -157,6 +161,8 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     setFixMode: (fixMode) => set({ fixMode }),
 
     setCodeView: (codeView) => set({ codeView }),
+
+    setDiffScope: (diffScope) => set({ diffScope }),
 
     setGapsCollapsed: (gapsCollapsed) => set({ gapsCollapsed }),
 

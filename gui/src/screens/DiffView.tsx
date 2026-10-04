@@ -8,11 +8,13 @@ import { FindingNumber } from '../components/MarginFindingCard'
 import type { ThemedToken } from '../utils/syntax'
 import {
   CODE_VIEW_LABELS,
+  DIFF_SCOPE_LABELS,
   FIX_MODE_LABELS,
   replacedLinesLabel,
   sameAnchor,
   type CodeView,
   type DiffAnchor,
+  type DiffScope,
   type FixMode,
   type HunkRows,
   type NumberedFinding,
@@ -34,6 +36,10 @@ interface DiffViewProps {
   onModeChange: (mode: FixMode) => void
   codeView: CodeView
   onCodeViewChange: (view: CodeView) => void
+  scope: DiffScope
+  onScopeChange: (scope: DiffScope) => void
+  /** Le snapshot conserve le contenu du fichier : il peut s'afficher en entier. */
+  wholeFileAvailable: boolean
   /** Des lignes sont marquées comme décrites par une explication : la légende l'indique. */
   explained: boolean
   /** Élément mis en évidence (paramètre `?line=N`). */
@@ -140,10 +146,12 @@ interface SegmentedControlProps<T extends string> {
   labels: Record<T, string>
   value: T
   onChange: (value: T) => void
+  /** Choix indisponibles, avec la raison affichée en infobulle. */
+  disabled?: Partial<Record<T, string>>
 }
 
 /** Libellé suivi d'un sélecteur à boutons segmentés. */
-function SegmentedControl<T extends string>({ id, label, labels, value, onChange }: SegmentedControlProps<T>) {
+function SegmentedControl<T extends string>({ id, label, labels, value, onChange, disabled }: SegmentedControlProps<T>) {
   return (
     <>
       <span className="diff-toolbar-label" id={id}>
@@ -156,6 +164,8 @@ function SegmentedControl<T extends string>({ id, label, labels, value, onChange
             type="button"
             className={`segmented-item${entry === value ? ' is-active' : ''}`}
             aria-pressed={entry === value}
+            disabled={disabled?.[entry] !== undefined}
+            title={disabled?.[entry]}
             onClick={() => onChange(entry)}
           >
             {labels[entry]}
@@ -210,8 +220,9 @@ function DiffLegend({ mode, codeView, explained }: { mode: FixMode; codeView: Co
 }
 
 /**
- * Diff d'un fichier : choix du code affiché (diff git ou nouveau code seul) et
- * de l'affichage des correctifs, en-têtes de bloc,
+ * Diff d'un fichier : choix de l'étendue affichée (modifications ou fichier
+ * entier), du code affiché (diff git ou nouveau code seul) et de l'affichage
+ * des correctifs, en-têtes de bloc,
  * numéros de ligne du côté « nouveau », correctifs affichés à leur place,
  * repère de gravité le long des lignes visées et pastille numérotée des
  * constats dont le correctif n'est pas affiché, filet le long des lignes
@@ -232,6 +243,9 @@ export function DiffView({
   onModeChange,
   codeView,
   onCodeViewChange,
+  scope,
+  onScopeChange,
+  wholeFileAvailable,
   explained,
   target,
   onLineNote,
@@ -245,6 +259,15 @@ export function DiffView({
     <div className="diff">
       <div className="diff-toolbar">
         {syntax.status === 'error' && <span className="diff-toolbar-error">Coloration syntaxique indisponible : {syntax.message}</span>}
+        <SegmentedControl
+          id="diff-scope-label"
+          label="Afficher"
+          labels={DIFF_SCOPE_LABELS}
+          value={scope}
+          onChange={onScopeChange}
+          disabled={wholeFileAvailable ? undefined : { file: "Le contenu de ce fichier n'est pas conservé dans l'analyse." }}
+        />
+        <span className="diff-toolbar-gap" />
         <SegmentedControl id="code-view-label" label="Code" labels={CODE_VIEW_LABELS} value={codeView} onChange={onCodeViewChange} />
         <span className="diff-toolbar-gap" />
         <SegmentedControl id="fix-mode-label" label="Correctifs" labels={FIX_MODE_LABELS} value={mode} onChange={onModeChange} />
