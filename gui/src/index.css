@@ -1582,6 +1582,38 @@ code {
   background: var(--add-bg);
 }
 
+/* Vue côte à côte : ancien code à gauche, nouveau code à droite, rangées de même hauteur. */
+.diff-split-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.diff-split-row > .diff-line + .diff-line {
+  border-left: 1px solid var(--divider);
+}
+
+/* Ligne dont seule l'indentation change : indentation ajoutée en vert, retirée en rouge. */
+.diff-line.is-reindent .diff-marker {
+  color: var(--accent-soft);
+}
+
+.diff-indent.is-add {
+  background: color-mix(in srgb, var(--add) 35%, transparent);
+}
+
+.diff-indent.is-del {
+  background: color-mix(in srgb, var(--del) 35%, transparent);
+}
+
+.legend-swatch.is-reindent {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--add) 35%, transparent) 0 50%, transparent 50%), var(--surface);
+  border-color: var(--border-strong);
+}
+
+.diff-line.is-empty {
+  background: repeating-linear-gradient(-45deg, transparent 0 5px, var(--divider) 5px 6px);
+}
+
 .diff-line.is-del {
   background: var(--del-bg);
 }

@@ -1,5 +1,6 @@
 import type { Analysis, Explanation, Finding, Note, Severity } from '@shared/schemas/analysis.schema'
 import type { DiffLine, FileDiff, Hunk } from '@shared/schemas/diff.schema'
+import { mergeReindentedLines } from '@shared/reindent'
 import { compareSeverity } from '@shared/severity'
 import { splitLines } from '@shared/text'
 
@@ -54,13 +55,15 @@ export const FIX_MODE_LABELS: Record<FixMode, string> = {
 
 /**
  * Code affiché dans le diff :
- * - `diff` : diff git, lignes supprimées par la feature comprises ;
+ * - `diff` : diff unifié, lignes supprimées au-dessus des lignes ajoutées ;
+ * - `split` : diff côte à côte, ancien code à gauche et nouveau code à droite ;
  * - `new` : code du côté « nouveau » seul, sans les lignes supprimées.
  */
-export type CodeView = 'diff' | 'new'
+export type CodeView = 'diff' | 'split' | 'new'
 
 export const CODE_VIEW_LABELS: Record<CodeView, string> = {
-  diff: 'Diff git',
+  diff: 'Unifié',
+  split: 'Côte à côte',
   new: 'Nouveau code',
 }
 
@@ -143,6 +146,8 @@ export type DiffRow =
   | {
       kind: 'line'
       line: DiffLine
+      /** Ligne supprimée dont `line`, ajoutée, ne change que l'indentation : les deux ne forment qu'une ligne. */
+      oldLine: DiffLine | null
       /** Ligne visée par un correctif affiché avant / après : barrée. */
       replaced: boolean
       /** Ligne couverte par au moins une explication affichée. */
@@ -329,7 +334,8 @@ export function explanationAnchor(
 
 /**
  * Lignes du diff, bloc par bloc, avec les correctifs affichés insérés à leur
- * place. En mode `before-after` : bandeau avant la première ligne visée, lignes
+ * place. Une ligne supprimée puis ajoutée avec pour seule différence son
+ * indentation ne forme qu'une ligne. En mode `before-after` : bandeau avant la première ligne visée, lignes
  * visées barrées, lignes proposées après la dernière ligne visée. En mode
  * `applied` : bandeau et lignes proposées à la place des lignes visées, qui ne
  * sont pas affichées. En mode `off`, `fixes` n'affiche aucun correctif. Les
@@ -367,7 +373,7 @@ export function buildDiffRows(
 
   return fileDiff.hunks.map((hunk) => {
     const rows: DiffRow[] = []
-    for (const line of hunk.lines) {
+    for (const { line, oldLine } of mergeReindentedLines(hunk.lines)) {
       if (codeView === 'new' && line.type === 'del') continue
       const lineNo = line.newNo
       const fix = lineNo === null ? undefined : placed.find((entry) => lineNo >= entry.startLine && lineNo <= entry.endLine)
@@ -381,8 +387,9 @@ export function buildDiffRows(
       rows.push({
         kind: 'line',
         line,
+        oldLine,
         replaced: fix !== undefined && line.type !== 'del',
-        explained: explanations.some((explanation) => coversLine(explanation, line)),
+        explained: explanations.some((explanation) => coversLine(explanation, line) || (oldLine !== null && coversLine(explanation, oldLine))),
         bar: fix ? barOf(fix.finding) : lineNo === null ? null : lineBar(numbered, lineNo),
         pills: lineNo === null ? [] : (pillsByLine.get(lineNo) ?? []),
       })
@@ -390,6 +397,58 @@ export function buildDiffRows(
     }
     return { hunk, rows }
   })
+}
+
+type LineRow = Extract<DiffRow, { kind: 'line' }>
+
+/**
+ * Rangée de la vue côte à côte : le bandeau d'un correctif sur toute la largeur,
+ * ou une ligne de chaque côté, l'un des deux pouvant être vide.
+ */
+export type SplitRow =
+  | { kind: 'full'; row: Extract<DiffRow, { kind: 'fix-strip' }> }
+  | { kind: 'pair'; left: LineRow | null; right: Exclude<DiffRow, { kind: 'fix-strip' }> | null }
+
+/** Vrai pour une ligne de type `type` qui ne forme pas une seule ligne avec une autre. */
+function isLineOfType(row: DiffRow | undefined, type: DiffLine['type']): row is LineRow {
+  return row?.kind === 'line' && row.oldLine === null && row.line.type === type
+}
+
+/**
+ * Rangées côte à côte d'un bloc : une ligne de contexte, ou dont seule
+ * l'indentation change, figure des deux côtés ;
+ * une suite de lignes supprimées suivie de lignes ajoutées est appariée ligne à
+ * ligne, le côté le plus court complété par des cases vides ; les lignes
+ * proposées par un correctif sont à droite.
+ */
+export function splitRows(rows: DiffRow[]): SplitRow[] {
+  const result: SplitRow[] = []
+  let index = 0
+  while (index < rows.length) {
+    const row = rows[index]
+    if (row.kind === 'fix-strip') {
+      result.push({ kind: 'full', row })
+      index++
+    } else if (row.kind === 'line' && row.oldLine !== null) {
+      result.push({ kind: 'pair', left: row, right: row })
+      index++
+    } else if (row.kind === 'fix-line' || isLineOfType(row, 'add')) {
+      result.push({ kind: 'pair', left: null, right: row })
+      index++
+    } else if (isLineOfType(row, 'context')) {
+      result.push({ kind: 'pair', left: row, right: row })
+      index++
+    } else {
+      const removed: LineRow[] = []
+      const added: LineRow[] = []
+      for (let next = rows[index]; isLineOfType(next, 'del'); next = rows[++index]) removed.push(next)
+      for (let next = rows[index]; isLineOfType(next, 'add'); next = rows[++index]) added.push(next)
+      for (let pair = 0; pair < Math.max(removed.length, added.length); pair++) {
+        result.push({ kind: 'pair', left: removed[pair] ?? null, right: added[pair] ?? null })
+      }
+    }
+  }
+  return result
 }
 
 /** Sélecteur de l'élément du diff sur lequel s'aligne une carte de la marge. */

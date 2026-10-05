@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react'
 import type { FileEntry } from '@shared/schemas/analysis.schema'
 import type { DiffLine, FileDiff, Hunk } from '@shared/schemas/diff.schema'
 import { SEVERITY_STYLES } from '@shared/labels'
+import { indentChange } from '@shared/reindent'
 import { splitLines } from '@shared/text'
 import { Icon } from '../components/Icon'
 import { FindingNumber } from '../components/MarginFindingCard'
@@ -12,8 +13,10 @@ import {
   FIX_MODE_LABELS,
   replacedLinesLabel,
   sameAnchor,
+  splitRows,
   type CodeView,
   type DiffAnchor,
+  type DiffRow,
   type DiffScope,
   type FixMode,
   type HunkRows,
@@ -52,23 +55,57 @@ interface DiffViewProps {
 
 const MARKERS: Record<DiffLine['type'], string> = { context: ' ', add: '+', del: '−' }
 
+/** Place d'une ligne : diff sur une colonne, ou côté gauche / droit de la vue côte à côte. */
+type LineSide = 'both' | 'old' | 'new'
+
 /** Classe d'une ligne du diff : en vue `new`, une ligne ajoutée ne porte qu'un filet, sans fond ni marque. */
 function lineTypeClass(type: DiffLine['type'], codeView: CodeView): string {
   return codeView === 'new' && type === 'add' ? 'is-new' : `is-${type}`
 }
 
-/** Texte d'une ligne, coloré par ses jetons quand il y en a. */
-function CodeText({ text, tokens }: { text: string; tokens: ThemedToken[] | undefined }) {
-  if (!tokens) return <span className="diff-code">{text}</span>
+/** Caractères `start`–`end` d'une ligne marqués comme indentation ajoutée ou retirée. */
+interface IndentMark {
+  start: number
+  end: number
+  kind: 'add' | 'del'
+}
+
+/** Morceaux de `chunks` découpés aux bornes de `mark`, chacun avec son style et son marquage. */
+function markedPieces(chunks: Array<{ text: string; style?: CSSProperties }>, mark: IndentMark | null) {
+  const pieces: Array<{ text: string; style?: CSSProperties; marked: boolean }> = []
+  let offset = 0
+  for (const { text, style } of chunks) {
+    const bounds = mark ? [mark.start, mark.end].map((bound) => Math.min(Math.max(bound - offset, 0), text.length)) : []
+    const cuts = [0, ...bounds, text.length]
+    for (let index = 0; index < cuts.length - 1; index++) {
+      if (cuts[index + 1] <= cuts[index]) continue
+      const piece = text.slice(cuts[index], cuts[index + 1])
+      const at = offset + cuts[index]
+      pieces.push({ text: piece, style, marked: mark !== null && at >= mark.start && at < mark.end })
+    }
+    offset += text.length
+  }
+  return pieces
+}
+
+/** Texte d'une ligne, coloré par ses jetons quand il y en a, son indentation modifiée marquée. */
+function CodeText({ text, tokens, mark = null }: { text: string; tokens: ThemedToken[] | undefined; mark?: IndentMark | null }) {
+  const chunks = tokens ? tokens.map((token) => ({ text: token.content, style: tokenStyle(token) })) : [{ text }]
   return (
-    <span className="diff-code is-highlighted">
-      {tokens.map((token, index) => (
-        <span key={index} style={tokenStyle(token)}>
-          {token.content}
+    <span className={`diff-code${tokens ? ' is-highlighted' : ''}`}>
+      {markedPieces(chunks, mark).map((piece, index) => (
+        <span key={index} style={piece.style} className={piece.marked ? `diff-indent is-${mark!.kind}` : undefined}>
+          {piece.text}
         </span>
       ))}
     </span>
   )
+}
+
+/** Marque d'une ligne dont seule l'indentation change : flèche du sens du décalage. */
+function reindentMarker(oldText: string, newText: string): string {
+  const { oldEnd, newEnd } = indentChange(oldText, newText)
+  return newEnd > oldEnd ? '→' : newEnd < oldEnd ? '←' : '↔'
 }
 
 /** Couleur et style d'un jeton ; `fontStyle` est un champ de bits : 1 italique, 2 gras. */
@@ -177,7 +214,7 @@ function SegmentedControl<T extends string>({ id, label, labels, value, onChange
 }
 
 /** Légende des fonds du diff, limitée à ceux que la vue et le mode affichent. */
-function DiffLegend({ mode, codeView, explained }: { mode: FixMode; codeView: CodeView; explained: boolean }) {
+function DiffLegend({ mode, codeView, explained, reindented }: { mode: FixMode; codeView: CodeView; explained: boolean; reindented: boolean }) {
   return (
     <div className="diff-legend">
       {codeView === 'new' ? (
@@ -196,6 +233,12 @@ function DiffLegend({ mode, codeView, explained }: { mode: FixMode; codeView: Co
             Supprimé par la feature
           </span>
         </>
+      )}
+      {reindented && (
+        <span className="legend-item">
+          <span className="legend-swatch is-reindent" />
+          Indentation modifiée
+        </span>
       )}
       {mode === 'before-after' && (
         <span className="legend-item">
@@ -221,7 +264,8 @@ function DiffLegend({ mode, codeView, explained }: { mode: FixMode; codeView: Co
 
 /**
  * Diff d'un fichier : choix de l'étendue affichée (modifications ou fichier
- * entier), du code affiché (diff git ou nouveau code seul) et de l'affichage
+ * entier), du code affiché (diff unifié, diff côte à côte avec l'ancien code à
+ * gauche et le nouveau à droite, ou nouveau code seul) et de l'affichage
  * des correctifs, en-têtes de bloc,
  * numéros de ligne du côté « nouveau », correctifs affichés à leur place,
  * repère de gravité le long des lignes visées et pastille numérotée des
@@ -232,7 +276,9 @@ function DiffLegend({ mode, codeView, explained }: { mode: FixMode; codeView: Co
  * s'aligne la carte d'une explication de code supprimé. Le code est coloré
  * selon le langage du fichier, sauf sur les lignes barrées par un correctif.
  * En vue « Nouveau code », les lignes ajoutées par la feature portent un filet
- * vert à la place de leur fond et de leur marque.
+ * vert à la place de leur fond et de leur marque. Une ligne dont seule
+ * l'indentation change ne forme qu'une ligne, marquée d'une flèche, son
+ * indentation ajoutée ou retirée surlignée.
  */
 export function DiffView({
   file,
@@ -254,6 +300,94 @@ export function DiffView({
 }: DiffViewProps) {
   const canNote = file.contentAvailable
   const syntax = useSyntaxTokens(fileDiff)
+
+  const renderStrip = (row: Extract<DiffRow, { kind: 'fix-strip' }>, key: number) => (
+    <FixStrip
+      key={key}
+      entry={row.entry}
+      bar={row.bar}
+      pills={row.pills}
+      applied={mode === 'applied'}
+      isTarget={sameAnchor(target, { kind: 'fix', entry: row.entry })}
+      onHide={() => onHideFix(row.entry.finding.id)}
+    />
+  )
+
+  /**
+   * Ligne du diff. `both` : ligne du diff unifié ; `old` / `new` : côté gauche
+   * ou droit de la vue côte à côte. Le côté gauche porte le numéro du côté
+   * « ancien » et n'accueille ni remarque, ni repère, ni pastille.
+   */
+  const renderLine = (row: Exclude<DiffRow, { kind: 'fix-strip' }>, side: LineSide, key?: number) => {
+    if (row.kind === 'fix-line') {
+      return (
+        <div key={key} className={`diff-line is-proposed${barClasses(row.bar)}`} style={barStyle(row.bar)}>
+          <span className="diff-num" />
+          <span className="diff-marker">›</span>
+          <CodeText
+            text={row.text}
+            tokens={syntax.status === 'ready' ? syntax.suggestion(row.entry.finding.suggestion ?? '')[row.index] : undefined}
+          />
+        </div>
+      )
+    }
+
+    const { oldLine } = row
+    const oldSide = side === 'old'
+    const line = oldSide && oldLine ? oldLine : row.line
+    const removedLine = oldLine ?? (line.type === 'del' ? line : null)
+    const replaced = row.replaced && !oldSide
+    const bar = oldSide ? null : row.bar
+    const lineNo = oldSide ? null : line.newNo
+    const tokens =
+      syntax.status !== 'ready' || replaced
+        ? undefined
+        : line.type === 'del'
+          ? syntax.file.oldSide.get(line.oldNo!)
+          : syntax.file.newSide.get(line.newNo!)
+    const change = oldLine ? indentChange(oldLine.text, row.line.text) : null
+    const mark: IndentMark | null =
+      change === null
+        ? null
+        : oldSide
+          ? { start: change.start, end: change.oldEnd, kind: 'del' }
+          : { start: change.start, end: change.newEnd, kind: 'add' }
+    const classes = [
+      'diff-line',
+      oldLine ? 'is-reindent' : lineTypeClass(line.type, codeView),
+      replaced ? 'is-replaced' : '',
+      row.explained ? 'is-explained' : '',
+      barClasses(bar).trim(),
+      lineNo !== null && sameAnchor(target, { kind: 'line', line: lineNo }) ? 'is-target' : '',
+    ]
+    return (
+      <div
+        key={key}
+        className={classes.filter(Boolean).join(' ')}
+        style={barStyle(bar)}
+        data-line={lineNo ?? undefined}
+        data-old-line={side === 'new' ? undefined : (removedLine?.oldNo ?? undefined)}
+      >
+        {lineNo !== null && notedLines.has(lineNo) && <span className="diff-note-dot" title="Remarque sur cette ligne" />}
+        {lineNo !== null && canNote ? (
+          <button type="button" className="diff-num" title={`Ajouter une remarque sur la ligne ${lineNo}`} onClick={() => onLineNote(lineNo)}>
+            {lineNo}
+          </button>
+        ) : (
+          <span className="diff-num">{(oldSide ? line.oldNo : lineNo) ?? ''}</span>
+        )}
+        {oldLine ? (
+          <span className="diff-marker" title={`Seule l'indentation de cette ligne change (ligne ${oldLine.oldNo} avant)`}>
+            {reindentMarker(oldLine.text, row.line.text)}
+          </span>
+        ) : (
+          <span className="diff-marker">{codeView === 'new' ? '' : MARKERS[line.type]}</span>
+        )}
+        <CodeText text={line.text} tokens={tokens} mark={replaced ? null : mark} />
+        {!oldSide && row.pills.length > 0 && <DiffPills entries={row.pills} />}
+      </div>
+    )
+  }
 
   return (
     <div className="diff">
@@ -286,74 +420,26 @@ export function DiffView({
               Copier une demande d'explication
             </button>
           </div>
-          {hunk.rows.map((row, rowIndex) => {
-            if (row.kind === 'fix-strip') {
-              return (
-                <FixStrip
-                  key={rowIndex}
-                  entry={row.entry}
-                  bar={row.bar}
-                  pills={row.pills}
-                  applied={mode === 'applied'}
-                  isTarget={sameAnchor(target, { kind: 'fix', entry: row.entry })}
-                  onHide={() => onHideFix(row.entry.finding.id)}
-                />
-              )
-            }
-            if (row.kind === 'fix-line') {
-              return (
-                <div key={rowIndex} className={`diff-line is-proposed${barClasses(row.bar)}`} style={barStyle(row.bar)}>
-                  <span className="diff-num" />
-                  <span className="diff-marker">›</span>
-                  <CodeText
-                    text={row.text}
-                    tokens={syntax.status === 'ready' ? syntax.suggestion(row.entry.finding.suggestion ?? '')[row.index] : undefined}
-                  />
-                </div>
-              )
-            }
-
-            const { line } = row
-            const lineNo = line.newNo
-            const tokens =
-              syntax.status !== 'ready' || row.replaced
-                ? undefined
-                : line.type === 'del'
-                  ? syntax.file.oldSide.get(line.oldNo!)
-                  : syntax.file.newSide.get(lineNo!)
-            const classes = [
-              'diff-line',
-              lineTypeClass(line.type, codeView),
-              row.replaced ? 'is-replaced' : '',
-              row.explained ? 'is-explained' : '',
-              barClasses(row.bar).trim(),
-              lineNo !== null && sameAnchor(target, { kind: 'line', line: lineNo }) ? 'is-target' : '',
-            ]
-            return (
-              <div
-                key={rowIndex}
-                className={classes.filter(Boolean).join(' ')}
-                style={barStyle(row.bar)}
-                data-line={lineNo ?? undefined}
-                data-old-line={line.type === 'del' ? (line.oldNo ?? undefined) : undefined}
-              >
-                {lineNo !== null && notedLines.has(lineNo) && <span className="diff-note-dot" title="Remarque sur cette ligne" />}
-                {lineNo !== null && canNote ? (
-                  <button type="button" className="diff-num" title={`Ajouter une remarque sur la ligne ${lineNo}`} onClick={() => onLineNote(lineNo)}>
-                    {lineNo}
-                  </button>
+          {codeView === 'split'
+            ? splitRows(hunk.rows).map((split, rowIndex) =>
+                split.kind === 'full' ? (
+                  renderStrip(split.row, rowIndex)
                 ) : (
-                  <span className="diff-num">{lineNo ?? ''}</span>
-                )}
-                <span className="diff-marker">{codeView === 'new' ? '' : MARKERS[line.type]}</span>
-                <CodeText text={line.text} tokens={tokens} />
-                {row.pills.length > 0 && <DiffPills entries={row.pills} />}
-              </div>
-            )
-          })}
+                  <div key={rowIndex} className="diff-split-row">
+                    {split.left ? renderLine(split.left, 'old') : <div className="diff-line is-empty" />}
+                    {split.right ? renderLine(split.right, 'new') : <div className="diff-line is-empty" />}
+                  </div>
+                ),
+              )
+            : hunk.rows.map((row, rowIndex) => (row.kind === 'fix-strip' ? renderStrip(row, rowIndex) : renderLine(row, 'both', rowIndex)))}
         </div>
       ))}
-      <DiffLegend mode={mode} codeView={codeView} explained={explained} />
+      <DiffLegend
+        mode={mode}
+        codeView={codeView}
+        explained={explained}
+        reindented={hunks.some((hunk) => hunk.rows.some((row) => row.kind === 'line' && row.oldLine !== null))}
+      />
     </div>
   )
 }
