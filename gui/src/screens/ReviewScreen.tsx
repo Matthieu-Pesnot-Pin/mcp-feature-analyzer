@@ -132,7 +132,10 @@ function EmptyDiffMessage({ file }: { file: FileEntry }) {
   return <p className="diff-message">Aucune ligne modifiée dans ce fichier (changement de mode ou fichier vide).</p>
 }
 
-/** En-tête du fichier revu : chemin, +/−, navigation, remarque sur le fichier et « Marquer comme revu ». */
+/**
+ * En-tête du fichier revu : bascule du panneau des fichiers, chemin, +/−, navigation,
+ * remarque sur le fichier et « Marquer comme revu ».
+ */
 function FileHeader({
   analysis,
   file,
@@ -144,6 +147,8 @@ function FileHeader({
 }) {
   const setFileReviewed = useAnalysisStore((state) => state.setFileReviewed)
   const saving = useAnalysisStore((state) => state.saving)
+  const filesCollapsed = useAnalysisStore((state) => state.filesPanelCollapsed)
+  const setFilesCollapsed = useAnalysisStore((state) => state.setFilesPanelCollapsed)
   const index = analysis.files.findIndex((entry) => entry.path === file.path)
   const previous = analysis.files[index - 1]
   const next = analysis.files[index + 1]
@@ -151,6 +156,15 @@ function FileHeader({
 
   return (
     <div className="file-head">
+      <button
+        type="button"
+        className="icon-button files-panel-toggle"
+        aria-pressed={!filesCollapsed}
+        title={filesCollapsed ? 'Afficher la liste des fichiers' : 'Masquer la liste des fichiers'}
+        onClick={() => setFilesCollapsed(!filesCollapsed)}
+      >
+        <Icon name={filesCollapsed ? 'panel-left-open' : 'panel-left-close'} color="#9aa1b1" />
+      </button>
       <span className="file-head-path mono" title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}>
         <span className="path-folder">{folder}</span>
         <span className="file-head-name">{name}</span>
@@ -215,6 +229,7 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const setFindingsShown = useAnalysisStore((state) => state.setFindingsShown)
   const explanationsShown = useAnalysisStore((state) => state.explanationsShown)
   const setExplanationsShown = useAnalysisStore((state) => state.setExplanationsShown)
+  const filesPanelCollapsed = useAnalysisStore((state) => state.filesPanelCollapsed)
   // La saisie d'une remarque est liée au fichier où elle a été ouverte.
   const [composerState, setComposerState] = useState<{ path: string; line: number | null } | null>(null)
   const composer: ComposerTarget = composerState && composerState.path === path ? { line: composerState.line } : null
@@ -291,9 +306,12 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
     navigate(hrefs.review(analysis.id, path, entry.startLine))
   }
 
+  // Sans fichier valide, la liste reste visible : c'est le seul moyen d'en choisir un.
+  const filesHidden = filesPanelCollapsed && file !== null
+
   return (
-    <div className="review">
-      <FilesPanel analysis={analysis} currentPath={path} />
+    <div className={`review${filesHidden ? ' is-files-hidden' : ''}`}>
+      {!filesHidden && <FilesPanel analysis={analysis} currentPath={path} />}
       <section className="review-main">
         {file === null ? (
           <div className="review-body review-body-padded">

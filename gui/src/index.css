@@ -1254,6 +1254,10 @@ code {
   height: 100%;
 }
 
+.review.is-files-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .files-panel {
   background: var(--panel);
   border-right: 1px solid var(--divider);
@@ -1385,9 +1389,14 @@ code {
   align-items: center;
   gap: 16px;
   height: 56px;
-  padding: 0 32px;
+  padding: 0 32px 0 16px;
   border-bottom: 1px solid var(--divider);
   flex-shrink: 0;
+}
+
+.file-head .files-panel-toggle {
+  flex-shrink: 0;
+  margin-right: -6px;
 }
 
 .file-head-path {

@@ -54,6 +54,8 @@ interface AnalysisState {
   diffScope: DiffScope
   /** Bandeau des exigences manquantes replié sur l'écran Revue, pour tous les fichiers. */
   gapsCollapsed: boolean
+  /** Panneau des fichiers masqué sur l'écran Revue, le diff occupant sa place. */
+  filesPanelCollapsed: boolean
   /** Constats affichés sur l'écran Revue (marge, repères et correctifs du diff), pour tous les fichiers. */
   findingsShown: boolean
   /** Explications de l'agent affichées sur l'écran Revue (marge et filets du diff), pour tous les fichiers. */
@@ -66,6 +68,7 @@ interface AnalysisState {
   setCodeView: (view: CodeView) => void
   setDiffScope: (scope: DiffScope) => void
   setGapsCollapsed: (collapsed: boolean) => void
+  setFilesPanelCollapsed: (collapsed: boolean) => void
   setFindingsShown: (shown: boolean) => void
   setExplanationsShown: (shown: boolean) => void
   loadConfig: () => Promise<void>
@@ -144,6 +147,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     codeView: 'diff',
     diffScope: 'changes',
     gapsCollapsed: false,
+    filesPanelCollapsed: false,
     findingsShown: true,
     explanationsShown: true,
 
@@ -165,6 +169,8 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     setDiffScope: (diffScope) => set({ diffScope }),
 
     setGapsCollapsed: (gapsCollapsed) => set({ gapsCollapsed }),
+
+    setFilesPanelCollapsed: (filesPanelCollapsed) => set({ filesPanelCollapsed }),
 
     setFindingsShown: (findingsShown) => set({ findingsShown }),
 
