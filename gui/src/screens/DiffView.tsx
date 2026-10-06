@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import type { FileEntry } from '@shared/schemas/analysis.schema'
 import type { DiffLine, FileDiff, Hunk } from '@shared/schemas/diff.schema'
 import { SEVERITY_STYLES } from '@shared/labels'
@@ -7,7 +7,9 @@ import { splitLines } from '@shared/text'
 import { Icon } from '../components/Icon'
 import { FindingNumber } from '../components/MarginFindingCard'
 import type { ThemedToken } from '../utils/syntax'
+import { DiffMinimap } from './DiffMinimap'
 import {
+  buildMinimap,
   CODE_VIEW_LABELS,
   DIFF_SCOPE_LABELS,
   FIX_MODE_LABELS,
@@ -33,8 +35,12 @@ interface DiffViewProps {
   /** Diff figé du fichier, source de la coloration syntaxique. */
   fileDiff: FileDiff
   hunks: HunkRows[]
+  /** Constats affichés du fichier, repérés sur la mini-carte. */
+  findings: NumberedFinding[]
   /** Lignes portant au moins une remarque. */
   notedLines: ReadonlySet<number>
+  /** Conteneur qui fait défiler le diff, que pilote la mini-carte. */
+  scrollRef: RefObject<HTMLDivElement | null>
   mode: FixMode
   onModeChange: (mode: FixMode) => void
   codeView: CodeView
@@ -278,13 +284,16 @@ function DiffLegend({ mode, codeView, explained, reindented }: { mode: FixMode; 
  * En vue « Nouveau code », les lignes ajoutées par la feature portent un filet
  * vert à la place de leur fond et de leur marque. Une ligne dont seule
  * l'indentation change ne forme qu'une ligne, marquée d'une flèche, son
- * indentation ajoutée ou retirée surlignée.
+ * indentation ajoutée ou retirée surlignée. Quand le fichier entier est
+ * affiché, une mini-carte longe le bord droit du diff.
  */
 export function DiffView({
   file,
   fileDiff,
   hunks,
+  findings,
   notedLines,
+  scrollRef,
   mode,
   onModeChange,
   codeView,
@@ -300,6 +309,22 @@ export function DiffView({
 }: DiffViewProps) {
   const canNote = file.contentAvailable
   const syntax = useSyntaxTokens(fileDiff)
+  const toolbarRef = useRef<HTMLDivElement>(null)
+  const rowsRef = useRef<HTMLDivElement>(null)
+  const [toolbarHeight, setToolbarHeight] = useState(0)
+  const minimapShown = scope === 'file'
+  const minimap = useMemo(
+    () => (minimapShown ? buildMinimap(hunks, codeView, findings, notedLines) : null),
+    [minimapShown, hunks, codeView, findings, notedLines],
+  )
+
+  useEffect(() => {
+    const toolbar = toolbarRef.current
+    if (!toolbar) return
+    const observer = new ResizeObserver(() => setToolbarHeight(toolbar.offsetHeight))
+    observer.observe(toolbar)
+    return () => observer.disconnect()
+  }, [])
 
   const renderStrip = (row: Extract<DiffRow, { kind: 'fix-strip' }>, key: number) => (
     <FixStrip
@@ -391,7 +416,7 @@ export function DiffView({
 
   return (
     <div className="diff">
-      <div className="diff-toolbar">
+      <div className="diff-toolbar" ref={toolbarRef}>
         {syntax.status === 'error' && <span className="diff-toolbar-error">Coloration syntaxique indisponible : {syntax.message}</span>}
         <SegmentedControl
           id="diff-scope-label"
@@ -406,34 +431,46 @@ export function DiffView({
         <span className="diff-toolbar-gap" />
         <SegmentedControl id="fix-mode-label" label="Correctifs" labels={FIX_MODE_LABELS} value={mode} onChange={onModeChange} />
       </div>
-      {hunks.map((hunk, hunkIndex) => (
-        <div key={hunkIndex} className="hunk">
-          <div className="hunk-header">
-            <span className="hunk-header-text mono">{hunk.hunk.header}</span>
-            <button
-              type="button"
-              className="hunk-explain"
-              title="Copier un prompt qui demande à l'agent d'expliquer ce bloc et d'ajouter ses explications à l'analyse"
-              onClick={() => onRequestExplanation(hunk.hunk)}
-            >
-              <Icon name="bot" color="#3cc4b4" />
-              Copier une demande d'explication
-            </button>
-          </div>
-          {codeView === 'split'
-            ? splitRows(hunk.rows).map((split, rowIndex) =>
-                split.kind === 'full' ? (
-                  renderStrip(split.row, rowIndex)
-                ) : (
-                  <div key={rowIndex} className="diff-split-row">
-                    {split.left ? renderLine(split.left, 'old') : <div className="diff-line is-empty" />}
-                    {split.right ? renderLine(split.right, 'new') : <div className="diff-line is-empty" />}
-                  </div>
-                ),
-              )
-            : hunk.rows.map((row, rowIndex) => (row.kind === 'fix-strip' ? renderStrip(row, rowIndex) : renderLine(row, 'both', rowIndex)))}
+      <div className={`diff-body${minimapShown ? ' has-minimap' : ''}`}>
+        <div className="diff-rows" ref={rowsRef}>
+          {hunks.map((hunk, hunkIndex) => (
+            <div key={hunkIndex} className="hunk">
+              <div className="hunk-header">
+                <span className="hunk-header-text mono">{hunk.hunk.header}</span>
+                <button
+                  type="button"
+                  className="hunk-explain"
+                  title="Copier un prompt qui demande à l'agent d'expliquer ce bloc et d'ajouter ses explications à l'analyse"
+                  onClick={() => onRequestExplanation(hunk.hunk)}
+                >
+                  <Icon name="bot" color="#3cc4b4" />
+                  Copier une demande d'explication
+                </button>
+              </div>
+              {codeView === 'split'
+                ? splitRows(hunk.rows).map((split, rowIndex) =>
+                    split.kind === 'full' ? (
+                      renderStrip(split.row, rowIndex)
+                    ) : (
+                      <div key={rowIndex} className="diff-split-row">
+                        {split.left ? renderLine(split.left, 'old') : <div className="diff-line is-empty" />}
+                        {split.right ? renderLine(split.right, 'new') : <div className="diff-line is-empty" />}
+                      </div>
+                    ),
+                  )
+                : hunk.rows.map((row, rowIndex) => (row.kind === 'fix-strip' ? renderStrip(row, rowIndex) : renderLine(row, 'both', rowIndex)))}
+            </div>
+          ))}
         </div>
-      ))}
+        {minimap && (
+          <DiffMinimap
+            model={minimap}
+            rowsRef={rowsRef}
+            scrollRef={scrollRef}
+            toolbarHeight={toolbarHeight}
+          />
+        )}
+      </div>
       <DiffLegend
         mode={mode}
         codeView={codeView}

@@ -344,7 +344,9 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
                       file={file}
                       fileDiff={fileDiff}
                       hunks={hunks}
+                      findings={numbered}
                       notedLines={notedLines}
+                      scrollRef={bodyRef}
                       mode={fixMode}
                       onModeChange={setFixMode}
                       codeView={codeView}

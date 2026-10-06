@@ -475,6 +475,153 @@ export function lineNotesOfFile(analysis: Analysis, path: string): LineNote[] {
     .sort((a, b) => a.location.line - b.location.line)
 }
 
+/**
+ * Nature d'un changement dans la mini-carte : lignes ajoutées, supprimées,
+ * supprimées et ajoutées en vis-à-vis (vue côte à côte), ou dont seule
+ * l'indentation change.
+ */
+export type MinimapChangeKind = 'add' | 'del' | 'mod' | 'reindent'
+
+/** Suite de rangées affichées de même nature, de la rangée `start` incluse à `end` exclue. */
+export interface MinimapChange {
+  kind: MinimapChangeKind
+  start: number
+  end: number
+  /** Description affichée au survol. */
+  label: string
+}
+
+/** Point d'un constat ou d'une remarque, sur la rangée affichée `row`. */
+export type MinimapDot = { kind: 'finding'; entry: NumberedFinding; row: number } | { kind: 'note'; line: number; row: number }
+
+/**
+ * Repères de la mini-carte. Les rangées sont comptées dans l'ordre d'affichage,
+ * bloc par bloc : une par ligne en diff unifié, une par paire en vue côte à
+ * côte, bandeaux de correctif compris.
+ */
+export interface MinimapModel {
+  changes: MinimapChange[]
+  dots: MinimapDot[]
+}
+
+/** Rangée affichée du diff, réduite à ce qu'en montre la mini-carte. */
+interface MinimapRow {
+  kind: MinimapChangeKind | null
+  /** Numéros du côté « nouveau » des lignes ajoutées ou réindentées, du côté « ancien » des lignes supprimées. */
+  added: number[]
+  deleted: number[]
+  /** Numéro du côté « nouveau » de la ligne, quand elle en a un. */
+  newNo: number | null
+  /** Constat dont le bandeau de correctif occupe la rangée. */
+  strip: NumberedFinding | null
+}
+
+function minimapRowOfLine(row: Exclude<DiffRow, { kind: 'fix-strip' }>): MinimapRow {
+  if (row.kind === 'fix-line') return { kind: null, added: [], deleted: [], newNo: null, strip: null }
+  const { line } = row
+  const kind = row.oldLine !== null ? 'reindent' : line.type === 'context' ? null : line.type
+  return {
+    kind,
+    added: kind === 'add' || kind === 'reindent' ? [line.newNo!] : [],
+    deleted: kind === 'del' ? [line.oldNo!] : [],
+    newNo: line.newNo,
+    strip: null,
+  }
+}
+
+function stripRow(entry: NumberedFinding): MinimapRow {
+  return { kind: null, added: [], deleted: [], newNo: null, strip: entry }
+}
+
+/** Rangées affichées des blocs, dans l'ordre : une par ligne en diff unifié, une par paire en vue côte à côte. */
+function minimapRows(hunks: HunkRows[], codeView: CodeView): MinimapRow[] {
+  return hunks.flatMap((hunk) => {
+    if (codeView !== 'split') return hunk.rows.map((row) => (row.kind === 'fix-strip' ? stripRow(row.entry) : minimapRowOfLine(row)))
+    return splitRows(hunk.rows).map((split) => {
+      if (split.kind === 'full') return stripRow(split.row.entry)
+      const left = split.left ? minimapRowOfLine(split.left) : null
+      const right = split.right ? minimapRowOfLine(split.right) : null
+      if (right?.kind === 'reindent') return right
+      const added = right?.kind === 'add' ? right.added : []
+      const deleted = left?.kind === 'del' ? left.deleted : []
+      const kind = added.length > 0 ? (deleted.length > 0 ? 'mod' : 'add') : deleted.length > 0 ? 'del' : null
+      return { kind, added, deleted, newNo: right?.newNo ?? null, strip: null }
+    })
+  })
+}
+
+function countLabel(count: number, participle: string): string {
+  return `${count} ligne${count > 1 ? 's' : ''} ${participle}${count > 1 ? 's' : ''}`
+}
+
+function rangeLabel(numbers: number[]): string {
+  const first = Math.min(...numbers)
+  const last = Math.max(...numbers)
+  return first === last ? `ligne ${first}` : `lignes ${first} à ${last}`
+}
+
+/** Description d'une suite de rangées de même nature : plage de lignes et nombre de lignes touchées. */
+function changeLabel(kind: MinimapChangeKind, added: number[], deleted: number[]): string {
+  switch (kind) {
+    case 'add':
+      return `${countLabel(added.length, 'ajoutée')} · ${rangeLabel(added)}`
+    case 'del':
+      return `${countLabel(deleted.length, 'supprimée')} · ancienne ${rangeLabel(deleted)}`
+    case 'mod':
+      return `${countLabel(deleted.length, 'supprimée')}, ${added.length} ajoutée${added.length > 1 ? 's' : ''} · ${rangeLabel(added)}`
+    case 'reindent':
+      return `Indentation modifiée · ${rangeLabel(added)}`
+  }
+}
+
+/**
+ * Repères de la mini-carte du diff affiché : suites de rangées ajoutées,
+ * supprimées ou réindentées, et un point par constat (sur le bandeau de son
+ * correctif, ou sinon sa première ligne affichée) et par ligne portant une
+ * remarque.
+ */
+export function buildMinimap(
+  hunks: HunkRows[],
+  codeView: CodeView,
+  numbered: NumberedFinding[],
+  notedLines: ReadonlySet<number>,
+): MinimapModel {
+  const rows = minimapRows(hunks, codeView)
+  const changes: MinimapChange[] = []
+  for (let start = 0; start < rows.length; ) {
+    const kind = rows[start].kind
+    let end = start + 1
+    while (end < rows.length && rows[end].kind === kind) end++
+    if (kind !== null) {
+      const run = rows.slice(start, end)
+      changes.push({
+        kind,
+        start,
+        end,
+        label: changeLabel(
+          kind,
+          run.flatMap((row) => row.added),
+          run.flatMap((row) => row.deleted),
+        ),
+      })
+    }
+    start = end
+  }
+
+  const dots: MinimapDot[] = []
+  for (const entry of numbered) {
+    const index = rows.findIndex(
+      (row) => row.strip?.finding.id === entry.finding.id || (row.newNo !== null && row.newNo >= entry.startLine && row.newNo <= entry.endLine),
+    )
+    if (index !== -1) dots.push({ kind: 'finding', entry, row: index })
+  }
+  for (const line of notedLines) {
+    const index = rows.findIndex((row) => row.newNo === line)
+    if (index !== -1) dots.push({ kind: 'note', line, row: index })
+  }
+  return { changes, dots }
+}
+
 /** Plage de lignes remplacée par un correctif : « la ligne 12 », « les lignes 59 à 61 ». */
 export function replacedLinesLabel(startLine: number, endLine: number): string {
   return startLine === endLine ? `la ligne ${startLine}` : `les lignes ${startLine} à ${endLine}`

@@ -1531,6 +1531,150 @@ code {
   border-top: 1px solid var(--divider);
 }
 
+.diff-body.has-minimap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22px;
+}
+
+.diff-rows {
+  position: relative;
+  min-width: 0;
+}
+
+/* Mini-carte du fichier entier : changements à gauche, constats et remarques à droite. */
+.diff-minimap {
+  border-left: 1px solid var(--divider);
+}
+
+.diff-minimap-track {
+  position: sticky;
+  z-index: 4;
+}
+
+.diff-minimap-inner {
+  position: absolute;
+  inset: 4px 0;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.minimap-lane {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.minimap-lane.is-changes {
+  left: 4px;
+  width: 5px;
+  border-radius: 3px;
+  background: var(--surface-raised);
+}
+
+.minimap-lane.is-dots {
+  left: 12px;
+  width: 6px;
+}
+
+.minimap-change {
+  position: absolute;
+  left: 0;
+  right: 0;
+  min-height: 2px;
+  border-radius: 1px;
+}
+
+.minimap-change.is-add {
+  background: var(--add);
+}
+
+.minimap-change.is-del {
+  background: var(--del);
+}
+
+.minimap-change.is-mod {
+  background: linear-gradient(90deg, var(--del) 50%, var(--add) 50%);
+}
+
+.minimap-change.is-reindent {
+  background: var(--accent-soft);
+}
+
+.minimap-dot {
+  position: absolute;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+
+.minimap-dot.is-note {
+  left: 1px;
+  width: 4px;
+  height: 4px;
+}
+
+.minimap-dot.is-muted {
+  opacity: 0.45;
+}
+
+.minimap-change:hover,
+.minimap-dot:hover {
+  outline: 1px solid var(--text);
+  outline-offset: 1px;
+}
+
+.minimap-view {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  min-height: 4px;
+  border: 1px solid rgba(139, 151, 255, 0.35);
+  border-radius: 2px;
+  background: rgba(139, 151, 255, 0.12);
+  pointer-events: none;
+}
+
+.minimap-tooltip {
+  position: absolute;
+  right: calc(100% + 8px);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 320px;
+  padding: 7px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.minimap-tooltip-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.minimap-tooltip-swatch {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.minimap-tooltip-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .hunk-header {
   display: flex;
   align-items: center;
