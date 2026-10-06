@@ -1976,25 +1976,95 @@ code {
   color: var(--danger);
 }
 
-.diff-toolbar-gap {
-  width: 12px;
+.option-menu-button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 9px 0 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--text-strong);
+  white-space: nowrap;
 }
 
-.diff-toolbar-label {
-  font-size: 11.5px;
+.option-menu-button:hover {
+  border-color: var(--border-strong);
+}
+
+.option-menu-button.is-open {
+  border-color: var(--accent);
+  background: var(--surface-current);
+  color: var(--text);
+}
+
+/* Placée en position fixe pour ne pas être rognée par le diff, qui masque ce qui dépasse. */
+.option-menu-list {
+  position: fixed;
+  z-index: 30;
+  width: 290px;
+  padding: 6px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.option-menu-title {
+  padding: 4px 8px 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--faint);
 }
 
-.segmented-small {
-  padding: 2px;
-  border-radius: 7px;
+.option-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 6px;
+  text-align: left;
 }
 
-.segmented-small .segmented-item {
-  height: 24px;
-  padding: 0 11px;
-  border-radius: 5px;
-  font-size: 11.5px;
+.option-menu-item > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.option-menu-item:hover:not(:disabled) {
+  background: var(--surface-current);
+}
+
+.option-menu-item.is-selected {
+  background: var(--surface-selected);
+}
+
+.option-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.option-menu-item-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.option-menu-item-label {
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.option-menu-item-description {
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .fix-strip .diff-pills {

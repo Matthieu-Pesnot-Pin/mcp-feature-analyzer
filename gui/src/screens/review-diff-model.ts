@@ -3,6 +3,7 @@ import type { DiffLine, FileDiff, Hunk } from '@shared/schemas/diff.schema'
 import { mergeReindentedLines } from '@shared/reindent'
 import { compareSeverity } from '@shared/severity'
 import { splitLines } from '@shared/text'
+import type { MenuOption } from '../components/OptionMenu'
 
 /** Constat ancré sur le fichier revu, avec son numéro dans le fichier. */
 export interface NumberedFinding {
@@ -47,10 +48,10 @@ export function firstShownLine(shown: ReadonlySet<number>, start: number, end: n
  */
 export type FixMode = 'off' | 'before-after' | 'applied'
 
-export const FIX_MODE_LABELS: Record<FixMode, string> = {
-  off: 'Sans correctif',
-  'before-after': 'Avant / après',
-  applied: 'Code corrigé',
+export const FIX_MODE_OPTIONS: Record<FixMode, MenuOption> = {
+  off: { icon: 'eye-off', label: 'Sans correctif', description: 'Le diff seul' },
+  'before-after': { icon: 'git-compare', label: 'Avant / après', description: 'Lignes visées barrées, correctif dessous' },
+  applied: { icon: 'wand-sparkles', label: 'Code corrigé', description: 'Correctif à la place des lignes visées' },
 }
 
 /**
@@ -61,10 +62,10 @@ export const FIX_MODE_LABELS: Record<FixMode, string> = {
  */
 export type CodeView = 'diff' | 'split' | 'new'
 
-export const CODE_VIEW_LABELS: Record<CodeView, string> = {
-  diff: 'Unifié',
-  split: 'Côte à côte',
-  new: 'Nouveau code',
+export const CODE_VIEW_OPTIONS: Record<CodeView, MenuOption> = {
+  diff: { icon: 'diff', label: 'Unifié', description: 'Lignes supprimées au-dessus des lignes ajoutées' },
+  split: { icon: 'columns-2', label: 'Côte à côte', description: 'Ancien code à gauche, nouveau à droite' },
+  new: { icon: 'file-code', label: 'Nouveau code', description: "Le nouveau code seul, ajouts marqués d'un filet" },
 }
 
 /**
@@ -74,9 +75,9 @@ export const CODE_VIEW_LABELS: Record<CodeView, string> = {
  */
 export type DiffScope = 'changes' | 'file'
 
-export const DIFF_SCOPE_LABELS: Record<DiffScope, string> = {
-  changes: 'Modifications',
-  file: 'Fichier entier',
+export const DIFF_SCOPE_OPTIONS: Record<DiffScope, MenuOption> = {
+  changes: { icon: 'fold-vertical', label: 'Modifications', description: 'Les blocs du diff et leurs lignes de contexte' },
+  file: { icon: 'unfold-vertical', label: 'Fichier entier', description: 'Tout le fichier, lignes inchangées comprises' },
 }
 
 /**

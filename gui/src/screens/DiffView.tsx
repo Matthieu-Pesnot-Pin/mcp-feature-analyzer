@@ -6,13 +6,14 @@ import { indentChange } from '@shared/reindent'
 import { splitLines } from '@shared/text'
 import { Icon } from '../components/Icon'
 import { FindingNumber } from '../components/MarginFindingCard'
+import { OptionMenu } from '../components/OptionMenu'
 import type { ThemedToken } from '../utils/syntax'
 import { DiffMinimap } from './DiffMinimap'
 import {
   buildMinimap,
-  CODE_VIEW_LABELS,
-  DIFF_SCOPE_LABELS,
-  FIX_MODE_LABELS,
+  CODE_VIEW_OPTIONS,
+  DIFF_SCOPE_OPTIONS,
+  FIX_MODE_OPTIONS,
   replacedLinesLabel,
   sameAnchor,
   splitRows,
@@ -182,42 +183,6 @@ function FixStrip({ entry, bar, pills, applied, isTarget, onHide }: FixStripProp
   )
 }
 
-interface SegmentedControlProps<T extends string> {
-  /** Identifiant du libellé, relié au groupe de boutons. */
-  id: string
-  label: string
-  labels: Record<T, string>
-  value: T
-  onChange: (value: T) => void
-  /** Choix indisponibles, avec la raison affichée en infobulle. */
-  disabled?: Partial<Record<T, string>>
-}
-
-/** Libellé suivi d'un sélecteur à boutons segmentés. */
-function SegmentedControl<T extends string>({ id, label, labels, value, onChange, disabled }: SegmentedControlProps<T>) {
-  return (
-    <>
-      <span className="diff-toolbar-label" id={id}>
-        {label}
-      </span>
-      <div className="segmented segmented-small" role="group" aria-labelledby={id}>
-        {(Object.keys(labels) as T[]).map((entry) => (
-          <button
-            key={entry}
-            type="button"
-            className={`segmented-item${entry === value ? ' is-active' : ''}`}
-            aria-pressed={entry === value}
-            disabled={disabled?.[entry] !== undefined}
-            title={disabled?.[entry]}
-            onClick={() => onChange(entry)}
-          >
-            {labels[entry]}
-          </button>
-        ))}
-      </div>
-    </>
-  )
-}
 
 /** Légende des fonds du diff, limitée à ceux que la vue et le mode affichent. */
 function DiffLegend({ mode, codeView, explained, reindented }: { mode: FixMode; codeView: CodeView; explained: boolean; reindented: boolean }) {
@@ -418,18 +383,15 @@ export function DiffView({
     <div className="diff">
       <div className="diff-toolbar" ref={toolbarRef}>
         {syntax.status === 'error' && <span className="diff-toolbar-error">Coloration syntaxique indisponible : {syntax.message}</span>}
-        <SegmentedControl
-          id="diff-scope-label"
+        <OptionMenu
           label="Afficher"
-          labels={DIFF_SCOPE_LABELS}
+          options={DIFF_SCOPE_OPTIONS}
           value={scope}
           onChange={onScopeChange}
-          disabled={wholeFileAvailable ? undefined : { file: "Le contenu de ce fichier n'est pas conservé dans l'analyse." }}
+          disabled={wholeFileAvailable ? undefined : { file: "Contenu du fichier non conservé dans l'analyse" }}
         />
-        <span className="diff-toolbar-gap" />
-        <SegmentedControl id="code-view-label" label="Code" labels={CODE_VIEW_LABELS} value={codeView} onChange={onCodeViewChange} />
-        <span className="diff-toolbar-gap" />
-        <SegmentedControl id="fix-mode-label" label="Correctifs" labels={FIX_MODE_LABELS} value={mode} onChange={onModeChange} />
+        <OptionMenu label="Code" options={CODE_VIEW_OPTIONS} value={codeView} onChange={onCodeViewChange} />
+        <OptionMenu label="Correctifs" options={FIX_MODE_OPTIONS} value={mode} onChange={onModeChange} />
       </div>
       <div className={`diff-body${minimapShown ? ' has-minimap' : ''}`}>
         <div className="diff-rows" ref={rowsRef}>
