@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { Analysis, FileEntry } from '@shared/schemas/analysis.schema'
+import { CONTEXT_STEP, expandContext } from '@shared/context-expansion'
 import { buildExplanationRequestPrompt } from '@shared/explanation-request'
 import { FILE_STATUS_LABELS } from '@shared/labels'
 import { wholeFileDiff } from '@shared/whole-file-diff'
@@ -236,6 +237,8 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const setComposer = (target: ComposerTarget) => setComposerState(target && path !== null ? { path, line: target.line } : null)
   // Choix du relecteur d'afficher ou non le correctif de chaque constat dans le code.
   const [fixChoices, setFixChoices] = useState<Record<string, boolean>>({})
+  // Lignes de contexte ajoutées autour de chaque bloc, par fichier puis par bloc.
+  const [contextExtras, setContextExtras] = useState<Record<string, number[]>>({})
   // Constat amené à l'écran depuis l'index ; `seq` relance le défilement sur un même constat.
   const [reveal, setReveal] = useState<{ path: string; findingId: string; line: number; seq: number } | null>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -250,11 +253,24 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const snapshotDiff = diff?.id === analysis.id ? diff.snapshot.files.find((entry) => entry.path === path) : undefined
   const wholeFileAvailable = snapshotDiff !== undefined && snapshotDiff.newContent !== null
   const scope = wholeFileAvailable ? diffScope : 'changes'
-  // Diff affiché : celui du snapshot, ou le fichier entier ; mémorisé pour ne pas relancer la coloration syntaxique.
-  const fileDiff = useMemo(
+  // Diff de l'étendue choisie : celui du snapshot, ou le fichier entier.
+  const scopedDiff = useMemo(
     () => (scope === 'file' && snapshotDiff ? (wholeFileDiff(snapshotDiff) ?? undefined) : snapshotDiff),
     [scope, snapshotDiff],
   )
+  const extras = path === null ? undefined : contextExtras[path]
+  // Diff affiché : en « Modifications », blocs élargis du contexte demandé ; mémorisé pour ne pas relancer la coloration syntaxique.
+  const expanded = useMemo(
+    () => (scope === 'changes' && snapshotDiff ? expandContext(snapshotDiff, extras ?? []) : null),
+    [scope, snapshotDiff, extras],
+  )
+  const fileDiff = expanded?.fileDiff ?? scopedDiff
+  const changeContext = (hunkIndex: number, delta: number) => {
+    if (path === null || !expanded) return
+    const next = expanded.hunks.map((hunk) => Math.max(hunk.above, hunk.below))
+    next[hunkIndex] = Math.max(0, next[hunkIndex] + delta * CONTEXT_STEP)
+    setContextExtras((all) => ({ ...all, [path]: next }))
+  }
   const failed = diffError !== null && diff?.id !== analysis.id
 
   const allFindings = path === null ? [] : numberedFindingsOfFile(analysis, path)
@@ -275,16 +291,17 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const revealSeq = reveal?.seq ?? 0
 
   // Élément ciblé centré à l'écran, puis carte du constat amené depuis l'index ; sans ligne, retour en haut du fichier.
+  // Élargir le contexte d'un bloc ne relance pas ce défilement : il dépend du diff de l'étendue, pas du diff élargi.
   useEffect(() => {
     const body = bodyRef.current
-    if (!fileDiff || !body) return
+    if (!scopedDiff || !body) return
     if (targetSelector === null) {
       body.scrollTo({ top: 0 })
       return
     }
     body.querySelector(targetSelector)?.scrollIntoView({ block: 'center' })
     if (revealedId !== null) body.querySelector(`[data-finding-card="${CSS.escape(revealedId)}"]`)?.scrollIntoView({ block: 'nearest' })
-  }, [fileDiff, targetSelector, path, revealedId, revealSeq])
+  }, [scopedDiff, targetSelector, path, revealedId, revealSeq])
 
   if (path === null) {
     return (
@@ -344,6 +361,9 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
                       file={file}
                       fileDiff={fileDiff}
                       hunks={hunks}
+                      hunkContexts={expanded?.hunks ?? null}
+                      addedContext={expanded?.added ?? null}
+                      onContextChange={changeContext}
                       findings={numbered}
                       notedLines={notedLines}
                       scrollRef={bodyRef}

@@ -41,6 +41,9 @@
   --explanation: #3cc4b4;
   --explanation-bg: #0f1d20;
   --explanation-border: #1d4541;
+  /* Lignes de contexte ajoutées autour d'un bloc du diff. */
+  --expanded-bg: #0b0d12;
+  --expanded-mark: #3a4152;
   --ok: #3fb950;
   --danger: #f0625a;
   --warning: #e3a33b;
@@ -1692,20 +1695,76 @@ code {
   overflow: hidden;
   white-space: pre;
   text-overflow: ellipsis;
+  color: var(--text-strong);
 }
 
 .hunk-explain {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  width: 26px;
   height: 24px;
-  padding: 0 8px;
   border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+/* Réglage du contexte d'un bloc : −5 · N lignes · +5. */
+.context-stepper {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 6px;
   font-family: var(--font-sans);
   font-size: 11.5px;
+}
+
+.context-stepper-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 5px;
+  color: var(--text-strong);
+}
+
+.context-stepper-button:hover:not(:disabled) {
+  background: var(--surface-current);
+  color: var(--text);
+}
+
+.context-stepper-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.context-stepper-count {
+  min-width: 62px;
+  padding: 0 6px;
+  border-left: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border-strong);
+  text-align: center;
   color: var(--muted);
+}
+
+/* Ligne de contexte ajoutée autour d'un bloc : fond plus sombre et filet gris. */
+.diff-line.is-expanded {
+  background: var(--expanded-bg);
+  box-shadow: inset 2px 0 0 var(--expanded-mark);
+}
+
+.diff-line.is-expanded .diff-num {
+  color: var(--expanded-mark);
+}
+
+.legend-swatch.is-expanded {
+  background: linear-gradient(var(--expanded-mark), var(--expanded-mark)) left / 2px 100% no-repeat, var(--expanded-bg);
+  border-color: var(--border-strong);
 }
 
 .hunk-explain:hover {

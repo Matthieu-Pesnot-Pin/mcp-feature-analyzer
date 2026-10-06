@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import type { FileEntry } from '@shared/schemas/analysis.schema'
+import { CONTEXT_STEP, type HunkContext } from '@shared/context-expansion'
 import type { DiffLine, FileDiff, Hunk } from '@shared/schemas/diff.schema'
 import { SEVERITY_STYLES } from '@shared/labels'
 import { indentChange } from '@shared/reindent'
@@ -7,6 +8,7 @@ import { splitLines } from '@shared/text'
 import { Icon } from '../components/Icon'
 import { FindingNumber } from '../components/MarginFindingCard'
 import { OptionMenu } from '../components/OptionMenu'
+import { plural } from '../utils/format'
 import type { ThemedToken } from '../utils/syntax'
 import { DiffMinimap } from './DiffMinimap'
 import {
@@ -36,6 +38,12 @@ interface DiffViewProps {
   /** Diff figé du fichier, source de la coloration syntaxique. */
   fileDiff: FileDiff
   hunks: HunkRows[]
+  /** Contexte de chaque bloc, élargissable depuis son en-tête ; null quand les blocs ne s'élargissent pas. */
+  hunkContexts: HunkContext[] | null
+  /** Numéros, côté « nouveau », des lignes de contexte ajoutées autour des blocs. */
+  addedContext: ReadonlySet<number> | null
+  /** Ajoute (`1`) ou retire (`-1`) une tranche de lignes de contexte autour du bloc `hunkIndex`. */
+  onContextChange: (hunkIndex: number, delta: 1 | -1) => void
   /** Constats affichés du fichier, repérés sur la mini-carte. */
   findings: NumberedFinding[]
   /** Lignes portant au moins une remarque. */
@@ -183,9 +191,57 @@ function FixStrip({ entry, bar, pills, applied, isTarget, onHide }: FixStripProp
   )
 }
 
+interface ContextStepperProps {
+  context: HunkContext
+  onChange: (delta: 1 | -1) => void
+}
+
+/**
+ * Réglage du contexte d'un bloc, dans son en-tête : « −5 » retire et « +5 »
+ * ajoute cinq lignes au-dessus et en dessous du bloc ; entre les deux, le
+ * nombre de lignes de contexte au-dessus de la première modification.
+ */
+function ContextStepper({ context, onChange }: ContextStepperProps) {
+  const extended = context.above > 0 || context.below > 0
+  return (
+    <div className="context-stepper" role="group" aria-label="Contexte du bloc">
+      <button
+        type="button"
+        className="context-stepper-button"
+        disabled={!extended}
+        title={`Retirer ${CONTEXT_STEP} lignes de contexte au-dessus et en dessous`}
+        onClick={() => onChange(-1)}
+      >
+        <Icon name="fold-vertical" size={12} />−{CONTEXT_STEP}
+      </button>
+      <span className="context-stepper-count">{plural(context.context, 'ligne')}</span>
+      <button
+        type="button"
+        className="context-stepper-button"
+        disabled={!context.canGrow}
+        title={`Ajouter ${CONTEXT_STEP} lignes de contexte au-dessus et en dessous`}
+        onClick={() => onChange(1)}
+      >
+        <Icon name="unfold-vertical" size={12} />+{CONTEXT_STEP}
+      </button>
+    </div>
+  )
+}
 
 /** Légende des fonds du diff, limitée à ceux que la vue et le mode affichent. */
-function DiffLegend({ mode, codeView, explained, reindented }: { mode: FixMode; codeView: CodeView; explained: boolean; reindented: boolean }) {
+function DiffLegend({
+  mode,
+  codeView,
+  explained,
+  reindented,
+  expanded,
+}: {
+  mode: FixMode
+  codeView: CodeView
+  explained: boolean
+  reindented: boolean
+  expanded: boolean
+}) {
   return (
     <div className="diff-legend">
       {codeView === 'new' ? (
@@ -229,6 +285,12 @@ function DiffLegend({ mode, codeView, explained, reindented }: { mode: FixMode; 
           Code décrit par une explication
         </span>
       )}
+      {expanded && (
+        <span className="legend-item">
+          <span className="legend-swatch is-expanded" />
+          Contexte ajouté
+        </span>
+      )}
     </div>
   )
 }
@@ -250,12 +312,17 @@ function DiffLegend({ mode, codeView, explained, reindented }: { mode: FixMode; 
  * vert à la place de leur fond et de leur marque. Une ligne dont seule
  * l'indentation change ne forme qu'une ligne, marquée d'une flèche, son
  * indentation ajoutée ou retirée surlignée. Quand le fichier entier est
- * affiché, une mini-carte longe le bord droit du diff.
+ * affiché, une mini-carte longe le bord droit du diff ; sinon, l'en-tête de
+ * chaque bloc élargit ou réduit son contexte, les lignes de contexte ajoutées
+ * se distinguant par un fond plus sombre et un filet.
  */
 export function DiffView({
   file,
   fileDiff,
   hunks,
+  hunkContexts,
+  addedContext,
+  onContextChange,
   findings,
   notedLines,
   scrollRef,
@@ -346,6 +413,7 @@ export function DiffView({
       'diff-line',
       oldLine ? 'is-reindent' : lineTypeClass(line.type, codeView),
       replaced ? 'is-replaced' : '',
+      line.type === 'context' && line.newNo !== null && addedContext?.has(line.newNo) ? 'is-expanded' : '',
       row.explained ? 'is-explained' : '',
       barClasses(bar).trim(),
       lineNo !== null && sameAnchor(target, { kind: 'line', line: lineNo }) ? 'is-target' : '',
@@ -399,14 +467,17 @@ export function DiffView({
             <div key={hunkIndex} className="hunk">
               <div className="hunk-header">
                 <span className="hunk-header-text mono">{hunk.hunk.header}</span>
+                {hunkContexts?.[hunkIndex] && (
+                  <ContextStepper context={hunkContexts[hunkIndex]} onChange={(delta) => onContextChange(hunkIndex, delta)} />
+                )}
                 <button
                   type="button"
                   className="hunk-explain"
                   title="Copier un prompt qui demande à l'agent d'expliquer ce bloc et d'ajouter ses explications à l'analyse"
+                  aria-label="Copier une demande d'explication"
                   onClick={() => onRequestExplanation(hunk.hunk)}
                 >
                   <Icon name="bot" color="#3cc4b4" />
-                  Copier une demande d'explication
                 </button>
               </div>
               {codeView === 'split'
@@ -438,6 +509,7 @@ export function DiffView({
         codeView={codeView}
         explained={explained}
         reindented={hunks.some((hunk) => hunk.rows.some((row) => row.kind === 'line' && row.oldLine !== null))}
+        expanded={addedContext !== null && addedContext.size > 0}
       />
     </div>
   )
