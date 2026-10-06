@@ -202,13 +202,12 @@ interface ContextStepperProps {
  * nombre de lignes de contexte au-dessus de la première modification.
  */
 function ContextStepper({ context, onChange }: ContextStepperProps) {
-  const extended = context.above > 0 || context.below > 0
   return (
     <div className="context-stepper" role="group" aria-label="Contexte du bloc">
       <button
         type="button"
         className="context-stepper-button"
-        disabled={!extended}
+        disabled={!context.canShrink}
         title={`Retirer ${CONTEXT_STEP} lignes de contexte au-dessus et en dessous`}
         onClick={() => onChange(-1)}
       >

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { expandContext } from "../shared/context-expansion.js";
+import { expandContext, stepContext } from "../shared/context-expansion.js";
 import type { FileDiff } from "../shared/schemas/diff.schema.js";
 
 // Nouveau fichier : l1 … l30, la ligne 10 remplacée par NEW10, ADDED insérée en ligne 20.
@@ -62,51 +62,69 @@ test("expandContext: sans élargissement, les blocs restent les mêmes", () => {
 });
 
 test("expandContext: ajoute des lignes au-dessus et en dessous, bornées par le bloc suivant", () => {
-  const expanded = expandContext(DIFF, [5, 0]);
+  const expanded = expandContext(DIFF, [2, 0]);
   assert.ok(expanded);
   const hunk = expanded.fileDiff.hunks[0];
-  assert.equal(hunk.header, "@@ -2,15 +2,15 @@ fn a");
+  assert.equal(hunk.header, "@@ -5,11 +5,11 @@ fn a");
   assert.deepEqual(
-    hunk.lines.slice(0, 5).map((line) => [line.oldNo, line.newNo, line.text]),
+    hunk.lines.slice(0, 2).map((line) => [line.oldNo, line.newNo, line.text]),
     [
-      [2, 2, "l2"],
-      [3, 3, "l3"],
-      [4, 4, "l4"],
       [5, 5, "l5"],
       [6, 6, "l6"],
     ],
   );
   assert.deepEqual(
-    hunk.lines.slice(-3).map((line) => line.newNo),
-    [14, 15, 16],
+    hunk.lines.slice(-2).map((line) => line.newNo),
+    [14, 15],
   );
-  assert.deepEqual(expanded.hunks[0], { context: 8, above: 5, below: 3, canGrow: true });
+  assert.deepEqual(expanded.hunks[0], { context: 5, members: [0], canShrink: true, canGrow: true });
   assert.equal(expanded.fileDiff.hunks[1], DIFF.hunks[1]);
-  assert.deepEqual([...expanded.added].sort((a, b) => a - b), [2, 3, 4, 5, 6, 14, 15, 16]);
+  assert.deepEqual([...expanded.added].sort((a, b) => a - b), [5, 6, 14, 15]);
+});
+
+test("expandContext: deux blocs que plus rien ne sépare n'en forment plus qu'un", () => {
+  const expanded = expandContext(DIFF, [5, 0]);
+  assert.ok(expanded);
+  assert.equal(expanded.fileDiff.hunks.length, 1);
+  const hunk = expanded.fileDiff.hunks[0];
+  assert.equal(hunk.header, "@@ -2,21 +2,22 @@ fn a");
+  assert.deepEqual(
+    hunk.lines.map((line) => line.newNo ?? 0),
+    [2, 3, 4, 5, 6, 7, 8, 9, 0, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+  );
+  assert.deepEqual(expanded.hunks, [{ context: 8, members: [0, 1], canShrink: true, canGrow: true }]);
+  assert.deepEqual(expanded.extras, [5, 0]);
 });
 
 test("expandContext: les lignes d'un bloc décalé gardent leur numéro du côté ancien", () => {
-  const expanded = expandContext(DIFF, [0, 10]);
+  const expanded = expandContext(DIFF, [0, 2]);
   assert.ok(expanded);
   const hunk = expanded.fileDiff.hunks[1];
-  assert.equal(hunk.header, "@@ -14,16 +14,17 @@");
+  assert.equal(hunk.header, "@@ -15,10 +15,11 @@");
   assert.deepEqual(
-    hunk.lines.slice(0, 3).map((line) => [line.oldNo, line.newNo]),
+    hunk.lines.slice(0, 2).map((line) => [line.oldNo, line.newNo]),
     [
-      [14, 14],
       [15, 15],
       [16, 16],
     ],
   );
-  assert.deepEqual(hunk.lines.at(-1), { type: "context", oldNo: 29, newNo: 30, text: "l30" });
-  assert.deepEqual(expanded.hunks[1], { context: 6, above: 3, below: 7, canGrow: false });
+  assert.deepEqual(hunk.lines.at(-1), { type: "context", oldNo: 24, newNo: 25, text: "l25" });
 });
 
-test("expandContext: le début du fichier borne l'élargissement", () => {
-  const expanded = expandContext(DIFF, [100, 0]);
+test("expandContext: le début et la fin du fichier bornent l'élargissement", () => {
+  const expanded = expandContext(DIFF, [100, 100]);
   assert.ok(expanded);
-  assert.equal(expanded.fileDiff.hunks[0].lines[0].newNo, 1);
-  assert.deepEqual(expanded.hunks[0], { context: 9, above: 6, below: 3, canGrow: false });
+  const [hunk] = expanded.fileDiff.hunks;
+  assert.equal(hunk.lines[0].newNo, 1);
+  assert.deepEqual(hunk.lines.at(-1), { type: "context", oldNo: 29, newNo: 30, text: "l30" });
+  assert.deepEqual(expanded.hunks, [{ context: 9, members: [0, 1], canShrink: true, canGrow: false }]);
+});
+
+test("stepContext: un clic sur un bloc réuni élargit ou réduit chacun de ses blocs", () => {
+  const expanded = expandContext(DIFF, [5, 0]);
+  assert.ok(expanded);
+  assert.deepEqual(stepContext(expanded, 0, 1), [10, 5]);
+  assert.deepEqual(stepContext(expanded, 0, -1), [0, 0]);
 });
 
 test("expandContext: null quand le contenu du fichier n'est pas conservé", () => {

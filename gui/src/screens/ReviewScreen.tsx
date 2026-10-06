@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { Analysis, FileEntry } from '@shared/schemas/analysis.schema'
-import { CONTEXT_STEP, expandContext } from '@shared/context-expansion'
+import { expandContext, stepContext } from '@shared/context-expansion'
 import { buildExplanationRequestPrompt } from '@shared/explanation-request'
 import { FILE_STATUS_LABELS } from '@shared/labels'
 import { wholeFileDiff } from '@shared/whole-file-diff'
@@ -265,10 +265,9 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
     [scope, snapshotDiff, extras],
   )
   const fileDiff = expanded?.fileDiff ?? scopedDiff
-  const changeContext = (hunkIndex: number, delta: number) => {
+  const changeContext = (hunkIndex: number, delta: 1 | -1) => {
     if (path === null || !expanded) return
-    const next = expanded.hunks.map((hunk) => Math.max(hunk.above, hunk.below))
-    next[hunkIndex] = Math.max(0, next[hunkIndex] + delta * CONTEXT_STEP)
+    const next = stepContext(expanded, hunkIndex, delta)
     setContextExtras((all) => ({ ...all, [path]: next }))
   }
   const failed = diffError !== null && diff?.id !== analysis.id
