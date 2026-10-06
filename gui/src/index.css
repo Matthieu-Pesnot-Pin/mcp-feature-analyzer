@@ -5,7 +5,6 @@
   --surface-raised: #151923;
   --surface-selected: #171b2b;
   --surface-current: #1a1e2b;
-  --hunk: #12151d;
   --border: #20242f;
   --border-strong: #2a2f3d;
   --divider: #1c2029;
@@ -1530,10 +1529,6 @@ code {
   overflow: clip;
 }
 
-.hunk + .hunk {
-  border-top: 1px solid var(--divider);
-}
-
 .diff-body.has-minimap {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 22px;
@@ -1678,13 +1673,16 @@ code {
   color: var(--muted);
 }
 
+/* En-tête de bloc : bandeau indigo bordé de deux filets, distinct des lignes de code. */
 .hunk-header {
   display: flex;
   align-items: center;
   gap: 12px;
   height: 32px;
   padding: 0 10px 0 16px;
-  background: var(--hunk);
+  background: var(--proposed-bg);
+  border-top: 1px solid var(--proposed-border);
+  border-bottom: 1px solid var(--proposed-border);
   font-size: 11.5px;
   color: var(--faint);
 }
@@ -1695,7 +1693,7 @@ code {
   overflow: hidden;
   white-space: pre;
   text-overflow: ellipsis;
-  color: var(--text-strong);
+  color: #c3caff;
 }
 
 .hunk-explain {
