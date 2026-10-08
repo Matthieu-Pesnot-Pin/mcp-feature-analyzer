@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 export const ANALYSIS_MODES = ["branch", "working_tree"] as const;
-export const FILE_STATUSES = ["added", "modified", "deleted", "renamed"] as const;
+/** Statut git d'un fichier ; `untracked` : fichier non suivi de la copie de travail. */
+export const FILE_STATUSES = ["added", "modified", "deleted", "renamed", "untracked"] as const;
 export const SEVERITIES = ["critical", "major", "minor", "trivial"] as const;
 export const FINDING_KINDS = ["issue", "requirement_gap"] as const;
 export const FINDING_STATUSES = ["open", "ignored", "outdated"] as const;

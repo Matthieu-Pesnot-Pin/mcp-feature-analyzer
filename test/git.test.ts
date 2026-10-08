@@ -94,7 +94,7 @@ test("working_tree mode includes staged, unstaged and untracked changes", async 
   assert.equal(snapshot.baseCommit, git(repo.dir, "rev-parse", "HEAD").trim());
   assert.deepEqual(
     snapshot.files.map((file) => `${file.status}:${file.path}`),
-    ["added:.gitignore", "added:blob.dat", "added:fresh dir/untracked file.txt", "modified:src/app.ts", "added:staged.txt"]
+    ["untracked:.gitignore", "untracked:blob.dat", "untracked:fresh dir/untracked file.txt", "modified:src/app.ts", "added:staged.txt"]
   );
 
   const app = byPath(snapshot, "src/app.ts");

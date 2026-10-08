@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { Analysis, FileEntry } from '@shared/schemas/analysis.schema'
 import { expandContext, stepContext } from '@shared/context-expansion'
 import { buildExplanationRequestPrompt } from '@shared/explanation-request'
-import { FILE_STATUS_LABELS } from '@shared/labels'
+import { FILE_STATUS_LABELS, FILE_STATUS_LETTERS } from '@shared/labels'
 import { wholeFileDiff } from '@shared/whole-file-diff'
 import { FindingCard } from '../components/FindingCard'
 import { Icon } from '../components/Icon'
@@ -39,8 +39,8 @@ function MiddleEllipsis({ name }: { name: string }) {
 
 /**
  * Panneau gauche : progression de la revue et liste des fichiers, un intertitre
- * par dossier. Chaque pastille de gravité ouvre le fichier sur son premier
- * constat ouvert de cette gravité.
+ * par dossier, chaque fichier suivi de la lettre de son statut git. Chaque
+ * pastille de gravité ouvre le fichier sur son premier constat ouvert de cette gravité.
  */
 function FilesPanel({ analysis, currentPath }: { analysis: Analysis; currentPath: string }) {
   const reviewed = analysis.files.filter((file) => file.reviewed).length
@@ -92,6 +92,9 @@ function FilesPanel({ analysis, currentPath }: { analysis: Analysis; currentPath
                     title={`${openFindingsLabel(severity, count)} — ${count > 1 ? 'aller au premier' : 'y aller'}`}
                   />
                 ))}
+                <span className={`files-item-status mono is-${file.status}`} title={FILE_STATUS_LABELS[file.status]}>
+                  {FILE_STATUS_LETTERS[file.status]}
+                </span>
               </div>
             </Fragment>
           )

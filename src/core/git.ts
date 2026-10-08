@@ -294,7 +294,7 @@ async function workingTreeSnapshot(repo: RepoAccess) {
     const hunks = additionHunk(lines);
     results.push(
       toEntry(
-        { path: filePath, oldPath: null, status: "added", binary, hunks, additions: lines.length, deletions: 0 },
+        { path: filePath, oldPath: null, status: "untracked", binary, hunks, additions: lines.length, deletions: 0 },
         content
       )
     );
@@ -306,7 +306,7 @@ async function workingTreeSnapshot(repo: RepoAccess) {
  * Calcule le snapshot d'une analyse avec git, par `repo` (accès local par défaut).
  * - `branch` : diff `base...head` (head vaut `HEAD` par défaut), contenu lu dans le commit de tête ;
  * - `working_tree` : diff de HEAD vers la copie de travail, index compris, fichiers non suivis
- *   présentés comme ajoutés, contenu lu sur disque.
+ *   au statut `untracked`, contenu lu sur disque.
  * Les fichiers sont triés par chemin ; `reviewed` vaut false partout.
  */
 export async function computeSnapshot(

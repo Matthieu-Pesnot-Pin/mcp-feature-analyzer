@@ -42,6 +42,16 @@ export const FILE_STATUS_LABELS: Record<FileStatus, string> = {
   modified: "Modifié",
   deleted: "Supprimé",
   renamed: "Renommé",
+  untracked: "Non suivi",
+};
+
+/** Lettre de statut d'un fichier, à la manière de `git status --short`. */
+export const FILE_STATUS_LETTERS: Record<FileStatus, string> = {
+  added: "A",
+  modified: "M",
+  deleted: "D",
+  renamed: "R",
+  untracked: "U",
 };
 
 export const MODE_LABELS: Record<AnalysisMode, string> = {

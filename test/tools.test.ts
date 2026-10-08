@@ -102,7 +102,7 @@ test("create_analysis in working_tree mode includes untracked files", async (t) 
   fs.writeFileSync(path.join(repo, "draft.txt"), "draft\n");
   const text = await ok(createAnalysis, store, { repo_path: repo, project: "demo", title: "WIP", mode: "working_tree" });
   assert.match(text, /working_tree/);
-  assert.match(text, /A draft\.txt {2}\+1 -0/);
+  assert.match(text, /U draft\.txt {2}\+1 -0/);
 });
 
 test("list_analyses points to create_analysis when empty, then lists analyses and unreadable files", async (t) => {

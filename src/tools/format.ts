@@ -3,7 +3,6 @@ import {
   type Analysis,
   type Explanation,
   type FileEntry,
-  type FileStatus,
   type Finding,
   type Note,
   type Overview,
@@ -11,15 +10,8 @@ import {
   type ReviewProgressState,
   type Severity,
 } from "../../shared/schemas/analysis.schema.js";
+import { FILE_STATUS_LETTERS } from "../../shared/labels.js";
 import { lineRange, noteLocationText } from "../../shared/text.js";
-
-/** Lettre de statut d'un fichier, à la manière de `git status --short`. */
-const FILE_STATUS_LETTERS: Record<FileStatus, string> = {
-  added: "A",
-  modified: "M",
-  deleted: "D",
-  renamed: "R",
-};
 
 /** Sha abrégé à 7 caractères. */
 export function shortSha(sha: string | null): string {
