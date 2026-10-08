@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { Analysis, FileEntry } from '@shared/schemas/analysis.schema'
 import { expandContext, stepContext } from '@shared/context-expansion'
 import { buildExplanationRequestPrompt } from '@shared/explanation-request'
@@ -25,6 +25,7 @@ import {
   type NumberedFinding,
 } from './review-diff-model'
 import { firstFileToReview, openFindingCounts, unlocatedFindings } from './review-model'
+import { clampFilesPanelWidth, FILES_PANEL_WIDTH, useFilesPanelWidth, type WidthUpdate } from './useFilesPanelWidth'
 
 /** Nom de fichier tronqué au milieu : le début se coupe, l'extension et la fin du nom restent visibles. */
 function MiddleEllipsis({ name }: { name: string }) {
@@ -101,6 +102,62 @@ function FilesPanel({ analysis, currentPath }: { analysis: Analysis; currentPath
         })}
       </nav>
     </aside>
+  )
+}
+
+/**
+ * Poignée sur le bord droit du panneau des fichiers : un glissé règle sa largeur,
+ * les flèches gauche et droite la changent de 16 px, un double-clic la remet
+ * par défaut. Pendant le glissé, seule la grille de l'écran change ; la largeur
+ * est enregistrée au relâchement.
+ */
+function FilesPanelResizer({
+  width,
+  setWidth,
+  containerRef,
+}: {
+  width: number
+  setWidth: (update: WidthUpdate) => void
+  containerRef: RefObject<HTMLElement | null>
+}) {
+  const [dragging, setDragging] = useState(false)
+  const widthAt = (clientX: number) => clampFilesPanelWidth(clientX - (containerRef.current?.getBoundingClientRect().left ?? 0))
+
+  return (
+    <div
+      className={`files-panel-resizer${dragging ? ' is-dragging' : ''}`}
+      style={{ left: width }}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Largeur de la liste des fichiers"
+      aria-valuenow={width}
+      aria-valuemin={FILES_PANEL_WIDTH.min}
+      aria-valuemax={FILES_PANEL_WIDTH.max}
+      tabIndex={0}
+      title="Glisser pour régler la largeur · double-clic pour la largeur par défaut"
+      onPointerDown={(event) => {
+        event.preventDefault()
+        event.currentTarget.setPointerCapture(event.pointerId)
+        setDragging(true)
+      }}
+      onPointerMove={(event) => {
+        const container = containerRef.current
+        if (!dragging || !container) return
+        const next = widthAt(event.clientX)
+        container.style.gridTemplateColumns = `${next}px minmax(0, 1fr)`
+        event.currentTarget.style.left = `${next}px`
+      }}
+      onPointerUp={(event) => {
+        if (!dragging) return
+        setDragging(false)
+        setWidth(widthAt(event.clientX))
+      }}
+      onDoubleClick={() => setWidth(FILES_PANEL_WIDTH.default)}
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowLeft') setWidth((current) => current - 16)
+        if (event.key === 'ArrowRight') setWidth((current) => current + 16)
+      }}
+    />
   )
 }
 
@@ -234,6 +291,8 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const explanationsShown = useAnalysisStore((state) => state.explanationsShown)
   const setExplanationsShown = useAnalysisStore((state) => state.setExplanationsShown)
   const filesPanelCollapsed = useAnalysisStore((state) => state.filesPanelCollapsed)
+  const filesPanel = useFilesPanelWidth()
+  const reviewRef = useRef<HTMLDivElement>(null)
   // La saisie d'une remarque est liée au fichier où elle a été ouverte.
   const [composerState, setComposerState] = useState<{ path: string; line: number | null; findingId: string | null } | null>(null)
   const composer: ComposerTarget =
@@ -330,8 +389,13 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const filesHidden = filesPanelCollapsed && file !== null
 
   return (
-    <div className={`review${filesHidden ? ' is-files-hidden' : ''}`}>
+    <div
+      className={`review${filesHidden ? ' is-files-hidden' : ''}`}
+      ref={reviewRef}
+      style={filesHidden ? undefined : { gridTemplateColumns: `${filesPanel.width}px minmax(0, 1fr)` }}
+    >
       {!filesHidden && <FilesPanel analysis={analysis} currentPath={path} />}
+      {!filesHidden && <FilesPanelResizer width={filesPanel.width} setWidth={filesPanel.setWidth} containerRef={reviewRef} />}
       <section className="review-main">
         {file === null ? (
           <div className="review-body review-body-padded">

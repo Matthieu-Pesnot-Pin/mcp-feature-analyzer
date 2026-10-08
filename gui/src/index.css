@@ -1272,9 +1272,43 @@ code {
 /* --- Écran Revue ---------------------------------------------------------- */
 
 .review {
+  position: relative;
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
   height: 100%;
+}
+
+/* Poignée de largeur du panneau des fichiers, à cheval sur sa bordure droite. */
+.files-panel-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 8px;
+  margin-left: -4px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.files-panel-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+  transition: background 120ms;
+}
+
+.files-panel-resizer:hover::after,
+.files-panel-resizer:focus-visible::after,
+.files-panel-resizer.is-dragging::after {
+  background: var(--accent);
+}
+
+.files-panel-resizer:focus-visible {
+  outline: none;
 }
 
 .review.is-files-hidden {
