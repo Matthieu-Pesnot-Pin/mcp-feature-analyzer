@@ -655,38 +655,52 @@ code {
   gap: 6px;
 }
 
+.home-project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Une carte par analyse : le fond de la page les sépare. */
 .home-row {
   display: flex;
   align-items: center;
   gap: 20px;
-  min-height: 60px;
-  margin: 0 20px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--divider);
+  padding: 14px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
 
-.home-row:last-child {
-  border-bottom: none;
+.home-row:hover {
+  border-color: var(--border-strong);
 }
 
 .home-row:hover .home-row-title {
   color: #ffffff;
 }
 
-.home-row-text {
+.home-row-body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   min-width: 0;
 }
 
+/* Titre complet, jamais tronqué : il passe à la ligne quand il dépasse la largeur. */
 .home-row-title {
-  overflow: hidden;
   font-size: 14px;
+  line-height: 20px;
   color: var(--text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.home-row-details {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
 }
 
 .truncated-text {
@@ -721,9 +735,11 @@ code {
 }
 
 .home-row-meta {
+  flex: 1;
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  min-width: 0;
   font-size: 11.5px;
   color: var(--faint);
 }
@@ -736,7 +752,7 @@ code {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 120px;
+  width: 110px;
   flex-shrink: 0;
 }
 
@@ -763,7 +779,7 @@ code {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  width: 128px;
+  width: 120px;
   flex-shrink: 0;
 }
 
@@ -776,7 +792,7 @@ code {
 .home-row-state {
   display: flex;
   justify-content: flex-end;
-  width: 220px;
+  width: 210px;
   flex-shrink: 0;
 }
 
@@ -794,12 +810,12 @@ code {
 }
 
 @media (max-width: 900px) {
-  .home-row {
+  .home-row-details {
     flex-wrap: wrap;
     gap: 10px 16px;
   }
 
-  .home-row-text {
+  .home-row-meta {
     flex-basis: 100%;
   }
 

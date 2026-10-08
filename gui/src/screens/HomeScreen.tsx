@@ -2,7 +2,6 @@ import type { AnalysisSummary } from '@shared/schemas/analysis.schema'
 import { REVIEW_PROGRESS_STYLES } from '@shared/labels'
 import { Icon } from '../components/Icon'
 import { ReviewStateBadge, SeverityDot } from '../components/Pills'
-import { TruncatedText } from '../components/TruncatedText'
 import { useAnalysisStore } from '../store/useAnalysisStore'
 import { openFindingsLabel, plural, refsLabel, relativeTime } from '../utils/format'
 import { hrefs } from '../utils/router'
@@ -20,45 +19,50 @@ const FILTER_LABELS: Record<HomeFilter, string> = {
   all: 'Toutes',
 }
 
-/** Ligne d'une analyse : titre, refs, date, progression des fichiers, constats ouverts et état de revue. */
+/**
+ * Carte d'une analyse : le titre en entier sur toute la largeur, puis refs, date,
+ * progression des fichiers, constats ouverts et état de revue sur une seconde ligne.
+ */
 function AnalysisRow({ analysis }: { analysis: AnalysisSummary }) {
   const { reviewedFiles, totalFiles } = analysis.progress
   const findings = openSeverityCounts(analysis)
   return (
     <a className="home-row" href={hrefs.feature(analysis.id)}>
-      <span className="home-row-text">
-        <TruncatedText className="home-row-title" text={analysis.title} />
-        <span className="home-row-meta">
-          <span className="mono">
-            {refsLabel(analysis)}
+      <span className="home-row-body">
+        <span className="home-row-title">{analysis.title}</span>
+        <span className="home-row-details">
+          <span className="home-row-meta">
+            <span className="mono">
+              {refsLabel(analysis)}
+            </span>
+            <span>· {relativeTime(analysis.updatedAt)}</span>
           </span>
-          <span>· {relativeTime(analysis.updatedAt)}</span>
+          <span className="home-row-progress" title={`${reviewedFiles} fichier(s) revu(s) sur ${totalFiles}`}>
+            <span className="home-row-progress-bar" role="progressbar" aria-valuemin={0} aria-valuemax={totalFiles} aria-valuenow={reviewedFiles}>
+              <span className="progress-fill" style={{ width: `${reviewedPercent(analysis)}%` }} />
+            </span>
+            <span className="home-row-progress-label mono">
+              {reviewedFiles}/{totalFiles}
+            </span>
+          </span>
+          <span className="home-row-findings">
+            {findings.length === 0 ? (
+              <span className="home-row-none">Aucun constat ouvert</span>
+            ) : (
+              findings.map(({ severity, count }) => (
+                <SeverityDot
+                  key={severity}
+                  severity={severity}
+                  count={count}
+                  title={`${openFindingsLabel(severity, count)}, exigences manquantes comprises`}
+                />
+              ))
+            )}
+          </span>
+          <span className="home-row-state">
+            <ReviewStateBadge progress={analysis.progress} />
+          </span>
         </span>
-      </span>
-      <span className="home-row-progress" title={`${reviewedFiles} fichier(s) revu(s) sur ${totalFiles}`}>
-        <span className="home-row-progress-bar" role="progressbar" aria-valuemin={0} aria-valuemax={totalFiles} aria-valuenow={reviewedFiles}>
-          <span className="progress-fill" style={{ width: `${reviewedPercent(analysis)}%` }} />
-        </span>
-        <span className="home-row-progress-label mono">
-          {reviewedFiles}/{totalFiles}
-        </span>
-      </span>
-      <span className="home-row-findings">
-        {findings.length === 0 ? (
-          <span className="home-row-none">Aucun constat ouvert</span>
-        ) : (
-          findings.map(({ severity, count }) => (
-            <SeverityDot
-              key={severity}
-              severity={severity}
-              count={count}
-              title={`${openFindingsLabel(severity, count)}, exigences manquantes comprises`}
-            />
-          ))
-        )}
-      </span>
-      <span className="home-row-state">
-        <ReviewStateBadge progress={analysis.progress} />
       </span>
       <Icon name="chevron-right" color="#646b7b" />
     </a>
@@ -91,7 +95,7 @@ function ProjectSection({ group }: { group: ProjectGroup }) {
         </span>
       </button>
       {!collapsed && (
-        <div className="card list-card home-project-list">
+        <div className="home-project-list">
           {group.analyses.map((analysis) => (
             <AnalysisRow key={analysis.id} analysis={analysis} />
           ))}
@@ -188,10 +192,10 @@ export function HomeScreen() {
               <Icon name="triangle-alert" color="#f0625a" />
               <span className="home-project-name">Analyses illisibles</span>
             </h2>
-            <div className="card list-card home-project-list">
+            <div className="home-project-list">
               {unreadable.map((entry) => (
                 <div key={entry.id} className="home-row is-unreadable">
-                  <span className="home-row-text">
+                  <span className="home-row-body">
                     <span className="home-row-title mono">{entry.id}</span>
                     <span className="home-row-meta error-text">{entry.error}</span>
                   </span>
