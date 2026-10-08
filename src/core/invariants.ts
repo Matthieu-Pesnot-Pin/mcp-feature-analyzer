@@ -26,6 +26,7 @@ function duplicates(ids: string[]): string[] {
  *   disponible et endLine ≤ nombre de lignes ;
  * - les liens d'un schéma relient des nœuds existants ; en `layers`, chaque nœud a une couche
  *   déclarée dans `layers`, sans doublon ;
+ * - une remarque liée à un constat vise un constat existant ;
  * - la revue ne sélectionne que des constats et remarques existants, et son état est cohérent.
  */
 export function findInvariantViolations(analysis: Analysis): string[] {
@@ -132,6 +133,11 @@ export function findInvariantViolations(analysis: Analysis): string[] {
   }
   for (const id of review.selectedNoteIds) {
     if (!noteIds.has(id)) problems.push(`review selects unknown note "${id}"`);
+  }
+  for (const note of analysis.notes) {
+    if (note.findingId !== null && !findingIds.has(note.findingId)) {
+      problems.push(`note "${note.id}" answers unknown finding "${note.findingId}"`);
+    }
   }
   if (review.state === "submitted" && (review.decision === null || review.submittedAt === null)) {
     problems.push("a submitted review needs a decision and a submittedAt date");

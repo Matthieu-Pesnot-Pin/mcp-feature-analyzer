@@ -381,6 +381,26 @@ test("migration derives the project from the repository folder and adds an empty
   assert.equal(addProject(kept), null, "an existing project is never replaced");
 });
 
+test("migration leaves the existing reviewer notes unlinked from any finding, once", () => {
+  const createdAt = "2026-09-29T10:00:00.000Z";
+  const legacy = {
+    id: "x-abc123",
+    project: "demo",
+    overview: null,
+    explanations: [],
+    notes: [
+      { id: "n1", location: { path: "src/a.ts", line: 2 }, text: "Old note", createdAt },
+      { id: "n2", location: null, findingId: "f1", text: "Linked note", createdAt },
+    ],
+  };
+  const migrated = migrateAnalysis(legacy);
+  assert.deepEqual(
+    (migrated?.notes as Array<{ findingId: string | null }>).map((note) => note.findingId),
+    [null, "f1"]
+  );
+  assert.equal(migrateAnalysis(migrated), null, "a second pass must change nothing");
+});
+
 test("migration refuses to guess a project when the repository path has no folder name", () => {
   for (const repoPath of ["/", "C:\\", 42]) {
     assert.throws(

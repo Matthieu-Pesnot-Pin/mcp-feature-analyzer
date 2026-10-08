@@ -19,10 +19,14 @@ export const SetFindingStatusBodySchema = z.strictObject({
   baseRevision: BaseRevisionSchema,
 });
 
-/** Remarque sur une ligne du côté « nouveau » (`line`), ou sur le fichier entier (`line` absent ou null). */
+/**
+ * Remarque sur une ligne du côté « nouveau » (`line`), ou sur le fichier entier (`line` absent ou null).
+ * `findingId` lie la remarque au constat auquel elle répond.
+ */
 export const AddNoteBodySchema = z.strictObject({
   path: z.string().min(1),
   line: z.number().int().nullable().optional(),
+  findingId: z.string().min(1).nullable().optional(),
   text: z.string().trim().min(1, "the note text is empty"),
   baseRevision: BaseRevisionSchema,
 });

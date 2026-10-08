@@ -618,7 +618,8 @@ const TOOLS = [
   {
     name: "delete_findings",
     description:
-      "Delete findings by id, typically once refresh_analysis shows them solved. If any id is unknown, nothing is deleted.",
+      "Delete findings by id, typically once refresh_analysis shows them solved. The reviewer notes written on these findings are deleted with them. " +
+      "If any id is unknown, nothing is deleted.",
     inputSchema: {
       type: "object" as const,
       properties: {

@@ -47,9 +47,9 @@ function fixture(): Analysis {
       sampleFinding({ id: "f_ignored", severity: "trivial", status: "ignored", title: "Ignored" }),
     ],
     notes: [
-      { id: "n_line", location: { path: "src/a.ts", line: 4 }, text: "Use the shared logger.", createdAt: "2026-09-29T10:00:00.000Z" },
-      { id: "n_file", location: { path: "img.png", line: null }, text: "Too large.\nCompress it.", createdAt: "2026-09-29T10:00:00.000Z" },
-      { id: "n_general", location: null, text: "Nice work overall.", createdAt: "2026-09-29T10:00:00.000Z" },
+      { id: "n_line", location: { path: "src/a.ts", line: 4 }, findingId: null, text: "Use the shared logger.", createdAt: "2026-09-29T10:00:00.000Z" },
+      { id: "n_file", location: { path: "img.png", line: null }, findingId: null, text: "Too large.\nCompress it.", createdAt: "2026-09-29T10:00:00.000Z" },
+      { id: "n_general", location: null, findingId: null, text: "Nice work overall.", createdAt: "2026-09-29T10:00:00.000Z" },
     ],
   });
 }

@@ -38,8 +38,17 @@ export const addOverview: MigrationStep = (doc) => (doc.overview !== undefined ?
 /** Ajoute `explanations` vide : l'analyse n'a pas encore d'explication. */
 export const addExplanations: MigrationStep = (doc) => (doc.explanations !== undefined ? null : { ...doc, explanations: [] });
 
+/** Ajoute `findingId` à null sur les remarques qui n'en ont pas : elles restent des remarques libres. */
+export const addNoteFindingIds: MigrationStep = (doc) => {
+  if (!Array.isArray(doc.notes)) return null;
+  const notes = doc.notes as unknown[];
+  const missing = (note: unknown) => !!note && typeof note === "object" && (note as RawDocument).findingId === undefined;
+  if (!notes.some(missing)) return null;
+  return { ...doc, notes: notes.map((note) => (missing(note) ? { ...(note as RawDocument), findingId: null } : note)) };
+};
+
 /** Étapes appliquées aux analyses (`analyses/<id>.json`), dans l'ordre. */
-export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [addProject, addOverview, addExplanations];
+export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [addProject, addOverview, addExplanations, addNoteFindingIds];
 
 /** Étapes appliquées aux snapshots de diff (`diffs/<id>.json`), dans l'ordre. */
 export const SNAPSHOT_MIGRATIONS: readonly MigrationStep[] = [];

@@ -83,7 +83,7 @@ interface AnalysisState {
 
   setFileReviewed: (path: string, reviewed: boolean) => Promise<boolean>
   setFindingStatus: (findingId: string, status: FindingStatus) => Promise<boolean>
-  addNote: (path: string, line: number | null, text: string) => Promise<boolean>
+  addNote: (path: string, line: number | null, text: string, findingId: string | null) => Promise<boolean>
   updateNote: (noteId: string, text: string) => Promise<boolean>
   deleteNote: (noteId: string) => Promise<boolean>
   submitReview: (decision: ReviewDecision, findingIds: string[], noteIds: string[]) => Promise<boolean>
@@ -246,9 +246,9 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
         api.setFindingStatus(analysis.id, findingId, { status, baseRevision: analysis.revision }),
       ),
 
-    addNote: (path, line, text) =>
+    addNote: (path, line, text, findingId) =>
       mutate('Remarque non enregistrée', (analysis) =>
-        api.addNote(analysis.id, { path, line, text, baseRevision: analysis.revision }),
+        api.addNote(analysis.id, { path, line, findingId, text, baseRevision: analysis.revision }),
       ),
 
     updateNote: (noteId, text) =>

@@ -21,7 +21,13 @@ function diagram(overrides: Partial<Diagram> = {}): Diagram {
   };
 }
 
-const note = (id: string): Note => ({ id, location: null, text: "Note", createdAt: "2026-09-29T10:00:00.000Z" });
+const note = (id: string, findingId: string | null = null): Note => ({
+  id,
+  location: null,
+  findingId,
+  text: "Note",
+  createdAt: "2026-09-29T10:00:00.000Z",
+});
 
 test("a consistent analysis has no violation", () => {
   const analysis = sampleAnalysis({
@@ -29,7 +35,7 @@ test("a consistent analysis has no violation", () => {
       sampleFinding(),
       sampleFinding({ id: "f_gap", kind: "requirement_gap", location: null, anchorText: null }),
     ],
-    notes: [note("n_1")],
+    notes: [note("n_1"), note("n_2", "f_1")],
     diagrams: [diagram()],
     review: {
       state: "submitted",
@@ -55,6 +61,11 @@ test("ids are unique within each list and within a diagram", () => {
   assert.ok(problems.includes('duplicate note id "n_1"'));
   assert.ok(problems.includes('duplicate diagram id "d_1"'));
   assert.ok(problems.includes('diagram "d_1" has duplicate node id "a"'));
+});
+
+test("a note answers an existing finding", () => {
+  const analysis = sampleAnalysis({ findings: [sampleFinding()], notes: [note("n_1", "f_gone")] });
+  assert.ok(findInvariantViolations(analysis).includes('note "n_1" answers unknown finding "f_gone"'));
 });
 
 test("an open finding must target a changed file, with available content and lines in range", () => {

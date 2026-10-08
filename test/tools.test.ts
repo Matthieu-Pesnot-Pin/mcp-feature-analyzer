@@ -370,6 +370,34 @@ test("delete_findings rejects unknown ids without deleting, and drops deleted id
   assert.deepEqual(analysis.review.selectedFindingIds, ["f2"]);
 });
 
+test("delete_findings deletes the reviewer notes written on the deleted findings, and only those", async (t) => {
+  const { store, id } = await setup(t);
+  await ok(addFindings, store, {
+    analysis_id: id,
+    findings: [
+      { id: "f1", severity: "minor", title: "A", body: "B", path: "src/app.ts", start_line: 1 },
+      { id: "f2", severity: "minor", title: "C", body: "D", path: "src/app.ts", start_line: 2 },
+    ],
+  });
+  const createdAt = new Date().toISOString();
+  store.mutate(id, "user", (draft) => {
+    draft.notes.push(
+      { id: "n_f1", location: { path: "src/app.ts", line: 1 }, findingId: "f1", text: "About f1", createdAt },
+      { id: "n_f2", location: { path: "src/app.ts", line: 2 }, findingId: "f2", text: "About f2", createdAt },
+      { id: "n_free", location: { path: "src/app.ts", line: 1 }, findingId: null, text: "Free note", createdAt }
+    );
+    draft.review.selectedNoteIds = ["n_f1", "n_free"];
+  });
+
+  assert.match(
+    await ok(deleteFindings, store, { analysis_id: id, finding_ids: ["f1"] }),
+    /Deleted 1 finding\(s\).*1 reviewer note\(s\) answering them were deleted too/
+  );
+  const analysis = store.get(id);
+  assert.deepEqual(analysis.notes.map((note) => note.id), ["n_f2", "n_free"]);
+  assert.deepEqual(analysis.review.selectedNoteIds, ["n_free"]);
+});
+
 // --- set_diagram / delete_diagram ---------------------------------------------
 
 test("set_diagram creates a layers diagram with defaults, then replaces it by id", async (t) => {
@@ -518,7 +546,7 @@ test("delete_diagram removes a diagram and reports unknown ids", async (t) => {
 /** Soumet une revue comme le ferait la GUI : remarque, sélection, décision et prompt. */
 function submitReview(store: AnalysisStore, id: string, findingIds: string[]) {
   store.mutate(id, "user", (draft) => {
-    draft.notes.push({ id: "n1", location: { path: "src/app.ts", line: 2 }, text: "Rename this", createdAt: new Date().toISOString() });
+    draft.notes.push({ id: "n1", location: { path: "src/app.ts", line: 2 }, findingId: null, text: "Rename this", createdAt: new Date().toISOString() });
     draft.review.state = "submitted";
     draft.review.decision = "request_changes";
     draft.review.selectedFindingIds = findingIds;

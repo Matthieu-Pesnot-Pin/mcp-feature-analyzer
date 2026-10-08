@@ -232,9 +232,10 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const setExplanationsShown = useAnalysisStore((state) => state.setExplanationsShown)
   const filesPanelCollapsed = useAnalysisStore((state) => state.filesPanelCollapsed)
   // La saisie d'une remarque est liée au fichier où elle a été ouverte.
-  const [composerState, setComposerState] = useState<{ path: string; line: number | null } | null>(null)
-  const composer: ComposerTarget = composerState && composerState.path === path ? { line: composerState.line } : null
-  const setComposer = (target: ComposerTarget) => setComposerState(target && path !== null ? { path, line: target.line } : null)
+  const [composerState, setComposerState] = useState<{ path: string; line: number | null; findingId: string | null } | null>(null)
+  const composer: ComposerTarget =
+    composerState && composerState.path === path ? { line: composerState.line, findingId: composerState.findingId } : null
+  const setComposer = (target: ComposerTarget) => setComposerState(target && path !== null ? { path, ...target } : null)
   // Choix du relecteur d'afficher ou non le correctif de chaque constat dans le code.
   const [fixChoices, setFixChoices] = useState<Record<string, boolean>>({})
   // Lignes de contexte ajoutées autour de chaque bloc, par fichier puis par bloc.
@@ -337,7 +338,7 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
           </div>
         ) : (
           <>
-            <FileHeader analysis={analysis} file={file} onFileNote={() => setComposer({ line: null })} />
+            <FileHeader analysis={analysis} file={file} onFileNote={() => setComposer({ line: null, findingId: null })} />
             <div className="review-body" ref={bodyRef}>
               <div className="review-columns">
                 <div className="review-center" ref={centerRef}>
@@ -375,7 +376,7 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
                       wholeFileAvailable={wholeFileAvailable}
                       explained={shownExplanations.length > 0}
                       target={target}
-                      onLineNote={(lineNo) => setComposer({ line: lineNo })}
+                      onLineNote={(lineNo) => setComposer({ line: lineNo, findingId: null })}
                       onHideFix={(findingId) => setFixShown(findingId, false)}
                       onRequestExplanation={(hunk) =>
                         void copy(

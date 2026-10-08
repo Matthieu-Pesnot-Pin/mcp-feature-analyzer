@@ -65,7 +65,10 @@ export function setFindingStatus(
   );
 }
 
-/** Ajoute une remarque du relecteur sur une ligne du côté « nouveau » ou sur un fichier entier. */
+/**
+ * Ajoute une remarque du relecteur sur une ligne du côté « nouveau » ou sur un fichier entier,
+ * liée au constat `findingId` quand elle y répond.
+ */
 export function addNote(store: AnalysisStore, analysisId: string, body: AddNoteBody): Analysis {
   return store.mutate(
     analysisId,
@@ -73,9 +76,14 @@ export function addNote(store: AnalysisStore, analysisId: string, body: AddNoteB
     (draft) => {
       const location = { path: body.path, line: body.line ?? null };
       assertNoteLocation(draft.files, location);
+      const findingId = body.findingId ?? null;
+      if (findingId !== null && !draft.findings.some((finding) => finding.id === findingId)) {
+        throw new NotFoundError(`Finding "${findingId}" not found in analysis "${analysisId}".`);
+      }
       draft.notes.push({
         id: itemId("note", new Set(draft.notes.map((note) => note.id))),
         location,
+        findingId,
         text: body.text,
         createdAt: new Date().toISOString(),
       });

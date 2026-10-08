@@ -47,8 +47,21 @@ export function NoteCard({ note }: { note: Note }) {
   )
 }
 
-/** Saisie d'une remarque sur une ligne (`line`) ou sur le fichier entier (`line` null). */
-export function NoteComposer({ path, line, onClose }: { path: string; line: number | null; onClose: () => void }) {
+/**
+ * Saisie d'une remarque sur une ligne (`line`) ou sur le fichier entier (`line` null),
+ * liée au constat `findingId` quand elle y répond.
+ */
+export function NoteComposer({
+  path,
+  line,
+  findingId,
+  onClose,
+}: {
+  path: string
+  line: number | null
+  findingId: string | null
+  onClose: () => void
+}) {
   const addNote = useAnalysisStore((state) => state.addNote)
 
   return (
@@ -57,7 +70,7 @@ export function NoteComposer({ path, line, onClose }: { path: string; line: numb
       label={line === null ? 'Remarque sur le fichier' : `Remarque sur la ligne ${line}`}
       initialText=""
       submitLabel="Enregistrer la remarque"
-      onSubmit={(text) => addNote(path, line, text)}
+      onSubmit={(text) => addNote(path, line, text, findingId)}
       onClose={onClose}
     />
   )

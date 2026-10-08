@@ -100,6 +100,8 @@ export const NoteLocationSchema = z.object({
 export const NoteSchema = z.object({
   id: ItemIdSchema,
   location: NoteLocationSchema.nullable(),
+  /** Constat auquel la remarque répond ; null pour une remarque libre. Supprimer le constat supprime la remarque. */
+  findingId: ItemIdSchema.nullable(),
   text: z.string().min(1),
   createdAt: IsoDateSchema,
 });

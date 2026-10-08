@@ -192,11 +192,13 @@ export function FindingsMargin({
       fix={fixes.get(entry.finding.id)!}
       mode={mode}
       onToggleFix={(value) => onToggleFix(entry.finding.id, value)}
-      onAddNote={canNote ? () => setComposer({ line: noteLine }) : undefined}
+      onAddNote={canNote ? () => setComposer({ line: noteLine, findingId: entry.finding.id }) : undefined}
       highlighted={entry.finding.id === revealedId}
     />
   )
-  const composerCard = (line: number | null) => <NoteComposer path={file.path} line={line} onClose={() => setComposer(null)} />
+  const composerCard = (line: number | null) => (
+    <NoteComposer path={file.path} line={line} findingId={composer?.findingId ?? null} onClose={() => setComposer(null)} />
+  )
 
   const aligned: AlignedItem[] = []
   const outside: ReactNode[] = []

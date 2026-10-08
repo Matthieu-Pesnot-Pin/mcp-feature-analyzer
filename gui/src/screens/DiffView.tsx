@@ -30,8 +30,11 @@ import {
 } from './review-diff-model'
 import { useSyntaxTokens } from './useSyntaxTokens'
 
-/** Ligne où s'ouvre la saisie d'une remarque ; `line` null vise le fichier entier. */
-export type ComposerTarget = { line: number | null } | null
+/**
+ * Ligne où s'ouvre la saisie d'une remarque ; `line` null vise le fichier entier.
+ * `findingId` désigne le constat auquel la remarque répond, null pour une remarque libre.
+ */
+export type ComposerTarget = { line: number | null; findingId: string | null } | null
 
 interface DiffViewProps {
   file: FileEntry

@@ -153,6 +153,7 @@ test("POST notes adds a note, refuses an invalid line, and DELETE removes a note
   assert.equal(added.status, 200, added.json.error);
   assert.equal(added.json.analysis.notes.length, 1);
   assert.deepEqual(added.json.analysis.notes[0].location, { path: "src/app.ts", line: 2 });
+  assert.equal(added.json.analysis.notes[0].findingId, null);
 
   const badLine = await call("POST", `analyses/${analysisId}/notes`, { path: "src/app.ts", line: 999, text: "Out", baseRevision: await revision() });
   assert.equal(badLine.status, 400);
@@ -191,6 +192,32 @@ test("PATCH notes replaces the text of a note and refuses an empty text or an un
 
   const unknown = await call("PATCH", `analyses/${analysisId}/notes/n_none`, { text: "Text", baseRevision: await revision() });
   assert.equal(unknown.status, 404);
+
+  const deleted = await call("DELETE", `analyses/${analysisId}/notes/${note.id}`, { baseRevision: await revision() });
+  assert.equal(deleted.status, 200, deleted.json.error);
+});
+
+test("POST notes links a note to the finding it answers and refuses an unknown finding", async () => {
+  const linked = await call("POST", `analyses/${analysisId}/notes`, {
+    path: "src/app.ts",
+    line: 2,
+    findingId: "f_bug",
+    text: "Answer to the finding",
+    baseRevision: await revision(),
+  });
+  assert.equal(linked.status, 200, linked.json.error);
+  const note = linked.json.analysis.notes.find((entry: { text: string }) => entry.text === "Answer to the finding");
+  assert.equal(note.findingId, "f_bug");
+
+  const unknown = await call("POST", `analyses/${analysisId}/notes`, {
+    path: "src/app.ts",
+    line: 2,
+    findingId: "f_none",
+    text: "Orphan",
+    baseRevision: await revision(),
+  });
+  assert.equal(unknown.status, 404);
+  assert.match(unknown.json.error, /Finding "f_none" not found/);
 
   const deleted = await call("DELETE", `analyses/${analysisId}/notes/${note.id}`, { baseRevision: await revision() });
   assert.equal(deleted.status, 200, deleted.json.error);
