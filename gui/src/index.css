@@ -1831,6 +1831,34 @@ code {
   background: color-mix(in srgb, var(--del) 35%, transparent);
 }
 
+/* Ligne proche de celle qu'elle remplace : seules ses parties modifiées sont surlignées. */
+.diff-line.is-add.has-inline,
+.diff-line.is-del.has-inline {
+  background: transparent;
+}
+
+.diff-inline {
+  border-radius: 2px;
+}
+
+.diff-inline.is-add {
+  background: color-mix(in srgb, var(--add) 32%, transparent);
+}
+
+.diff-inline.is-del {
+  background: color-mix(in srgb, var(--del) 32%, transparent);
+}
+
+.legend-swatch.is-inline {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--del) 45%, transparent) 0 50%, color-mix(in srgb, var(--add) 45%, transparent) 50%);
+  border-color: var(--border-strong);
+}
+
+.legend-swatch.is-inline-add {
+  background: color-mix(in srgb, var(--add) 45%, transparent);
+  border-color: var(--border-strong);
+}
+
 .legend-swatch.is-reindent {
   background: linear-gradient(90deg, color-mix(in srgb, var(--add) 35%, transparent) 0 50%, transparent 50%), var(--surface);
   border-color: var(--border-strong);

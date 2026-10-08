@@ -81,43 +81,59 @@ function lineTypeClass(type: DiffLine['type'], codeView: CodeView): string {
   return codeView === 'new' && type === 'add' ? 'is-new' : `is-${type}`
 }
 
-/** Caractères `start`–`end` d'une ligne marqués comme indentation ajoutée ou retirée. */
-interface IndentMark {
+/** Caractères `start`–`end` d'une ligne surlignés avec la classe `className`. */
+interface TextMark {
   start: number
   end: number
-  kind: 'add' | 'del'
+  className: string
 }
 
-/** Morceaux de `chunks` découpés aux bornes de `mark`, chacun avec son style et son marquage. */
-function markedPieces(chunks: Array<{ text: string; style?: CSSProperties }>, mark: IndentMark | null) {
-  const pieces: Array<{ text: string; style?: CSSProperties; marked: boolean }> = []
+/** Morceaux de `chunks` découpés aux bornes des `marks`, chacun avec son style et la classe de la marque qui le couvre. */
+function markedPieces(chunks: Array<{ text: string; style?: CSSProperties }>, marks: TextMark[]) {
+  const pieces: Array<{ text: string; style?: CSSProperties; className?: string }> = []
   let offset = 0
   for (const { text, style } of chunks) {
-    const bounds = mark ? [mark.start, mark.end].map((bound) => Math.min(Math.max(bound - offset, 0), text.length)) : []
-    const cuts = [0, ...bounds, text.length]
+    const bounds = marks.flatMap((mark) => [mark.start, mark.end]).map((bound) => Math.min(Math.max(bound - offset, 0), text.length))
+    const cuts = [...new Set([0, ...bounds, text.length])].sort((a, b) => a - b)
     for (let index = 0; index < cuts.length - 1; index++) {
-      if (cuts[index + 1] <= cuts[index]) continue
-      const piece = text.slice(cuts[index], cuts[index + 1])
       const at = offset + cuts[index]
-      pieces.push({ text: piece, style, marked: mark !== null && at >= mark.start && at < mark.end })
+      const mark = marks.find((entry) => at >= entry.start && at < entry.end)
+      pieces.push({ text: text.slice(cuts[index], cuts[index + 1]), style, className: mark?.className })
     }
     offset += text.length
   }
   return pieces
 }
 
-/** Texte d'une ligne, coloré par ses jetons quand il y en a, son indentation modifiée marquée. */
-function CodeText({ text, tokens, mark = null }: { text: string; tokens: ThemedToken[] | undefined; mark?: IndentMark | null }) {
+/** Texte d'une ligne, coloré par ses jetons quand il y en a, ses parties modifiées surlignées. */
+function CodeText({ text, tokens, marks = [] }: { text: string; tokens: ThemedToken[] | undefined; marks?: TextMark[] }) {
   const chunks = tokens ? tokens.map((token) => ({ text: token.content, style: tokenStyle(token) })) : [{ text }]
   return (
     <span className={`diff-code${tokens ? ' is-highlighted' : ''}`}>
-      {markedPieces(chunks, mark).map((piece, index) => (
-        <span key={index} style={piece.style} className={piece.marked ? `diff-indent is-${mark!.kind}` : undefined}>
+      {markedPieces(chunks, marks).map((piece, index) => (
+        <span key={index} style={piece.style} className={piece.className}>
           {piece.text}
         </span>
       ))}
     </span>
   )
+}
+
+/**
+ * Surlignages d'une ligne : son indentation ajoutée ou retirée quand seule
+ * l'indentation change, sinon ses parties modifiées par rapport à la ligne
+ * qui lui correspond.
+ */
+function lineMarks(row: Extract<DiffRow, { kind: 'line' }>, line: DiffLine, oldSide: boolean): TextMark[] {
+  if (row.replaced && !oldSide) return []
+  if (row.oldLine) {
+    const change = indentChange(row.oldLine.text, row.line.text)
+    return oldSide
+      ? [{ start: change.start, end: change.oldEnd, className: 'diff-indent is-del' }]
+      : [{ start: change.start, end: change.newEnd, className: 'diff-indent is-add' }]
+  }
+  if (!row.inline || line.type === 'context') return []
+  return row.inline.map((range) => ({ ...range, className: `diff-inline is-${line.type}` }))
 }
 
 /** Marque d'une ligne dont seule l'indentation change : flèche du sens du décalage. */
@@ -236,12 +252,14 @@ function DiffLegend({
   codeView,
   explained,
   reindented,
+  inlined,
   expanded,
 }: {
   mode: FixMode
   codeView: CodeView
   explained: boolean
   reindented: boolean
+  inlined: boolean
   expanded: boolean
 }) {
   return (
@@ -262,6 +280,12 @@ function DiffLegend({
             Supprimé par la feature
           </span>
         </>
+      )}
+      {inlined && (
+        <span className="legend-item">
+          <span className={`legend-swatch ${codeView === 'new' ? 'is-inline-add' : 'is-inline'}`} />
+          Partie modifiée de la ligne
+        </span>
       )}
       {reindented && (
         <span className="legend-item">
@@ -311,7 +335,9 @@ function DiffLegend({
  * s'aligne la carte d'une explication de code supprimé. Le code est coloré
  * selon le langage du fichier, sauf sur les lignes barrées par un correctif.
  * En vue « Nouveau code », les lignes ajoutées par la feature portent un filet
- * vert à la place de leur fond et de leur marque. Une ligne dont seule
+ * vert à la place de leur fond et de leur marque. Quand une ligne supprimée et
+ * la ligne ajoutée qui la remplace se ressemblent, seules leurs parties
+ * modifiées sont surlignées, sans fond sur le reste de la ligne. Une ligne dont seule
  * l'indentation change ne forme qu'une ligne, marquée d'une flèche, son
  * indentation ajoutée ou retirée surlignée. Quand le fichier entier est
  * affiché, une mini-carte longe le bord droit du diff ; sinon, l'en-tête de
@@ -404,16 +430,11 @@ export function DiffView({
         : line.type === 'del'
           ? syntax.file.oldSide.get(line.oldNo!)
           : syntax.file.newSide.get(line.newNo!)
-    const change = oldLine ? indentChange(oldLine.text, row.line.text) : null
-    const mark: IndentMark | null =
-      change === null
-        ? null
-        : oldSide
-          ? { start: change.start, end: change.oldEnd, kind: 'del' }
-          : { start: change.start, end: change.newEnd, kind: 'add' }
+    const marks = lineMarks(row, line, oldSide)
     const classes = [
       'diff-line',
       oldLine ? 'is-reindent' : lineTypeClass(line.type, codeView),
+      !oldLine && !replaced && row.inline ? 'has-inline' : '',
       replaced ? 'is-replaced' : '',
       line.type === 'context' && line.newNo !== null && addedContext?.has(line.newNo) ? 'is-expanded' : '',
       row.explained ? 'is-explained' : '',
@@ -443,7 +464,7 @@ export function DiffView({
         ) : (
           <span className="diff-marker">{codeView === 'new' ? '' : MARKERS[line.type]}</span>
         )}
-        <CodeText text={line.text} tokens={tokens} mark={replaced ? null : mark} />
+        <CodeText text={line.text} tokens={tokens} marks={marks} />
         {!oldSide && row.pills.length > 0 && <DiffPills entries={row.pills} />}
       </div>
     )
@@ -511,6 +532,7 @@ export function DiffView({
         codeView={codeView}
         explained={explained}
         reindented={hunks.some((hunk) => hunk.rows.some((row) => row.kind === 'line' && row.oldLine !== null))}
+        inlined={hunks.some((hunk) => hunk.rows.some((row) => row.kind === 'line' && row.inline !== null && !row.replaced))}
         expanded={addedContext !== null && addedContext.size > 0}
       />
     </div>

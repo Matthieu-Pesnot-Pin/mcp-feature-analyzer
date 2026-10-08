@@ -1,5 +1,6 @@
 import type { Analysis, Explanation, Finding, Note, Severity } from '@shared/schemas/analysis.schema'
 import type { DiffLine, FileDiff, Hunk } from '@shared/schemas/diff.schema'
+import { inlineChangesOfLines, type CharRange } from '@shared/inline-diff'
 import { mergeReindentedLines } from '@shared/reindent'
 import { compareSeverity } from '@shared/severity'
 import { splitLines } from '@shared/text'
@@ -149,6 +150,11 @@ export type DiffRow =
       line: DiffLine
       /** Ligne supprimée dont `line`, ajoutée, ne change que l'indentation : les deux ne forment qu'une ligne. */
       oldLine: DiffLine | null
+      /**
+       * Parties modifiées d'une ligne supprimée ou ajoutée comparée à la ligne qui lui
+       * correspond ; null quand la ligne n'a pas de correspondante proche.
+       */
+      inline: CharRange[] | null
       /** Ligne visée par un correctif affiché avant / après : barrée. */
       replaced: boolean
       /** Ligne couverte par au moins une explication affichée. */
@@ -336,7 +342,8 @@ export function explanationAnchor(
 /**
  * Lignes du diff, bloc par bloc, avec les correctifs affichés insérés à leur
  * place. Une ligne supprimée puis ajoutée avec pour seule différence son
- * indentation ne forme qu'une ligne. En mode `before-after` : bandeau avant la première ligne visée, lignes
+ * indentation ne forme qu'une ligne. Une ligne supprimée et la ligne ajoutée
+ * qui la remplace portent leurs parties modifiées. En mode `before-after` : bandeau avant la première ligne visée, lignes
  * visées barrées, lignes proposées après la dernière ligne visée. En mode
  * `applied` : bandeau et lignes proposées à la place des lignes visées, qui ne
  * sont pas affichées. En mode `off`, `fixes` n'affiche aucun correctif. Les
@@ -374,7 +381,9 @@ export function buildDiffRows(
 
   return fileDiff.hunks.map((hunk) => {
     const rows: DiffRow[] = []
-    for (const { line, oldLine } of mergeReindentedLines(hunk.lines)) {
+    const merged = mergeReindentedLines(hunk.lines)
+    const inline = inlineChangesOfLines(merged)
+    for (const { line, oldLine } of merged) {
       if (codeView === 'new' && line.type === 'del') continue
       const lineNo = line.newNo
       const fix = lineNo === null ? undefined : placed.find((entry) => lineNo >= entry.startLine && lineNo <= entry.endLine)
@@ -389,6 +398,7 @@ export function buildDiffRows(
         kind: 'line',
         line,
         oldLine,
+        inline: inline.get(line) ?? null,
         replaced: fix !== undefined && line.type !== 'del',
         explained: explanations.some((explanation) => coversLine(explanation, line) || (oldLine !== null && coversLine(explanation, oldLine))),
         bar: fix ? barOf(fix.finding) : lineNo === null ? null : lineBar(numbered, lineNo),
