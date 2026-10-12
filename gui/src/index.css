@@ -571,40 +571,96 @@ code {
   margin-bottom: 28px;
 }
 
-.segmented {
-  display: inline-flex;
-  padding: 3px;
+.page.page-home {
+  width: 1200px;
+}
+
+/* Colonne des filtres à gauche, analyses à droite. */
+.home-layout {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+
+.home-filters {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.home-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 10px 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.home-filter:hover {
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 9px;
-}
-
-.segmented-item {
-  height: 28px;
-  padding: 0 14px;
-  border-radius: 6px;
-  font-size: 12.5px;
-  color: var(--muted);
-}
-
-.segmented-item:hover {
   color: var(--text);
 }
 
-.segmented-item:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.segmented-item:disabled:hover {
-  color: var(--muted);
-}
-
-.segmented-item.is-active {
+.home-filter.is-active {
   background: var(--surface-current);
+  border-color: var(--border-strong);
   color: var(--text);
   font-weight: 500;
-  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.home-filter.is-all {
+  position: relative;
+  margin-top: 17px;
+}
+
+.home-filter.is-all::before {
+  content: '';
+  position: absolute;
+  top: -10px;
+  left: 12px;
+  right: 10px;
+  height: 1px;
+  background: var(--divider);
+}
+
+.home-filter-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.home-filter-count {
+  min-width: 24px;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: right;
+  color: var(--faint);
+}
+
+/* « Traitées par l'agent » non vide : le relecteur a des corrections à vérifier. */
+.home-filter.is-highlighted {
+  color: #5fd4c4;
+}
+
+.home-filter.is-highlighted.is-active {
+  background: #10272a;
+  border-color: #1d4a45;
+}
+
+.home-filter.is-highlighted .home-filter-count {
+  min-width: 0;
+  padding: 1px 8px;
+  border-radius: 8px;
+  background: #1d4a45;
+  color: #5fd4c4;
+  text-align: center;
 }
 
 .home-projects {
@@ -782,6 +838,19 @@ code {
   flex-shrink: 0;
 }
 
+.home-row-processing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #5fd4c4;
+  overflow-wrap: anywhere;
+}
+
+.home-row-processing svg {
+  flex-shrink: 0;
+}
+
 .home-row.is-unreadable .home-row-title {
   color: var(--danger);
 }
@@ -796,6 +865,26 @@ code {
 }
 
 @media (max-width: 900px) {
+  .home-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .home-filters {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .home-filter.is-all {
+    margin-top: 0;
+  }
+
+  .home-filter.is-all::before {
+    display: none;
+  }
+
   .home-row-details {
     flex-wrap: wrap;
     gap: 10px 16px;

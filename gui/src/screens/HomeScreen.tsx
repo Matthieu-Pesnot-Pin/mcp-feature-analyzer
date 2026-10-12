@@ -1,27 +1,77 @@
 import type { AnalysisSummary } from '@shared/schemas/analysis.schema'
-import { REVIEW_PROGRESS_STYLES } from '@shared/labels'
-import { Icon } from '../components/Icon'
+import { PROCESSED_STYLE, REVIEW_PROGRESS_STYLES } from '@shared/labels'
+import { Icon, type IconName } from '../components/Icon'
 import { ReviewStateBadge, SeverityDot } from '../components/Pills'
 import { useAnalysisStore } from '../store/useAnalysisStore'
-import { openFindingsLabel, plural, refsLabel, relativeTime } from '../utils/format'
+import { formatDateTime, openFindingsLabel, plural, refsLabel, relativeTime } from '../utils/format'
 import { hrefs } from '../utils/router'
 import {
   applyHomeFilter,
   groupByProject,
+  HOME_FILTERS,
+  homeFilterCounts,
   openSeverityCounts,
   reviewedPercent,
   type HomeFilter,
   type ProjectGroup,
 } from './home-model'
 
-const FILTER_LABELS: Record<HomeFilter, string> = {
-  to_review: 'À relire',
-  all: 'Toutes',
+/** Libellé, icône et message de liste vide de chaque filtre de l'accueil. */
+const FILTERS: Record<HomeFilter, { label: string; icon: IconName; empty: string }> = {
+  to_review: { label: 'À relire', icon: 'eye', empty: 'Aucune revue à faire : toutes les analyses sont soumises.' },
+  processed: { label: "Traitées par l'agent", icon: 'clipboard-check', empty: "Aucun retour traité par l'agent à vérifier." },
+  to_process: { label: "À traiter par l'agent", icon: 'hourglass', empty: "Aucun retour n'attend l'agent." },
+  approved: { label: 'Approuvées', icon: 'circle-check', empty: 'Aucune analyse approuvée.' },
+  all: { label: 'Toutes', icon: 'list', empty: 'Aucune analyse.' },
+}
+
+/**
+ * Colonne des filtres, chacun avec son icône et son nombre d'analyses.
+ * « Traitées par l'agent » ressort tant qu'il en reste : le relecteur y a du nouveau.
+ */
+function FilterColumn({ counts }: { counts: Record<HomeFilter, number> }) {
+  const filter = useAnalysisStore((state) => state.homeFilter)
+  const setHomeFilter = useAnalysisStore((state) => state.setHomeFilter)
+
+  return (
+    <nav className="home-filters" aria-label="Filtrer les analyses">
+      {HOME_FILTERS.map((entry) => {
+        const active = entry === filter
+        const highlighted = entry === 'processed' && counts.processed > 0
+        return (
+          <button
+            key={entry}
+            type="button"
+            className={`home-filter${active ? ' is-active' : ''}${highlighted ? ' is-highlighted' : ''}${entry === 'all' ? ' is-all' : ''}`}
+            aria-pressed={active}
+            onClick={() => setHomeFilter(entry)}
+          >
+            <Icon name={FILTERS[entry].icon} size={16} color={highlighted ? PROCESSED_STYLE.color : '#9aa1b1'} />
+            <span className="home-filter-label">{FILTERS[entry].label}</span>
+            <span className="home-filter-count">{counts[entry]}</span>
+          </button>
+        )
+      })}
+    </nav>
+  )
+}
+
+/** Ligne de traitement d'une revue marquée traitée : note de l'agent et date. */
+function ProcessingLine({ analysis }: { analysis: AnalysisSummary }) {
+  const processed = analysis.progress.processed
+  if (!processed) return null
+  return (
+    <span className="home-row-processing">
+      <Icon name="corner-down-right" size={12} color={PROCESSED_STYLE.color} />
+      {processed.note === null ? "Traitée par l'agent" : `Note de l'agent : ${processed.note}`} · le {formatDateTime(processed.at)}
+    </span>
+  )
 }
 
 /**
  * Carte d'une analyse : le titre en entier sur toute la largeur, puis refs, date,
- * progression des fichiers, constats ouverts et état de revue sur une seconde ligne.
+ * progression des fichiers, constats ouverts et état de revue sur une seconde ligne,
+ * et la note de l'agent quand il a traité le retour.
  */
 function AnalysisRow({ analysis }: { analysis: AnalysisSummary }) {
   const { reviewedFiles, totalFiles } = analysis.progress
@@ -63,6 +113,7 @@ function AnalysisRow({ analysis }: { analysis: AnalysisSummary }) {
             <ReviewStateBadge progress={analysis.progress} />
           </span>
         </span>
+        <ProcessingLine analysis={analysis} />
       </span>
       <Icon name="chevron-right" color="#646b7b" />
     </a>
@@ -105,7 +156,7 @@ function ProjectSection({ group }: { group: ProjectGroup }) {
   )
 }
 
-/** Accueil : analyses rangées par projet, filtrables sur celles qui restent à relire. */
+/** Accueil : analyses rangées par projet, filtrées par étape de la revue depuis une colonne à gauche. */
 export function HomeScreen() {
   const analyses = useAnalysisStore((state) => state.analyses)
   const unreadable = useAnalysisStore((state) => state.unreadable)
@@ -148,62 +199,52 @@ export function HomeScreen() {
   const visible = applyHomeFilter(analyses, filter)
   const groups = groupByProject(visible)
   const projectCount = new Set(analyses.map((analysis) => analysis.project)).size
-  const toReview = applyHomeFilter(analyses, 'to_review').length
+  const counts = homeFilterCounts(analyses)
 
   return (
-    <div className="page">
+    <div className="page page-home">
       <div className="home-head">
         <div className="page-head-text">
           <h1 className="page-title">Analyses</h1>
           <p className="page-meta">
-            {plural(analyses.length, 'analyse')} · {plural(projectCount, 'projet')} · {toReview} à relire
+            {plural(analyses.length, 'analyse')} · {plural(projectCount, 'projet')} · {counts.to_review} à relire
           </p>
-        </div>
-        <div className="segmented" role="group" aria-label="Filtrer les analyses">
-          {(Object.keys(FILTER_LABELS) as HomeFilter[]).map((entry) => (
-            <button
-              key={entry}
-              type="button"
-              className={`segmented-item${entry === filter ? ' is-active' : ''}`}
-              aria-pressed={entry === filter}
-              onClick={() => setHomeFilter(entry)}
-            >
-              {FILTER_LABELS[entry]}
-            </button>
-          ))}
         </div>
       </div>
 
-      <div className="home-projects">
-        {groups.length === 0 && analyses.length > 0 && (
-          <div className="card home-empty">
-            <p>Toutes les revues sont soumises : aucune analyse ne reste à relire.</p>
-            <button type="button" className="link-button accent" onClick={() => setHomeFilter('all')}>
-              Afficher toutes les analyses
-            </button>
-          </div>
-        )}
-        {groups.map((group) => (
-          <ProjectSection key={group.project} group={group} />
-        ))}
-        {unreadable.length > 0 && (
-          <section className="home-project">
-            <h2 className="home-project-head is-static">
-              <Icon name="triangle-alert" color="#f0625a" />
-              <span className="home-project-name">Analyses illisibles</span>
-            </h2>
-            <div className="home-project-list">
-              {unreadable.map((entry) => (
-                <div key={entry.id} className="home-row is-unreadable">
-                  <span className="home-row-body">
-                    <span className="home-row-title mono">{entry.id}</span>
-                    <span className="home-row-meta error-text">{entry.error}</span>
-                  </span>
-                </div>
-              ))}
+      <div className="home-layout">
+        <FilterColumn counts={counts} />
+        <div className="home-projects">
+          {groups.length === 0 && analyses.length > 0 && (
+            <div className="card home-empty">
+              <p>{FILTERS[filter].empty}</p>
+              <button type="button" className="link-button accent" onClick={() => setHomeFilter('all')}>
+                Afficher toutes les analyses
+              </button>
             </div>
-          </section>
-        )}
+          )}
+          {groups.map((group) => (
+            <ProjectSection key={group.project} group={group} />
+          ))}
+          {unreadable.length > 0 && (
+            <section className="home-project">
+              <h2 className="home-project-head is-static">
+                <Icon name="triangle-alert" color="#f0625a" />
+                <span className="home-project-name">Analyses illisibles</span>
+              </h2>
+              <div className="home-project-list">
+                {unreadable.map((entry) => (
+                  <div key={entry.id} className="home-row is-unreadable">
+                    <span className="home-row-body">
+                      <span className="home-row-title mono">{entry.id}</span>
+                      <span className="home-row-meta error-text">{entry.error}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
       </div>
     </div>
   )

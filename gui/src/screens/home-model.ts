@@ -1,8 +1,18 @@
 import type { AnalysisSummary, ReviewProgressState } from '@shared/schemas/analysis.schema'
 import { REVIEW_PROGRESS_STATES, SEVERITIES } from '@shared/schemas/analysis.schema'
 
-/** Filtre de l'accueil : analyses dont la revue n'est pas soumise, ou toutes. */
-export type HomeFilter = 'to_review' | 'all'
+/**
+ * Filtre de l'accueil. Les quatre premiers se partagent les analyses sans se
+ * recouvrir :
+ * - `to_review` : revue pas encore soumise ;
+ * - `processed` : revue soumise que l'agent a marquée traitée ;
+ * - `to_process` : revue soumise qui attend l'agent ;
+ * - `approved` : revue approuvée, sans traitement de l'agent ;
+ * - `all` : toutes les analyses.
+ */
+export type HomeFilter = 'to_review' | 'processed' | 'to_process' | 'approved' | 'all'
+
+export const HOME_FILTERS: readonly HomeFilter[] = ['to_review', 'processed', 'to_process', 'approved', 'all']
 
 /** Analyses d'un projet, avec le nombre d'analyses de chaque état de revue présent. */
 export interface ProjectGroup {
@@ -11,14 +21,34 @@ export interface ProjectGroup {
   counts: Array<{ state: ReviewProgressState; count: number }>
 }
 
-/** Vrai quand la revue de l'analyse n'est pas encore soumise. */
-export function isToReview(analysis: AnalysisSummary): boolean {
-  return analysis.progress.state !== 'submitted'
+/** Vrai quand l'analyse fait partie des analyses retenues par `filter`. */
+export function matchesHomeFilter(analysis: AnalysisSummary, filter: HomeFilter): boolean {
+  const { state, decision, processed, toProcess } = analysis.progress
+  switch (filter) {
+    case 'to_review':
+      return state !== 'submitted'
+    case 'processed':
+      return state === 'submitted' && processed !== null
+    case 'to_process':
+      return toProcess
+    case 'approved':
+      return state === 'submitted' && decision === 'approve' && processed === null
+    case 'all':
+      return true
+  }
 }
 
 /** Analyses retenues par le filtre, dans l'ordre de la liste. */
 export function applyHomeFilter(analyses: AnalysisSummary[], filter: HomeFilter): AnalysisSummary[] {
-  return filter === 'all' ? analyses : analyses.filter(isToReview)
+  return analyses.filter((analysis) => matchesHomeFilter(analysis, filter))
+}
+
+/** Nombre d'analyses retenues par chaque filtre. */
+export function homeFilterCounts(analyses: AnalysisSummary[]): Record<HomeFilter, number> {
+  return Object.fromEntries(HOME_FILTERS.map((filter) => [filter, applyHomeFilter(analyses, filter).length])) as Record<
+    HomeFilter,
+    number
+  >
 }
 
 /**
