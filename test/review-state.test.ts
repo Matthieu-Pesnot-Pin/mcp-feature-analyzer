@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { REVIEW_PROGRESS_STYLES } from "../shared/labels.js";
-import { hasNoChanges, pendingReview, recordSubmission, reopenSubmittedReview, reviewProgress, submissionChanges } from "../shared/review-state.js";
+import { hasNoChanges, needsProcessing, pendingReview, recordSubmission, reopenSubmittedReview, reviewProgress, submissionChanges } from "../shared/review-state.js";
 import { REVIEW_PROGRESS_STATES } from "../shared/schemas/analysis.schema.js";
 import { sampleAnalysis, sampleFinding } from "./helpers.js";
 
@@ -14,15 +14,15 @@ function withReviewed(reviewed: boolean[]) {
 }
 
 test("reviewProgress: not started, in progress and files reviewed before submission", () => {
-  assert.deepEqual(reviewProgress(withReviewed([false, false])), { state: "not_started", reviewedFiles: 0, totalFiles: 2, decision: null, processed: null });
-  assert.deepEqual(reviewProgress(withReviewed([true, false])), { state: "in_progress", reviewedFiles: 1, totalFiles: 2, decision: null, processed: null });
-  assert.deepEqual(reviewProgress(withReviewed([true, true])), { state: "files_reviewed", reviewedFiles: 2, totalFiles: 2, decision: null, processed: null });
+  assert.deepEqual(reviewProgress(withReviewed([false, false])), { state: "not_started", reviewedFiles: 0, totalFiles: 2, decision: null, processed: null, toProcess: false });
+  assert.deepEqual(reviewProgress(withReviewed([true, false])), { state: "in_progress", reviewedFiles: 1, totalFiles: 2, decision: null, processed: null, toProcess: false });
+  assert.deepEqual(reviewProgress(withReviewed([true, true])), { state: "files_reviewed", reviewedFiles: 2, totalFiles: 2, decision: null, processed: null, toProcess: false });
 });
 
 test("reviewProgress: a submitted review is submitted with its decision, whatever the files", () => {
   const analysis = withReviewed([true, false]);
   analysis.review = { ...analysis.review, state: "submitted", decision: "request_changes", submittedAt: "2026-09-30T10:00:00.000Z" };
-  assert.deepEqual(reviewProgress(analysis), { state: "submitted", reviewedFiles: 1, totalFiles: 2, decision: "request_changes", processed: null });
+  assert.deepEqual(reviewProgress(analysis), { state: "submitted", reviewedFiles: 1, totalFiles: 2, decision: "request_changes", processed: null, toProcess: true });
 });
 
 test("reviewProgress: an analysis without files stays not started until it is submitted", () => {
@@ -54,6 +54,15 @@ function submittedAnalysis() {
     },
   });
 }
+
+test("needsProcessing: a submitted review waits for the agent unless it is approved or marked processed", () => {
+  const submitted = { ...submittedAnalysis().review, processed: null };
+  assert.equal(needsProcessing(submitted), true);
+  assert.equal(needsProcessing({ ...submitted, decision: "reject" }), true);
+  assert.equal(needsProcessing({ ...submitted, decision: "approve" }), false);
+  assert.equal(needsProcessing({ ...submitted, processed: { at: "2026-09-29T12:00:00.000Z", note: null } }), false);
+  assert.equal(needsProcessing(pendingReview()), false);
+});
 
 test("recordSubmission copies the selected points and the points the reviewer left out", () => {
   assert.deepEqual(recordSubmission(submittedAnalysis()), {

@@ -5,15 +5,16 @@ import { optionalEnum, optionalString, rejectUnknownFields, textResult, type Arg
 
 /**
  * Filtre `review_state` : un état d'avancement, ou parmi les revues soumises
- * celles qui restent à traiter (`to_process`) ou déjà traitées (`processed`).
+ * celles qui restent à traiter (`to_process`) ou n'attendent plus l'agent
+ * (`processed` : marquées traitées, ou approuvées).
  */
 export const REVIEW_STATE_FILTERS = [...REVIEW_PROGRESS_STATES, "to_process", "processed"] as const;
 export type ReviewStateFilter = (typeof REVIEW_STATE_FILTERS)[number];
 
 function matchesReviewState(summary: AnalysisSummary, filter: ReviewStateFilter): boolean {
-  const { state, processed } = summary.progress;
-  if (filter === "to_process") return state === "submitted" && processed === null;
-  if (filter === "processed") return state === "submitted" && processed !== null;
+  const { state, toProcess } = summary.progress;
+  if (filter === "to_process") return toProcess;
+  if (filter === "processed") return state === "submitted" && !toProcess;
   return state === filter;
 }
 
@@ -37,8 +38,8 @@ function projectCounts(analyses: AnalysisSummary[]): string {
 }
 
 function analysisLines(summary: AnalysisSummary): string[] {
-  const { state, processed } = summary.progress;
-  const feedback = state !== "submitted" ? "" : processed === null ? " — read it with get_review_feedback" : "";
+  const { processed, toProcess } = summary.progress;
+  const feedback = toProcess ? " — read it with get_review_feedback" : "";
   const lines = [
     `- ${summary.id} — "${summary.title}"`,
     `  ${refsLabel(summary)} | files reviewed ${summary.reviewedCount}/${summary.fileCount} | ` +

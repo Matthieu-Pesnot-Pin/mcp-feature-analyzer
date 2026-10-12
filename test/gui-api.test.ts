@@ -96,7 +96,7 @@ test("GET /api/analyses lists the analysis summaries", async () => {
   assert.equal(json.analyses[0].id, analysisId);
   assert.deepEqual(json.analyses[0].openFindings, { critical: 1, major: 1, minor: 1, trivial: 0 });
   assert.equal(json.analyses[0].project, "demo");
-  assert.deepEqual(json.analyses[0].progress, { state: "not_started", reviewedFiles: 0, totalFiles: 7, decision: null, processed: null });
+  assert.deepEqual(json.analyses[0].progress, { state: "not_started", reviewedFiles: 0, totalFiles: 7, decision: null, processed: null, toProcess: false });
 });
 
 test("GET /api/analyses/:id and /diff return the analysis and its frozen diff", async () => {
@@ -287,18 +287,18 @@ test("POST review submits the review, and get_review_feedback returns it to the 
   assert.doesNotMatch(pendingFeedback.text, /Use the shared helper/);
 
   const resubmitted = await call("POST", `analyses/${analysisId}/review`, {
-    decision: "approve",
+    decision: "reject",
     findingIds: [],
     noteIds: [noteId],
     baseRevision: reworded.json.analysis.revision,
   });
   assert.equal(resubmitted.status, 200, resubmitted.json.error);
-  assert.equal(resubmitted.json.analysis.review.decision, "approve");
+  assert.equal(resubmitted.json.analysis.review.decision, "reject");
   assert.equal(resubmitted.json.analysis.review.processed, null);
   const changed = await client.callTool("get_review_feedback", { analysis_id: analysisId });
   assert.match(changed.text, /Processing: to process/);
   assert.match(changed.text, /Changes since the previous submission \(submitted at .+, decision request_changes, processed at .+ \(note: fixed by 12785d6e3\)\):/);
-  assert.match(changed.text, /Decision changed: request_changes → approve/);
+  assert.match(changed.text, /Decision changed: request_changes → reject/);
   assert.match(changed.text, /- finding f_bug — Broken line/);
   assert.match(changed.text, /~ note .+ — src\/app\.ts:2\n {6}Reuse the shared helper\n {4}was: src\/app\.ts:2\n {6}Use the shared helper/);
 });

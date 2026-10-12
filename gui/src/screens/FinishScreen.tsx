@@ -94,7 +94,9 @@ export function FinishScreen({ analysis }: { analysis: Analysis }) {
             Retour enregistré le {formatDateTime(review.submittedAt)} · décision « {DECISION_LABELS[review.decision]} ».{' '}
             {review.processed
               ? `${processedTitle(review.processed)}.`
-              : "L'agent le lit avec l'outil get_review_feedback ; il n'est pas encore traité."}{' '}
+              : review.decision === 'approve'
+                ? "Approuvée : rien à traiter pour l'agent."
+                : "L'agent le lit avec l'outil get_review_feedback ; il n'est pas encore traité."}{' '}
             Un nouvel enregistrement le remplace.
           </span>
         </div>

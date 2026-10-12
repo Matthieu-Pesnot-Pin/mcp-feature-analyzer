@@ -82,7 +82,7 @@ test("list returns lightweight summaries, most recent first", (t) => {
   const summary = analyses[0];
   assert.equal(summary.title, "First");
   assert.equal(summary.project, "demo");
-  assert.deepEqual(summary.progress, { state: "in_progress", reviewedFiles: 1, totalFiles: 2, decision: null, processed: null });
+  assert.deepEqual(summary.progress, { state: "in_progress", reviewedFiles: 1, totalFiles: 2, decision: null, processed: null, toProcess: false });
   assert.equal(summary.mode, "branch");
   assert.equal(summary.base, "master");
   assert.equal(summary.head, "HEAD");

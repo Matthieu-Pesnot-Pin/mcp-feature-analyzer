@@ -268,8 +268,10 @@ export interface ReviewProgress {
   totalFiles: number;
   /** Décision de la revue soumise ; null tant qu'elle ne l'est pas. */
   decision: ReviewDecision | null;
-  /** Traitement de la revue soumise par l'agent ; null tant qu'il est à faire ou que la revue n'est pas soumise. */
+  /** Traitement de la revue soumise par l'agent ; null tant qu'il ne l'a pas marquée ou que la revue n'est pas soumise. */
   processed: Processing | null;
+  /** Revue soumise dont le retour attend l'agent (voir `needsProcessing`). */
+  toProcess: boolean;
 }
 
 /** Vue légère d'une analyse, pour les listes. */

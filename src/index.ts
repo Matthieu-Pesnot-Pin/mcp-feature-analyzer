@@ -129,7 +129,7 @@ Workflow:
 5. add_findings for every problem, including requirement_gap findings for requested behaviour that is missing.
 6. set_diagram when a picture helps (impacted layers, process flow, concept tree).
 7. Tell the user to review the analysis in the GUI (the link is in the tool results).
-8. get_review_feedback to read the decision, the selected points and the prompt. list_analyses with review_state "to_process" lists the submitted reviews you have not handled yet.
+8. get_review_feedback to read the decision, the selected points and the prompt. list_analyses with review_state "to_process" lists the submitted reviews you have not handled yet; an approved review has nothing to process.
 9. Fix the code, then refresh_analysis to recompute the diff for a new review round; re-anchor or rewrite the outdated findings and explanations. When the diff must stay as it is (an analysis of one commit, fixes in other commits, answers given in the conversation), call mark_feedback_processed instead, with a note saying how the feedback was handled.
 
 Explanation rules:
@@ -435,7 +435,8 @@ const TOOLS = [
     name: "list_analyses",
     description:
       "List the analyses grouped by project, with their refs, open findings by severity, reviewed files, diagram count and review state " +
-      "(not started, in progress, all files reviewed, submitted; a submitted review is pending processing until mark_feedback_processed or refresh_analysis). " +
+      "(not started, in progress, all files reviewed, submitted; a submitted review is pending processing until mark_feedback_processed or refresh_analysis, " +
+      "except an approved one, which has nothing to process). " +
       "Start here: when the project already has an analysis of the feature, " +
       "continue it (update_analysis to rewrite the overview and summary, refresh_analysis after changing the code) instead of creating a duplicate; " +
       "create a new one with create_analysis for another feature or another diff.",
@@ -447,8 +448,8 @@ const TOOLS = [
           type: "string",
           enum: [...REVIEW_STATE_FILTERS],
           description:
-            "Only list the analyses in this review state. to_process = submitted reviews not marked processed yet: the feedback you still have to handle; " +
-            "processed = submitted reviews marked processed.",
+            "Only list the analyses in this review state. to_process = submitted reviews, not approved, not marked processed yet: the feedback you still have to handle; " +
+            "processed = submitted reviews marked processed or approved.",
         },
       },
     },

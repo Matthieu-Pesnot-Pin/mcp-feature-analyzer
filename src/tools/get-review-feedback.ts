@@ -1,19 +1,19 @@
 import type { AnalysisStore } from "../core/analysis-store.js";
-import type { Analysis, Finding, Note, Processing, SubmissionRecord } from "../../shared/schemas/analysis.schema.js";
-import { hasNoChanges, recordSubmission, reviewProgress, submissionChanges } from "../../shared/review-state.js";
+import type { Analysis, Finding, Note, Processing, ReviewDecision, SubmissionRecord } from "../../shared/schemas/analysis.schema.js";
+import { hasNoChanges, needsProcessing, recordSubmission, reviewProgress, submissionChanges } from "../../shared/review-state.js";
 import { sortBySeverity } from "../../shared/severity.js";
 import { findingLine, indentBlock, noteLocationLabel, overviewLines, progressLabel } from "./format.js";
 import { rejectUnknownFields, requireString, textResult, type Args, type ToolResult } from "./types.js";
 
-/** `processed at <date> (note: …)` ou `not processed`. */
-function processingLabel(processed: Processing | null): string {
-  if (processed === null) return "not processed";
-  return `processed at ${processed.at}${processed.note === null ? "" : ` (note: ${processed.note})`}`;
+/** `processed at <date> (note: …)`, `nothing to process (approved)` ou `not processed`. */
+function processingLabel(decision: ReviewDecision, processed: Processing | null): string {
+  if (processed !== null) return `processed at ${processed.at}${processed.note === null ? "" : ` (note: ${processed.note})`}`;
+  return decision === "approve" ? "nothing to process (approved)" : "not processed";
 }
 
 /** `submitted at <date>, decision <d>, processed at <date>…` : rappel d'une version soumise. */
 function submissionLabel(record: SubmissionRecord): string {
-  return `submitted at ${record.submittedAt}, decision ${record.decision}, ${processingLabel(record.processed)}`;
+  return `submitted at ${record.submittedAt}, decision ${record.decision}, ${processingLabel(record.decision, record.processed)}`;
 }
 
 function recordedNoteLine(note: SubmissionRecord["notes"][number]): string {
@@ -92,7 +92,7 @@ export function getReviewFeedback(store: AnalysisStore, args: Args): ToolResult 
   const lines = [
     `Review of "${analysis.title}" (${analysis.id}, project "${analysis.project}") submitted at ${review.submittedAt}.`,
     `Decision: ${review.decision}`,
-    `Processing: ${review.processed === null ? "to process (call mark_feedback_processed once handled)" : processingLabel(review.processed)}`,
+    `Processing: ${needsProcessing(review) ? "to process (call mark_feedback_processed once handled)" : processingLabel(review.decision!, review.processed)}`,
   ];
   if (review.previousSubmission) lines.push("", ...changeLines(review.previousSubmission, recordSubmission(analysis)));
   lines.push("", ...overviewLines(analysis.overview), "", `Selected findings (${findings.length}):`);

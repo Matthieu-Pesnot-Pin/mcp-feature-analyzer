@@ -150,7 +150,7 @@ test("list_analyses groups analyses by project with their review state, and filt
   assert.ok(demoAt !== -1 && billingAt !== -1 && demoAt < billingAt, "the most recently updated project comes first");
   assert.match(all, /## Project "billing" \(2 analysis\(es\): 1 in progress, 1 all files reviewed, not submitted\)/);
   assert.match(all, /## Project "demo" \(1 analysis\(es\): 1 submitted\)/);
-  assert.match(all, /review: submitted, decision approve, pending processing \(0\/7 files reviewed\) — read it with get_review_feedback/);
+  assert.match(all, /review: submitted, decision approve, nothing to process \(0\/7 files reviewed\) \| updated/);
   assert.match(all, /review: in progress \(1\/7 files reviewed\)/);
   assert.match(all, /review: all files reviewed, not submitted \(7\/7 files reviewed\)/);
 
@@ -609,6 +609,19 @@ test("a submitted review made of notes only is to process until mark_feedback_pr
   assert.match(await ok(markFeedbackProcessed, store, { analysis_id: id }), /Note: none\.\nThis replaces the processing mark of /);
   assert.match(await fails(markFeedbackProcessed, store, { analysis_id: id, notes: "x" }), /Unknown field\(s\): notes/);
   assert.match(await fails(listAnalyses, store, { review_state: "done" }), /review_state/);
+});
+
+test("an approved review has nothing to process, with or without points", async (t) => {
+  const { store, id } = await setup(t);
+  submitReview(store, id, []);
+  store.mutate(id, "user", (draft) => {
+    draft.review.decision = "approve";
+  });
+
+  assert.match(await ok(listAnalyses, store, {}), /decision approve, nothing to process/);
+  assert.match(await ok(listAnalyses, store, { review_state: "to_process" }), /^No analysis with review state to_process\./);
+  assert.match(await ok(listAnalyses, store, { review_state: "processed" }), new RegExp(`- ${id} — `));
+  assert.match(await ok(getReviewFeedback, store, { analysis_id: id }), /Processing: nothing to process \(approved\)/);
 });
 
 test("refresh_analysis recomputes the diff, outdates changed findings and resets the review", async (t) => {

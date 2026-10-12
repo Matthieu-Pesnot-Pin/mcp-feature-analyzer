@@ -1,6 +1,15 @@
 import type { Analysis, Review, ReviewProgress, SubmissionRecord } from "./schemas/analysis.schema.js";
 
 /**
+ * Vrai quand le retour d'une revue attend l'agent : revue soumise, non marquée
+ * traitée, et dont la décision n'est pas une approbation. Une revue approuvée
+ * vaut traitée dès sa soumission.
+ */
+export function needsProcessing(review: Pick<Review, "state" | "decision" | "processed">): boolean {
+  return review.state === "submitted" && review.decision !== "approve" && review.processed === null;
+}
+
+/**
  * Avancement de la revue d'une analyse :
  * - `submitted` : revue soumise, avec sa décision et son traitement par l'agent ;
  * - `files_reviewed` : tous les fichiers revus, revue non soumise ;
@@ -12,10 +21,11 @@ export function reviewProgress(analysis: Pick<Analysis, "files" | "review">): Re
   const totalFiles = analysis.files.length;
   const reviewedFiles = analysis.files.filter((file) => file.reviewed).length;
   if (analysis.review.state === "submitted") {
-    return { state: "submitted", reviewedFiles, totalFiles, decision: analysis.review.decision, processed: analysis.review.processed };
+    const { decision, processed } = analysis.review;
+    return { state: "submitted", reviewedFiles, totalFiles, decision, processed, toProcess: needsProcessing(analysis.review) };
   }
   const state = reviewedFiles === 0 ? "not_started" : reviewedFiles === totalFiles ? "files_reviewed" : "in_progress";
-  return { state, reviewedFiles, totalFiles, decision: null, processed: null };
+  return { state, reviewedFiles, totalFiles, decision: null, processed: null, toProcess: false };
 }
 
 /** Copie autonome de la revue soumise de `analysis` : décision, date, traitement, points retenus et points écartés. */
