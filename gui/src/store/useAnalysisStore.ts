@@ -31,8 +31,6 @@ interface LoadedDiff {
 }
 
 interface AnalysisState {
-  /** Flux SSE ouvert avec le GUI worker. */
-  connected: boolean
   config: AppConfig | null
   /** Liste des analyses ; null tant qu'elle n'a pas été reçue. */
   analyses: AnalysisSummary[] | null
@@ -63,7 +61,6 @@ interface AnalysisState {
   /** Explications de l'agent affichées sur l'écran Revue (marge et filets du diff), pour tous les fichiers. */
   explanationsShown: boolean
 
-  setConnected: (connected: boolean) => void
   setHomeFilter: (filter: HomeFilter) => void
   toggleProject: (project: string) => void
   setFixMode: (mode: FixMode) => void
@@ -133,7 +130,6 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
   }
 
   return {
-    connected: false,
     config: null,
     analyses: null,
     unreadable: [],
@@ -152,8 +148,6 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     filesPanelCollapsed: false,
     findingsShown: true,
     explanationsShown: true,
-
-    setConnected: (connected) => set({ connected }),
 
     setHomeFilter: (homeFilter) => set({ homeFilter }),
 

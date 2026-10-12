@@ -295,14 +295,6 @@ function handleIPCMessage(raw: unknown) {
       logger.info(`GUI already served by another instance at ${msg.data?.url}`);
       return;
 
-    case "GET_INITIAL_STATE":
-      broadcastToGUI({
-        type: "INITIAL_STATE",
-        data: { version: APP_VERSION, analyses: store.list().analyses },
-        timestamp: new Date().toISOString(),
-      });
-      return;
-
     default:
       if (GUI_REQUESTS.has(msg.type)) {
         try {

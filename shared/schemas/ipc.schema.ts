@@ -21,10 +21,19 @@ export const IPCMessageSchema = z.object({
 
 export type IPCMessage = z.infer<typeof IPCMessageSchema>;
 
-/** Types d'IPC envoyés par le maître et relayés tels quels aux clients SSE de la GUI. */
-export const PUSHED_EVENT_TYPES = ["INITIAL_STATE", "ANALYSES_UPDATED", "ANALYSIS_UPDATED"] as const;
+/** Types d'IPC envoyés par le maître, journalisés par le GUI worker et servis tels quels par `/api/changes`. */
+export const PUSHED_EVENT_TYPES = ["ANALYSES_UPDATED", "ANALYSIS_UPDATED"] as const;
 
 export type PushedEventType = (typeof PUSHED_EVENT_TYPES)[number];
+
+/**
+ * Réponse de `GET /api/changes`. `epoch` identifie l'instance du GUI worker,
+ * `seq` le dernier évènement journalisé. `reset: true` signifie que le client
+ * doit tout recharger ; sinon `events` liste les évènements postérieurs à `since`.
+ */
+export type ChangesResponse =
+  | { epoch: string; seq: number; reset: true }
+  | { epoch: string; seq: number; reset: false; events: IPCMessage[] };
 
 /** Requêtes du GUI worker au maître ; chacune reçoit une réponse de même `correlationId`. */
 export const GUI_REQUEST_TYPES = [

@@ -95,11 +95,8 @@ function AnalysisSelector({ currentId }: { currentId: string | null }) {
   )
 }
 
-/** Barre supérieure : marque, sélecteur d'analyse, état de la connexion et action contextuelle. */
+/** Barre supérieure : marque, sélecteur d'analyse et action contextuelle. */
 export function TopBar({ currentId, action }: { currentId: string | null; action?: ReactNode }) {
-  const connected = useAnalysisStore((state) => state.connected)
-  const config = useAnalysisStore((state) => state.config)
-
   return (
     <header className="topbar">
       <a className="brand" href={hrefs.home()}>
@@ -110,13 +107,6 @@ export function TopBar({ currentId, action }: { currentId: string | null; action
       </a>
       <AnalysisSelector currentId={currentId} />
       <div className="topbar-spacer" />
-      <div
-        className="connection"
-        title={connected ? `Connecté au serveur${config ? ` · v${config.version}` : ''}` : 'Connexion au serveur perdue : reconnexion en cours'}
-      >
-        <span className={`connection-dot${connected ? ' is-connected' : ''}`} />
-        {connected ? 'Connecté' : 'Déconnecté'}
-      </div>
       {action}
     </header>
   )

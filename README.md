@@ -232,7 +232,7 @@ refresh_analysis    { analysis_id }                 ← nouveau diff, nouveau to
 
 ## L'interface
 
-Thème sombre. La barre supérieure porte la marque (un clic ramène à l'accueil), le sélecteur d'analyse groupé par projet avec l'état de revue de chaque analyse (sa valeur est le titre de l'analyse courante, ses refs en infobulle), l'état de la connexion et, pendant la revue, le bouton « Terminer la revue ».
+Thème sombre. La barre supérieure porte la marque (un clic ramène à l'accueil), le sélecteur d'analyse groupé par projet avec l'état de revue de chaque analyse (sa valeur est le titre de l'analyse courante, ses refs en infobulle) et, pendant la revue, le bouton « Terminer la revue ».
 
 ### Accueil (`#/`)
 
@@ -270,7 +270,7 @@ Un fichier binaire, supprimé ou de plus de 1 Mo n'a pas de contenu conservé : 
 
 Décision (Approuver, Demander des corrections, Rejeter ; « Demander des corrections » est proposée d'emblée dès qu'il y a des points), points à transmettre (constats ouverts et remarques, tous cochés pour une revue en attente, la sélection enregistrée pour une revue déjà soumise), aperçu du prompt qui se met à jour, « Copier le prompt », « Retour à la revue » et « Enregistrer le retour », qui soumet la revue lue ensuite par `get_review_feedback`.
 
-Toute modification faite par l'agent pendant que la GUI est ouverte y apparaît en direct, via SSE. Chaque action de la GUI porte la révision affichée : si l'analyse a changé entre-temps, l'action est refusée, l'analyse rechargée, et un message invite à refaire l'action.
+Toute modification faite par l'agent pendant que la GUI est ouverte y apparaît en quelques secondes : la GUI interroge `api/changes` toutes les 3 s. Chaque action de la GUI porte la révision affichée : si l'analyse a changé entre-temps, l'action est refusée, l'analyse rechargée, et un message invite à refaire l'action.
 
 ---
 
@@ -279,9 +279,9 @@ Toute modification faite par l'agent pendant que la GUI est ouverte y apparaît 
 Deux processus, conformément au standard de l'écosystème (`@imenam/mcp-gui-interface`) :
 
 - **Maître MCP** (`src/index.ts`) — JSON-RPC sur stdio, outils (`src/tools/`, une fonction pure par outil), logique métier (`src/core/`), stockage, cycle de vie du worker via `GuiLauncher`.
-- **Worker GUI** (`src/gui-worker.ts`) — serveur Hono, enregistrement auprès du proxy via `ProxyClient` ou écoute sur `APP_PORT`, API REST et SSE (`/api/events`), fichiers de la SPA avec la balise `<base>` du chemin de montage.
+- **Worker GUI** (`src/gui-worker.ts`) — serveur Hono, enregistrement auprès du proxy via `ProxyClient` ou écoute sur `APP_PORT`, API REST, journal des changements (`/api/changes`), fichiers de la SPA avec la balise `<base>` du chemin de montage.
 
-Le worker ne lit ni n'écrit aucune donnée : chaque requête REST est transmise au maître par IPC (messages `{type, correlationId, data, error, timestamp}` validés par zod) et le maître pousse les changements, que le worker relaie en SSE. Le worker s'arrête quand le maître disparaît (canal IPC fermé, PID parent absent) ou quand une autre instance est déjà enregistrée, ce qui évite les GUI orphelines.
+Le worker ne lit ni n'écrit aucune donnée : chaque requête REST est transmise au maître par IPC (messages `{type, correlationId, data, error, timestamp}` validés par zod) et le maître pousse les changements, que le worker range dans un journal en mémoire (les 200 derniers, numérotés). `GET /api/changes?since=<seq>&epoch=<epoch>` répond immédiatement : les évènements postérieurs à `since`, ou `reset: true` quand le client ne peut pas reprendre (premier appel, `epoch` d'une autre instance du worker, évènements sortis du journal) ; la GUI recharge alors tout. Un `since` qui n'est pas un entier positif est refusé (400). Aucune connexion ne reste ouverte : les GUI servies sur la même origine n'épuisent pas les connexions du navigateur. Le worker s'arrête quand le maître disparaît (canal IPC fermé, PID parent absent) ou quand une autre instance est déjà enregistrée, ce qui évite les GUI orphelines.
 
 `shared/` est importé à la fois par le serveur et par la GUI : schémas zod (`shared/schemas/`), prompt de retour (`prompt.ts`, utilisé par l'aperçu de la GUI et par `get_review_feedback`), placement des schémas (`diagram-layout.ts`, fonctions pures testées sous Node) et contrôle de leurs croisements (`diagram-quality.ts`), état de revue dérivé (`review-state.ts`), libellés et couleurs des gravités et statuts (`labels.ts`, `severity.ts`). Ce que l'utilisateur voit en aperçu est donc exactement ce que l'agent reçoit.
 
@@ -335,7 +335,7 @@ cd gui && npm run lint   # oxlint
 | Dossier | Contenu |
 |---|---|
 | `src/index.ts` | Maître MCP : déclaration des outils, `instructions`, IPC, lancement de la GUI. |
-| `src/gui-worker.ts` | Worker GUI : Hono, REST, SSE, fichiers statiques, proxy. |
+| `src/gui-worker.ts` | Worker GUI : Hono, REST, journal des changements, fichiers statiques, proxy. |
 | `src/tools/` | Un fichier par outil, `(store, args) => résultat`. |
 | `src/core/` | Stockage, git (local : `git.ts` ; machine de l'agent : `agent-repo.ts`, `gateway-exec.ts`), rôle, parseur de diff, emplacements, invariants, recalcul, actions du relecteur. |
 | `src/cli/setup-mcp.ts` | Commande `--claude-setup-mcp`. |
@@ -345,7 +345,7 @@ cd gui && npm run lint   # oxlint
 
 La suite comprend des tests unitaires (parseur de diff, git sur de vrais dépôts temporaires, en local et à travers un relais agent simulé, store, invariants, emplacements, recalcul, prompt, placement des schémas), des tests de chaque outil, et deux suites qui lancent un vrai serveur sur stdio :
 
-- `test/gui-api.test.ts` — la GUI en mode standalone sur un port libre : API REST et boucle agent → GUI → agent. Elle ne dépend de rien d'extérieur.
-- `test/e2e.test.ts` — l'enregistrement auprès du proxy (`E2E_PROXY_URL`, défaut `http://localhost:3000`), la balise `<base>`, le SSE et `reconnect_gui`. Sans proxy joignable, elle est ignorée plutôt qu'en échec.
+- `test/gui-api.test.ts` — la GUI en mode standalone sur un port libre : API REST, journal `api/changes` et boucle agent → GUI → agent. Elle ne dépend de rien d'extérieur.
+- `test/e2e.test.ts` — l'enregistrement auprès du proxy (`E2E_PROXY_URL`, défaut `http://localhost:3000`), la balise `<base>`, `api/changes` et `reconnect_gui`. Sans proxy joignable, elle est ignorée plutôt qu'en échec.
 
 Pour inspecter le worker sans traverser le proxy, ajoutez `?__direct=1` à l'URL de son port local : les assets ne sont alors pas préfixés par le chemin de montage.

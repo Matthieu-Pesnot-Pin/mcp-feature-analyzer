@@ -1,13 +1,13 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
-import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import { GUI_LISTEN_HOST, ProxyClient, createLogger, honoGuiGuard, setupLogging } from "@imenam/mcp-gui-interface";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
+import { randomUUID } from "crypto";
 
-import { IPCMessageSchema, PUSHED_EVENT_TYPES, type IPCMessage, type IpcErrorKind } from "../shared/schemas/ipc.schema.js";
+import { IPCMessageSchema, PUSHED_EVENT_TYPES, type ChangesResponse, type IPCMessage, type IpcErrorKind } from "../shared/schemas/ipc.schema.js";
 import {
   AddNoteBodySchema,
   DeleteNoteBodySchema,
@@ -115,7 +115,6 @@ const app = new Hono();
 app.use("*", honoGuiGuard({ proxyUrl: guiMode.kind === "proxy" ? guiMode.proxyUrl : undefined }));
 
 let proxyClient: ProxyClient | null = null;
-const sseStreams = new Set<SSEStreamingApi>();
 const pendingRequests = new Map<string, (message: IpcResponse) => void>();
 
 /** Réponse d'une requête IPC : le message du master, ou une erreur locale (timeout, IPC absent). */
@@ -161,6 +160,41 @@ function ipcRequest(type: string, data?: unknown, timeout = 5000): Promise<IpcRe
 
 const PUSHED_EVENTS = new Set<string>(PUSHED_EVENT_TYPES);
 
+/** Nombre d'évènements conservés dans le journal servi par `/api/changes`. */
+const CHANGES_JOURNAL_SIZE = 200;
+
+/** Identifiant de cette instance du worker : un client qui en voit changer recharge tout. */
+const epoch = randomUUID();
+
+/** Journal des évènements poussés par le master, numérotés par `seq` croissant. */
+const changesJournal: { seq: number; event: IPCMessage }[] = [];
+let lastSeq = 0;
+
+function recordChange(event: IPCMessage) {
+  lastSeq += 1;
+  changesJournal.push({ seq: lastSeq, event });
+  if (changesJournal.length > CHANGES_JOURNAL_SIZE) changesJournal.shift();
+}
+
+/**
+ * Évènements postérieurs à `since`, ou `reset` quand le client ne peut pas
+ * reprendre : autre instance du worker, évènements sortis du journal, ou
+ * `since` au-delà du dernier évènement.
+ */
+function changesSince(since: number | undefined, clientEpoch: string | undefined): ChangesResponse {
+  if (since === undefined || clientEpoch !== epoch || since > lastSeq) {
+    return { epoch, seq: lastSeq, reset: true };
+  }
+  const oldestKept = changesJournal.length > 0 ? changesJournal[0].seq : lastSeq + 1;
+  if (since < oldestKept - 1) return { epoch, seq: lastSeq, reset: true };
+  return {
+    epoch,
+    seq: lastSeq,
+    reset: false,
+    events: changesJournal.filter((entry) => entry.seq > since).map((entry) => entry.event),
+  };
+}
+
 function setupIpcHandlers() {
   process.on("error", (err: any) => {
     if (err.code === "ERR_IPC_CHANNEL_CLOSED") return;
@@ -168,7 +202,7 @@ function setupIpcHandlers() {
   });
 
   process.on("disconnect", () => {
-    logger.warn("IPC disconnected from MCP master. GUI worker exits; EventSource clients show Disconnected.");
+    logger.warn("IPC disconnected from MCP master. GUI worker exits.");
     process.exit(0);
   });
 
@@ -188,12 +222,7 @@ function setupIpcHandlers() {
     }
 
     if (PUSHED_EVENTS.has(msg.type)) {
-      for (const stream of sseStreams) {
-        stream.writeSSE({ data: JSON.stringify(msg), event: "message" }).catch((err: any) => {
-          logger.warn(`SSE push ${msg.type} failed, stream dropped: ${err?.message ?? err}`);
-          sseStreams.delete(stream);
-        });
-      }
+      recordChange(msg);
       return;
     }
 
@@ -215,49 +244,21 @@ app.get("/proxy/health", (c) => {
   });
 });
 
-app.get("/api/events", (c) =>
-  streamSSE(c, async (stream) => {
-    const clientId = Math.random().toString(36).slice(2, 11);
-    sseStreams.add(stream);
-    logger.info(`SSE /api/events: client connected (id=${clientId})`);
-
-    stream.onAbort(() => {
-      sseStreams.delete(stream);
-      logger.info(`SSE /api/events: stream closed (id=${clientId}).`);
-    });
-
-    if (!safeSend({ type: "GET_INITIAL_STATE", timestamp: new Date().toISOString() })) {
-      logger.warn(`SSE /api/events: GET_INITIAL_STATE not sent (id=${clientId}) — IPC unavailable.`);
+/**
+ * Changements depuis `since` pour l'instance `epoch`. Répond immédiatement ;
+ * sans `since` ni `epoch`, la réponse est un `reset`.
+ */
+app.get("/api/changes", (c) => {
+  const rawSince = c.req.query("since");
+  const rawEpoch = c.req.query("epoch");
+  let since: number | undefined;
+  if (rawSince !== undefined && rawSince !== "") {
+    if (!/^\d+$/.test(rawSince) || !Number.isSafeInteger(Number(rawSince))) {
+      return c.json({ error: `Invalid "since" query parameter: ${JSON.stringify(rawSince)} — expected a non-negative integer.` }, 400);
     }
-
-    try {
-      await stream.writeSSE({ data: "connected", event: "ping" });
-    } catch (err: any) {
-      logger.warn(`SSE /api/events: initial writeSSE failed (id=${clientId}): ${err?.message ?? err}`);
-      sseStreams.delete(stream);
-      return;
-    }
-
-    while (!stream.aborted) {
-      await stream.sleep(30000);
-      try {
-        await stream.writeSSE({ data: "ping", event: "ping" });
-      } catch (err: any) {
-        logger.warn(`SSE /api/events: keepalive ping failed (id=${clientId}): ${err?.message ?? err}`);
-        sseStreams.delete(stream);
-        break;
-      }
-    }
-  })
-);
-
-app.post("/api/client-diagnostics", async (c) => {
-  try {
-    logger.warn(`Client diagnostics (SSE/EventSource): ${JSON.stringify(await c.req.json())}`);
-  } catch (e: any) {
-    logger.warn(`Client diagnostics: invalid JSON body (${e?.message ?? e})`);
+    since = Number(rawSince);
   }
-  return c.json({ ok: true });
+  return c.json(changesSince(since, rawEpoch || undefined));
 });
 
 /** Code HTTP d'une erreur renvoyée par le master ; une erreur locale (timeout, IPC absent) est une erreur serveur. */

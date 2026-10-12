@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
 import { NoticeToast } from './components/NoticeToast'
 import { TopBar } from './components/TopBar'
-import { useIPC } from './hooks/useIPC'
+import { useServerChanges } from './hooks/useServerChanges'
 import { FeatureScreen } from './screens/FeatureScreen'
 import { FinishScreen } from './screens/FinishScreen'
 import { HomeScreen } from './screens/HomeScreen'
@@ -22,7 +22,7 @@ function Message({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
-  useIPC()
+  useServerChanges()
   const route = useRoute()
   const current = useAnalysisStore((state) => state.current)
   const openAnalysis = useAnalysisStore((state) => state.openAnalysis)

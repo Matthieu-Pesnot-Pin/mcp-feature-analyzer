@@ -283,6 +283,57 @@ test("POST review submits the review, and get_review_feedback returns it to the 
   assert.equal(resubmitted.json.analysis.review.decision, "approve");
 });
 
+test("GET /api/changes answers a reset first, then the events pushed by the master", async () => {
+  const first = await call("GET", "changes");
+  assert.equal(first.status, 200);
+  assert.equal(first.json.reset, true);
+  assert.equal(typeof first.json.epoch, "string");
+  assert.ok(Number.isInteger(first.json.seq));
+  const { epoch, seq } = first.json;
+
+  const idle = await call("GET", `changes?since=${seq}&epoch=${epoch}`);
+  assert.deepEqual(idle.json, { epoch, seq, reset: false, events: [] });
+
+  const added = await client.callTool("add_findings", {
+    analysis_id: analysisId,
+    findings: [{ id: "f_changes", severity: "trivial", title: "Typo", body: "Typo", path: "src/app.ts", start_line: 3 }],
+  });
+  assert.equal(added.isError, false, added.text);
+
+  // L'évènement arrive au worker par IPC, sans ordre garanti avec la réponse de l'outil.
+  let changes = idle;
+  const deadline = Date.now() + 5000;
+  while (changes.json.events?.length === 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    changes = await call("GET", `changes?since=${seq}&epoch=${epoch}`);
+  }
+  assert.equal(changes.json.reset, false);
+  assert.equal(changes.json.epoch, epoch);
+  assert.ok(changes.json.seq > seq);
+  assert.deepEqual(
+    changes.json.events.map((event: { type: string; data: { analysisId?: string } }) => [event.type, event.data.analysisId]),
+    [["ANALYSIS_UPDATED", analysisId]],
+  );
+});
+
+test("GET /api/changes answers a reset for another epoch or a cursor ahead of the journal", async () => {
+  const { json: current } = await call("GET", "changes");
+
+  const otherEpoch = await call("GET", `changes?since=${current.seq}&epoch=not-this-worker`);
+  assert.deepEqual(otherEpoch.json, { epoch: current.epoch, seq: current.seq, reset: true });
+
+  const ahead = await call("GET", `changes?since=${current.seq + 1}&epoch=${current.epoch}`);
+  assert.deepEqual(ahead.json, { epoch: current.epoch, seq: current.seq, reset: true });
+});
+
+test("GET /api/changes refuses an invalid since with 400", async () => {
+  for (const since of ["abc", "-1", "1.5"]) {
+    const { status, json } = await call("GET", `changes?since=${since}&epoch=x`);
+    assert.equal(status, 400);
+    assert.match(json.error, /^Invalid "since" query parameter/);
+  }
+});
+
 test("an unknown API route answers 404 in JSON", async () => {
   const { status, json } = await call("GET", "nothing-here");
   assert.equal(status, 404);

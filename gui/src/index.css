@@ -546,25 +546,6 @@ code {
   flex: 1;
 }
 
-.connection {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--faint);
-  font-size: 11.5px;
-}
-
-.connection-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--danger);
-}
-
-.connection-dot.is-connected {
-  background: var(--ok);
-}
-
 .topbar-action {
   height: 36px;
   padding: 0 24px;

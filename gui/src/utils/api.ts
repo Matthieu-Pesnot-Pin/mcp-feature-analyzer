@@ -7,6 +7,7 @@ import type {
   SubmitReviewBody,
   UpdateNoteBody,
 } from '@shared/schemas/api.schema'
+import type { ChangesResponse } from '@shared/schemas/ipc.schema'
 import type { AnalysisListing, AnalysisResponse, AppConfig } from '../types'
 
 /** Erreur HTTP de l'API : `status` distingue un conflit de révision (409) des autres échecs. */
@@ -53,6 +54,12 @@ function send<T>(method: 'POST' | 'PATCH' | 'DELETE', path: string, body: unknow
 
 export const api = {
   getConfig: () => request<AppConfig>('config'),
+
+  /** Évènements postérieurs à `since` pour l'instance `epoch` du GUI worker ; sans curseur, un `reset`. */
+  getChanges: (cursor: { epoch: string; seq: number } | null) =>
+    request<ChangesResponse>(
+      cursor ? `changes?since=${cursor.seq}&epoch=${encodeURIComponent(cursor.epoch)}` : 'changes',
+    ),
 
   listAnalyses: () => request<AnalysisListing>('analyses'),
 

@@ -118,27 +118,16 @@ test("the worker serves the SPA with the proxy base href", async (t) => {
   assert.equal(script.status, 200);
 });
 
-test("the SSE stream pushes the initial state requested from the master", async (t) => {
+test("the worker answers /api/changes immediately, with a reset on the first call", async (t) => {
   if (skipUnlessAvailable(t)) return;
 
-  const controller = new AbortController();
-  const response = await fetch(`${guiUrl}/api/events`, { signal: controller.signal });
-  assert.equal(response.headers.get("content-type")?.startsWith("text/event-stream"), true);
-
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let received = "";
-  const deadline = Date.now() + 5000;
-  try {
-    while (!received.includes("INITIAL_STATE") && Date.now() < deadline) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      received += decoder.decode(value, { stream: true });
-    }
-  } finally {
-    controller.abort();
-  }
-  assert.match(received, /"type":"INITIAL_STATE"/);
+  const response = await fetch(`${guiUrl}/api/changes`, { signal: AbortSignal.timeout(2000) });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type")?.startsWith("application/json"), true);
+  const changes = await response.json();
+  assert.equal(changes.reset, true);
+  assert.equal(typeof changes.epoch, "string");
+  assert.ok(Number.isInteger(changes.seq));
 });
 
 test("reconnect_gui reports the GUI as already registered", async (t) => {
