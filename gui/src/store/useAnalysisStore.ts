@@ -5,7 +5,9 @@ import { ApiError, api } from '../utils/api'
 import { copyText } from '../utils/clipboard'
 import type { AppConfig, AnalysisListing } from '../types'
 import type { HomeFilter } from '../screens/home-model'
+import { CODE_VIEW_OPTIONS, DIFF_SCOPE_OPTIONS, FIX_MODE_OPTIONS } from '../screens/review-diff-model'
 import type { CodeView, DiffScope, FixMode } from '../screens/review-diff-model'
+import { readStoredChoice, storeChoice } from '../utils/storedChoice'
 
 /** Message bref affiché en bas de l'écran. */
 export interface Notice {
@@ -143,9 +145,9 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     notice: null,
     homeFilter: 'to_review',
     collapsedProjects: new Set(),
-    fixMode: 'before-after',
-    codeView: 'diff',
-    diffScope: 'changes',
+    fixMode: readStoredChoice('fix-mode', FIX_MODE_OPTIONS, 'before-after'),
+    codeView: readStoredChoice('code-view', CODE_VIEW_OPTIONS, 'diff'),
+    diffScope: readStoredChoice('diff-scope', DIFF_SCOPE_OPTIONS, 'changes'),
     gapsCollapsed: false,
     filesPanelCollapsed: false,
     findingsShown: true,
@@ -162,11 +164,20 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
       set({ collapsedProjects: next })
     },
 
-    setFixMode: (fixMode) => set({ fixMode }),
+    setFixMode: (fixMode) => {
+      storeChoice('fix-mode', fixMode)
+      set({ fixMode })
+    },
 
-    setCodeView: (codeView) => set({ codeView }),
+    setCodeView: (codeView) => {
+      storeChoice('code-view', codeView)
+      set({ codeView })
+    },
 
-    setDiffScope: (diffScope) => set({ diffScope }),
+    setDiffScope: (diffScope) => {
+      storeChoice('diff-scope', diffScope)
+      set({ diffScope })
+    },
 
     setGapsCollapsed: (gapsCollapsed) => set({ gapsCollapsed }),
 
