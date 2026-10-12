@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAnalysisStore } from '../store/useAnalysisStore'
-import { headLabel, refsLabel, relativeTime } from '../utils/format'
+import { refsLabel, relativeTime } from '../utils/format'
 import { hrefs, navigate } from '../utils/router'
 import { groupByProject } from '../screens/home-model'
 import { Icon } from './Icon'
@@ -8,7 +8,7 @@ import { ReviewStateBadge } from './Pills'
 
 /**
  * Liste déroulante des analyses groupées par projet, avec leur état de revue ;
- * sa valeur affiche la ref de tête de l'analyse courante.
+ * sa valeur affiche le titre de l'analyse courante, ses refs en infobulle.
  */
 function AnalysisSelector({ currentId }: { currentId: string | null }) {
   const analyses = useAnalysisStore((state) => state.analyses)
@@ -42,11 +42,11 @@ function AnalysisSelector({ currentId }: { currentId: string | null }) {
         className="selector-button"
         aria-haspopup="listbox"
         aria-expanded={open}
-        title={current ? current.title : 'Choisir une analyse'}
+        title={current ? `${current.title} · ${refsLabel(current)}` : 'Choisir une analyse'}
         onClick={() => setOpen(!open)}
       >
         <Icon name="git-branch" color="#9aa1b1" />
-        <span className="selector-value">{current ? headLabel(current) : 'Choisir une analyse'}</span>
+        <span className="selector-value">{current ? current.title : 'Choisir une analyse'}</span>
         <Icon name="chevron-down" size={12} color="#646b7b" />
       </button>
       {open && (
