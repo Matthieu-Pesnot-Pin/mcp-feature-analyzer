@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { assertInvariants, assertSnapshotFieldsUnchanged, findInvariantViolations } from "../src/core/invariants.js";
+import { pendingReview } from "../shared/review-state.js";
 import type { Diagram, Note } from "../shared/schemas/analysis.schema.js";
 import { sampleAnalysis, sampleFinding } from "./helpers.js";
 
@@ -44,6 +45,8 @@ test("a consistent analysis has no violation", () => {
       selectedNoteIds: ["n_1"],
       prompt: "x",
       submittedAt: "2026-09-29T11:00:00.000Z",
+      processed: null,
+      previousSubmission: null,
     },
   });
   assert.deepEqual(findInvariantViolations(analysis), []);
@@ -152,6 +155,8 @@ test("the review only selects existing findings and notes, and its state is cohe
         selectedNoteIds: ["n_x"],
         prompt: null,
         submittedAt: null,
+        processed: null,
+        previousSubmission: null,
       },
     })
   );
@@ -160,6 +165,10 @@ test("the review only selects existing findings and notes, and its state is cohe
     'review selects unknown note "n_x"',
     "a submitted review needs a decision and a submittedAt date",
   ]);
+  const processedPending = findInvariantViolations(
+    sampleAnalysis({ review: { ...pendingReview(), processed: { at: "2026-09-29T12:00:00.000Z", note: null } } })
+  );
+  assert.deepEqual(processedPending, ["a pending review cannot be marked processed"]);
   assert.throws(
     () => assertInvariants(sampleAnalysis({ findings: [sampleFinding(), sampleFinding()] })),
     /Analysis "sample-abc123" would become inconsistent: duplicate finding id "f_1"\./

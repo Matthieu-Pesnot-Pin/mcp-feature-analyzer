@@ -1,4 +1,4 @@
-import type { Analysis, AnalysisSummary, Finding, Note, Severity } from '@shared/schemas/analysis.schema'
+import type { Analysis, AnalysisSummary, Finding, Note, Processing, Severity } from '@shared/schemas/analysis.schema'
 import { MODE_LABELS, SEVERITY_STYLES } from '@shared/labels'
 import { lineRange } from '@shared/text'
 
@@ -25,6 +25,11 @@ export function formatDateTime(iso: string): string {
   const day = date.toLocaleDateString('fr-FR')
   const time = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
   return `${day} à ${time}`
+}
+
+/** « Traitée par l'agent le 29/09/2026 à 14:32 — <note> » : traitement d'un retour. */
+export function processedTitle(processed: Processing): string {
+  return `Traitée par l'agent le ${formatDateTime(processed.at)}${processed.note === null ? '' : ` — ${processed.note}`}`
 }
 
 /**

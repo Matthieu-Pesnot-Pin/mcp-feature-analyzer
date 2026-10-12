@@ -4,10 +4,12 @@ import {
   FINDING_KIND_LABELS,
   FINDING_STATUS_LABELS,
   NOTE_STYLE,
+  PROCESSED_STYLE,
   REVIEW_PROGRESS_STYLES,
   SEVERITY_STYLES,
   type BadgeStyle,
 } from '@shared/labels'
+import { processedTitle } from '../utils/format'
 
 /** Pastille de gravité ; `fixed` lui donne la largeur constante des listes. */
 export function SeverityPill({ severity, fixed = true }: { severity: Severity; fixed?: boolean }) {
@@ -66,20 +68,24 @@ export function SeverityDot({ severity, count, title, href }: { severity: Severi
   )
 }
 
-function Badge({ style, small }: { style: BadgeStyle; small?: boolean }) {
+function Badge({ style, small, title }: { style: BadgeStyle; small?: boolean; title?: string }) {
   return (
-    <span className={`pill${small ? ' pill-small' : ''}`} style={{ color: style.color, background: style.background }}>
+    <span className={`pill${small ? ' pill-small' : ''}`} style={{ color: style.color, background: style.background }} title={title}>
       {style.label}
     </span>
   )
 }
 
-/** État de revue d'une analyse ; une revue soumise affiche aussi sa décision. */
+/**
+ * État de revue d'une analyse ; une revue soumise affiche aussi sa décision et,
+ * une fois traitée par l'agent, la pastille « Traitée » avec sa note en infobulle.
+ */
 export function ReviewStateBadge({ progress, small }: { progress: ReviewProgress; small?: boolean }) {
   return (
     <span className="review-badges">
       <Badge style={REVIEW_PROGRESS_STYLES[progress.state]} small={small} />
       {progress.decision && <Badge style={DECISION_STYLES[progress.decision]} small={small} />}
+      {progress.processed && <Badge style={PROCESSED_STYLE} small={small} title={processedTitle(progress.processed)} />}
     </span>
   )
 }

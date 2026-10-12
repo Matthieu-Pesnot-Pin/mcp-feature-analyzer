@@ -42,6 +42,7 @@ const EXPECTED_TOOLS = [
   "get_diff",
   "get_review_feedback",
   "list_analyses",
+  "mark_feedback_processed",
   "reconnect_gui",
   "refresh_analysis",
   "set_diagram",
@@ -50,7 +51,7 @@ const EXPECTED_TOOLS = [
   "update_finding",
 ];
 
-test("tools/list exposes exactly the 17 tools, each with a description and an object input schema", async () => {
+test("tools/list exposes exactly the 18 tools, each with a description and an object input schema", async () => {
   const result = await client.request("tools/list");
   const names = result.tools.map((tool: { name: string }) => tool.name).sort();
   assert.deepEqual(names, EXPECTED_TOOLS);

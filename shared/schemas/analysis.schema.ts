@@ -139,6 +139,28 @@ export const DiagramSchema = z.object({
   updatedAt: IsoDateSchema,
 });
 
+/** Traitement d'un retour par l'agent : date et note facultative (commits, réponses données…). */
+export const ProcessingSchema = z.object({
+  at: IsoDateSchema,
+  note: z.string().min(1).nullable(),
+});
+
+/**
+ * Dernière version soumise d'une revue, conservée quand le relecteur la modifie
+ * ou la soumet à nouveau. Elle recopie les points retenus pour rester lisible
+ * même après la suppression de constats ou de remarques.
+ */
+export const SubmissionRecordSchema = z.object({
+  decision: z.enum(REVIEW_DECISIONS),
+  submittedAt: IsoDateSchema,
+  processed: ProcessingSchema.nullable(),
+  findings: z.array(z.object({ id: ItemIdSchema, title: z.string().min(1) })),
+  notes: z.array(z.object({ id: ItemIdSchema, location: NoteLocationSchema.nullable(), text: z.string().min(1) })),
+  /** Constats ouverts et remarques que le relecteur pouvait transmettre et a écartés. */
+  excludedFindingIds: z.array(ItemIdSchema),
+  excludedNoteIds: z.array(ItemIdSchema),
+});
+
 export const ReviewSchema = z.object({
   state: z.enum(REVIEW_STATES),
   decision: z.enum(REVIEW_DECISIONS).nullable(),
@@ -146,6 +168,10 @@ export const ReviewSchema = z.object({
   selectedNoteIds: z.array(ItemIdSchema),
   prompt: z.string().nullable(),
   submittedAt: IsoDateSchema.nullable(),
+  /** Traitement de la soumission en cours par l'agent ; null tant qu'il ne l'a pas marquée traitée. */
+  processed: ProcessingSchema.nullable(),
+  /** Version soumise précédente ; null avant la première modification ou nouvelle soumission. */
+  previousSubmission: SubmissionRecordSchema.nullable(),
 });
 
 export const RequestSchema = z.object({
@@ -224,6 +250,8 @@ export type DiagramNodeLocation = z.infer<typeof DiagramNodeLocationSchema>;
 export type DiagramNode = z.infer<typeof DiagramNodeSchema>;
 export type DiagramLink = z.infer<typeof DiagramLinkSchema>;
 export type Diagram = z.infer<typeof DiagramSchema>;
+export type Processing = z.infer<typeof ProcessingSchema>;
+export type SubmissionRecord = z.infer<typeof SubmissionRecordSchema>;
 export type Review = z.infer<typeof ReviewSchema>;
 export type AnalysisRequest = z.infer<typeof RequestSchema>;
 export type Overview = z.infer<typeof OverviewSchema>;
@@ -240,6 +268,8 @@ export interface ReviewProgress {
   totalFiles: number;
   /** Décision de la revue soumise ; null tant qu'elle ne l'est pas. */
   decision: ReviewDecision | null;
+  /** Traitement de la revue soumise par l'agent ; null tant qu'il est à faire ou que la revue n'est pas soumise. */
+  processed: Processing | null;
 }
 
 /** Vue légère d'une analyse, pour les listes. */

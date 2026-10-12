@@ -145,6 +145,9 @@ export function findInvariantViolations(analysis: Analysis): string[] {
   if (review.state === "pending" && review.submittedAt !== null) {
     problems.push("a pending review cannot have a submittedAt date");
   }
+  if (review.state === "pending" && review.processed !== null) {
+    problems.push("a pending review cannot be marked processed");
+  }
 
   return problems;
 }

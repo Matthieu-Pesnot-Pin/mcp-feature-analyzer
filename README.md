@@ -136,7 +136,7 @@ Quatorze outils. Les noms, descriptions et textes de résultat sont en anglais ;
 
 | Outil | Effet |
 |---|---|
-| `list_analyses` | Point d'entrée : les analyses regroupées par projet, chacune avec ses refs, ses constats ouverts par gravité, ses fichiers revus, son nombre de schémas et l'état de sa revue ; `project` limite la liste à un projet (un nom inconnu liste les projets existants). Invite l'agent à reprendre l'analyse existante d'une feature plutôt qu'à en créer une autre. Signale aussi les fichiers d'analyse illisibles. |
+| `list_analyses` | Point d'entrée : les analyses regroupées par projet, chacune avec ses refs, ses constats ouverts par gravité, ses fichiers revus, son nombre de schémas et l'état de sa revue ; une revue soumise est « pending processing » tant que l'agent ne l'a pas marquée traitée, « processed at … » ensuite, avec la note du traitement. `project` limite la liste à un projet (un nom inconnu liste les projets existants) ; `review_state` à un état de revue (`not_started`, `in_progress`, `files_reviewed`, `submitted`), aux revues soumises restant à traiter (`to_process`) ou déjà traitées (`processed`). Invite l'agent à reprendre l'analyse existante d'une feature plutôt qu'à en créer une autre. Signale aussi les fichiers d'analyse illisibles. |
 | `create_analysis` | Calcule et fige le diff : `repo_path` (racine absolue du dépôt), `project` (projet ou feature, dossier de rangement, requis), `title`, `mode` (`branch` ou `working_tree`), `base` (requis en `branch`), `head` (en `branch`, défaut `HEAD`), `request_text` et `request_source` (la demande initiale : ticket, prompt). Renvoie l'identifiant et la liste des fichiers. |
 | `get_analysis` | Vue complète : projet, demande, vue d'ensemble, résumé, fichiers (revus ou non), constats avec statut et emplacement, remarques du relecteur, schémas (signalés quand leur tracé a des croisements), état de la revue. |
 | `update_analysis` | Change `title`, `project`, la vue d'ensemble (`objective`, `approach`, `attention_points`), `summary` (les changements fonctionnels de la feature, une puce par changement, remplace toute la liste) ou la demande initiale (`request_text`, `request_source` ; `null` efface). Les champs absents sont conservés. |
@@ -145,7 +145,7 @@ Quatorze outils. Les noms, descriptions et textes de résultat sont en anglais ;
 
 La **vue d'ensemble** est l'analyse globale de l'agent : l'objectif fonctionnel de la feature, l'approche retenue (architecture, flux principal) et les points d'attention à vérifier en priorité. Sans vue d'ensemble, `objective` et `approach` sont requis ensemble pour la créer (`attention_points` vaut alors une liste vide s'il est omis) ; ensuite, chaque champ donné remplace le précédent. `objective: null` retire toute la vue d'ensemble. L'objectif figure aussi en tête du prompt de retour.
 
-L'**état de revue** est dérivé des fichiers revus et de la soumission (`shared/review-state.ts`) : `not_started` (aucun fichier revu), `in_progress` (au moins un), `files_reviewed` (tous, revue non soumise), `submitted` (avec sa décision).
+L'**état de revue** est dérivé des fichiers revus et de la soumission (`shared/review-state.ts`) : `not_started` (aucun fichier revu), `in_progress` (au moins un), `files_reviewed` (tous, revue non soumise), `submitted` (avec sa décision et son traitement par l'agent).
 
 ### Diff
 
@@ -196,9 +196,12 @@ Chaque nœud a un `id`, un `label`, une forme `shape` (`box` par défaut, `pill`
 
 | Outil | Effet |
 |---|---|
-| `get_review_feedback` | Une fois la revue soumise : décision (`approve`, `request_changes`, `reject`), constats et remarques retenus avec leur détail, et le prompt généré, recopié tel quel. Avant la soumission : l'avancement (fichiers revus, constats ignorés, remarques). Lecture seule. |
+| `get_review_feedback` | Une fois la revue soumise : décision (`approve`, `request_changes`, `reject`), état du traitement (à traiter, ou traité avec sa date et sa note), constats et remarques retenus avec leur détail, et le prompt généré, recopié tel quel. Après une nouvelle soumission, il liste aussi ce qui a changé depuis la version soumise précédente (décision, constats et remarques ajoutés, modifiés ou retirés) et rappelle comment celle-ci avait été traitée. Avant la soumission, ou pendant que le relecteur modifie une revue soumise : l'avancement seul (fichiers revus, constats ignorés, remarques). Lecture seule. |
+| `mark_feedback_processed` | Marque traité le retour soumis, avec la date et une `note` facultative (« corrigé par 12785d6e3 et 1ff5baaad », « réponses données en conversation »). Sert quand `refresh_analysis` ne convient pas : analyse d'un commit précis corrigée dans d'autres commits, remarques auxquelles l'agent a répondu dans la conversation. Le retour reste lisible avec `get_review_feedback`. Refusé tant que la revue n'est pas soumise ; un nouveau marquage remplace le précédent. |
 
-Le retour se lit **avant** `refresh_analysis`, qui le remplace par une revue vierge.
+Le retour se lit **avant** `refresh_analysis`, qui le remplace par une revue vierge : le recalcul vaut traitement, puisqu'il relance la revue.
+
+Une revue soumise est **à traiter** jusqu'à `mark_feedback_processed` ou `refresh_analysis`. Dès que le relecteur la modifie (remarque ajoutée, modifiée ou supprimée, constat ignoré ou réactivé), elle repasse en attente, qu'elle ait été traitée ou non : `get_review_feedback` n'en donne plus que l'avancement, et l'agent n'agit pas sur un retour en cours de modification. La version soumise est conservée, avec son traitement s'il a eu lieu ; à la nouvelle soumission, la revue est de nouveau à traiter et `get_review_feedback` montre ce qui a changé. Changer la sélection ou la décision se fait en soumettant à nouveau, avec le même effet.
 
 ### GUI
 
@@ -223,9 +226,12 @@ set_diagram     { analysis_id, kind: "flow", nodes: [...], links: [...] }
 
   … l'agent donne le lien à l'utilisateur, qui relit dans la GUI et enregistre son retour …
 
+list_analyses       { review_state: "to_process" }  ← revues soumises restant à traiter
 get_review_feedback { analysis_id }                 ← décision, points retenus, prompt
   … l'agent corrige le code …
 refresh_analysis    { analysis_id }                 ← nouveau diff, nouveau tour de revue
+  ou, quand le diff reste tel quel (commit précis, réponses en conversation) :
+mark_feedback_processed { analysis_id, note: "corrigé par 12785d6e3" }
 ```
 
 ---
@@ -236,7 +242,7 @@ Thème sombre. La barre supérieure porte la marque (un clic ramène à l'accuei
 
 ### Accueil (`#/`)
 
-Les analyses sont rangées par projet, dans des sections repliables. L'en-tête d'un projet compte ses analyses par état de revue. Chaque analyse est une carte séparée des autres. Son titre s'affiche en entier sur toute la largeur et passe à la ligne s'il le faut. Dessous, sur une seconde ligne : ses refs, la date de sa dernière modification, la progression des fichiers revus, ses constats ouverts par gravité (exigences manquantes comprises, ce que dit l'infobulle) et son état de revue : « Non commencée », « En cours », « Fichiers revus » ou « Soumise », suivi de la décision. Le filtre « À relire » (par défaut) masque les revues soumises, « Toutes » les montre. L'accueil n'ouvre aucune analyse d'office ; sans analyse, il explique que l'agent les crée avec `create_analysis`.
+Les analyses sont rangées par projet, dans des sections repliables. L'en-tête d'un projet compte ses analyses par état de revue. Chaque analyse est une carte séparée des autres. Son titre s'affiche en entier sur toute la largeur et passe à la ligne s'il le faut. Dessous, sur une seconde ligne : ses refs, la date de sa dernière modification, la progression des fichiers revus, ses constats ouverts par gravité (exigences manquantes comprises, ce que dit l'infobulle) et son état de revue : « Non commencée », « En cours », « Fichiers revus » ou « Soumise », suivi de la décision, puis « Traitée » une fois que l'agent a marqué le retour traité (date et note en infobulle) ; la pastille disparaît dès que le relecteur modifie la revue, qui repasse en cours. Le filtre « À relire » (par défaut) masque les revues soumises, « Toutes » les montre. L'accueil n'ouvre aucune analyse d'office ; sans analyse, il explique que l'agent les crée avec `create_analysis`.
 
 ### Écran Feature (`#/<id>`)
 
@@ -268,7 +274,7 @@ Un fichier binaire, supprimé ou de plus de 1 Mo n'a pas de contenu conservé : 
 
 ### Écran Fin de revue (`#/<id>/finish`)
 
-Décision (Approuver, Demander des corrections, Rejeter ; « Demander des corrections » est proposée d'emblée dès qu'il y a des points), points à transmettre (constats ouverts et remarques, tous cochés pour une revue en attente, la sélection enregistrée pour une revue déjà soumise), aperçu du prompt qui se met à jour, « Copier le prompt », « Retour à la revue » et « Enregistrer le retour », qui soumet la revue lue ensuite par `get_review_feedback`.
+Décision (Approuver, Demander des corrections, Rejeter ; « Demander des corrections » est proposée d'emblée dès qu'il y a des points), points à transmettre (constats ouverts et remarques, tous cochés pour une revue jamais soumise, la sélection enregistrée pour une revue déjà soumise ; pour une revue rouverte, la sélection de sa dernière version soumise, les points apparus depuis étant cochés), aperçu du prompt qui se met à jour, « Copier le prompt », « Retour à la revue » et « Enregistrer le retour », qui soumet la revue lue ensuite par `get_review_feedback`. Un bandeau rappelle le retour enregistré et s'il a été traité par l'agent, avec la note du traitement ; pour une revue modifiée depuis son retour, un bandeau ambre indique que l'agent ne le traite plus jusqu'au prochain enregistrement.
 
 Toute modification faite par l'agent pendant que la GUI est ouverte y apparaît en quelques secondes : la GUI interroge `api/changes` toutes les 3 s. Chaque action de la GUI porte la révision affichée : si l'analyse a changé entre-temps, l'action est refusée, l'analyse rechargée, et un message invite à refaire l'action.
 

@@ -96,7 +96,7 @@ test("GET /api/analyses lists the analysis summaries", async () => {
   assert.equal(json.analyses[0].id, analysisId);
   assert.deepEqual(json.analyses[0].openFindings, { critical: 1, major: 1, minor: 1, trivial: 0 });
   assert.equal(json.analyses[0].project, "demo");
-  assert.deepEqual(json.analyses[0].progress, { state: "not_started", reviewedFiles: 0, totalFiles: 7, decision: null });
+  assert.deepEqual(json.analyses[0].progress, { state: "not_started", reviewedFiles: 0, totalFiles: 7, decision: null, processed: null });
 });
 
 test("GET /api/analyses/:id and /diff return the analysis and its frozen diff", async () => {
@@ -265,22 +265,42 @@ test("POST review submits the review, and get_review_feedback returns it to the 
   assert.match(feedback.text, /\[Reviewer note\] src\/app\.ts:2 — Use the shared helper/);
   assert.doesNotMatch(feedback.text, /Style/);
 
+  const processed = await client.callTool("mark_feedback_processed", { analysis_id: analysisId, note: "fixed by 12785d6e3" });
+  assert.equal(processed.isError, false, processed.text);
+  const afterProcessing = await call("GET", `analyses/${analysisId}`);
+  assert.equal(afterProcessing.json.analysis.review.processed.note, "fixed by 12785d6e3");
+
   const reworded = await call("PATCH", `analyses/${analysisId}/notes/${noteId}`, {
     text: "Reuse the shared helper",
-    baseRevision: submitted.json.analysis.revision,
+    baseRevision: afterProcessing.json.analysis.revision,
   });
   assert.equal(reworded.status, 200, reworded.json.error);
-  assert.match(reworded.json.analysis.review.prompt, /src\/app\.ts:2 — Reuse the shared helper/);
-  assert.doesNotMatch(reworded.json.analysis.review.prompt, /Use the shared helper/);
+  const reopened = reworded.json.analysis.review;
+  assert.equal(reopened.state, "pending");
+  assert.equal(reopened.processed, null);
+  assert.equal(reopened.previousSubmission.decision, "request_changes");
+  assert.equal(reopened.previousSubmission.processed.note, "fixed by 12785d6e3");
+  assert.deepEqual(reopened.previousSubmission.notes.map((note: { text: string }) => note.text), ["Use the shared helper"]);
+  const pendingFeedback = await client.callTool("get_review_feedback", { analysis_id: analysisId });
+  assert.match(pendingFeedback.text, /is not submitted yet/);
+  assert.match(pendingFeedback.text, /The reviewer reopened the feedback submitted at .+, decision request_changes, processed at .+ \(note: fixed by 12785d6e3\)/);
+  assert.doesNotMatch(pendingFeedback.text, /Use the shared helper/);
 
   const resubmitted = await call("POST", `analyses/${analysisId}/review`, {
     decision: "approve",
     findingIds: [],
-    noteIds: [],
+    noteIds: [noteId],
     baseRevision: reworded.json.analysis.revision,
   });
   assert.equal(resubmitted.status, 200, resubmitted.json.error);
   assert.equal(resubmitted.json.analysis.review.decision, "approve");
+  assert.equal(resubmitted.json.analysis.review.processed, null);
+  const changed = await client.callTool("get_review_feedback", { analysis_id: analysisId });
+  assert.match(changed.text, /Processing: to process/);
+  assert.match(changed.text, /Changes since the previous submission \(submitted at .+, decision request_changes, processed at .+ \(note: fixed by 12785d6e3\)\):/);
+  assert.match(changed.text, /Decision changed: request_changes → approve/);
+  assert.match(changed.text, /- finding f_bug — Broken line/);
+  assert.match(changed.text, /~ note .+ — src\/app\.ts:2\n {6}Reuse the shared helper\n {4}was: src\/app\.ts:2\n {6}Use the shared helper/);
 });
 
 test("GET /api/changes answers a reset first, then the events pushed by the master", async () => {

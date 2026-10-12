@@ -8,6 +8,7 @@ import type {
   UpdateNoteBody,
 } from "../../shared/schemas/api.schema.js";
 import { buildAgentPrompt } from "../../shared/prompt.js";
+import { recordSubmission, reopenSubmittedReview } from "../../shared/review-state.js";
 import type { AnalysisStore } from "./analysis-store.js";
 import { AnalysisError, NotFoundError } from "./errors.js";
 import { itemId } from "./ids.js";
@@ -16,6 +17,9 @@ import { assertNoteLocation } from "./locations.js";
 /**
  * Modifications faites par le relecteur depuis la GUI. Chacune passe par
  * `store.mutate(id, "user", …, { baseRevision })` et renvoie l'analyse écrite.
+ * Changer une remarque ou le statut d'un constat repasse une revue soumise en
+ * attente (voir `reopenSubmittedReview`) : son retour n'est plus à traiter tant
+ * qu'elle n'est pas soumise à nouveau.
  */
 
 /** Marque un fichier de l'analyse comme revu, ou le repasse à revoir. */
@@ -59,6 +63,8 @@ export function setFindingStatus(
           `Finding "${findingId}" is outdated: its lines changed since it was written. The agent must anchor it again with update_finding before it can be ignored or reopened.`
         );
       }
+      if (finding.status === body.status) return;
+      reopenSubmittedReview(draft);
       finding.status = body.status;
     },
     { baseRevision: body.baseRevision }
@@ -80,6 +86,7 @@ export function addNote(store: AnalysisStore, analysisId: string, body: AddNoteB
       if (findingId !== null && !draft.findings.some((finding) => finding.id === findingId)) {
         throw new NotFoundError(`Finding "${findingId}" not found in analysis "${analysisId}".`);
       }
+      reopenSubmittedReview(draft);
       draft.notes.push({
         id: itemId("note", new Set(draft.notes.map((note) => note.id))),
         location,
@@ -92,10 +99,7 @@ export function addNote(store: AnalysisStore, analysisId: string, body: AddNoteB
   );
 }
 
-/**
- * Remplace le texte d'une remarque. Quand elle fait partie d'une revue soumise,
- * le prompt enregistré est recalculé avec le nouveau texte.
- */
+/** Remplace le texte d'une remarque. */
 export function updateNote(store: AnalysisStore, analysisId: string, noteId: string, body: UpdateNoteBody): Analysis {
   return store.mutate(
     analysisId,
@@ -103,24 +107,15 @@ export function updateNote(store: AnalysisStore, analysisId: string, noteId: str
     (draft) => {
       const note = draft.notes.find((entry) => entry.id === noteId);
       if (!note) throw new NotFoundError(`Note "${noteId}" not found in analysis "${analysisId}".`);
+      if (note.text === body.text) return;
+      reopenSubmittedReview(draft);
       note.text = body.text;
-      const review = draft.review;
-      if (review.state === "submitted" && review.selectedNoteIds.includes(noteId)) {
-        review.prompt = buildAgentPrompt(draft, {
-          findingIds: review.selectedFindingIds,
-          noteIds: review.selectedNoteIds,
-          decision: review.decision,
-        });
-      }
     },
     { baseRevision: body.baseRevision }
   );
 }
 
-/**
- * Supprime une remarque. Quand elle fait partie d'une revue soumise, elle est
- * retirée de la sélection et le prompt enregistré est recalculé sans elle.
- */
+/** Supprime une remarque et la retire de la sélection de la revue. */
 export function deleteNote(store: AnalysisStore, analysisId: string, noteId: string, body: DeleteNoteBody): Analysis {
   return store.mutate(
     analysisId,
@@ -128,17 +123,9 @@ export function deleteNote(store: AnalysisStore, analysisId: string, noteId: str
     (draft) => {
       const index = draft.notes.findIndex((note) => note.id === noteId);
       if (index === -1) throw new NotFoundError(`Note "${noteId}" not found in analysis "${analysisId}".`);
+      reopenSubmittedReview(draft);
       draft.notes.splice(index, 1);
-      const review = draft.review;
-      if (!review.selectedNoteIds.includes(noteId)) return;
-      review.selectedNoteIds = review.selectedNoteIds.filter((id) => id !== noteId);
-      if (review.state === "submitted") {
-        review.prompt = buildAgentPrompt(draft, {
-          findingIds: review.selectedFindingIds,
-          noteIds: review.selectedNoteIds,
-          decision: review.decision,
-        });
-      }
+      draft.review.selectedNoteIds = draft.review.selectedNoteIds.filter((id) => id !== noteId);
     },
     { baseRevision: body.baseRevision }
   );
@@ -153,8 +140,10 @@ function assertKnownIds(label: string, ids: string[], known: string[]): void {
 }
 
 /**
- * Soumet la revue : décision, points retenus et prompt calculé ici. Une
- * nouvelle soumission remplace la précédente.
+ * Soumet la revue : décision, points retenus et prompt calculé ici. La revue
+ * soumise est à traiter par l'agent. Une nouvelle soumission remplace la
+ * précédente, conservée dans `previousSubmission` ; une revue rouverte garde la
+ * version soumise qu'elle conservait déjà.
  */
 export function submitReview(store: AnalysisStore, analysisId: string, body: SubmitReviewBody): Analysis {
   return store.mutate(
@@ -163,6 +152,7 @@ export function submitReview(store: AnalysisStore, analysisId: string, body: Sub
     (draft) => {
       assertKnownIds("finding", body.findingIds, draft.findings.map((finding) => finding.id));
       assertKnownIds("note", body.noteIds, draft.notes.map((note) => note.id));
+      const previousSubmission = draft.review.state === "submitted" ? recordSubmission(draft) : draft.review.previousSubmission;
       draft.review = {
         state: "submitted",
         decision: body.decision,
@@ -170,6 +160,8 @@ export function submitReview(store: AnalysisStore, analysisId: string, body: Sub
         selectedNoteIds: [...body.noteIds],
         prompt: buildAgentPrompt(draft, { findingIds: body.findingIds, noteIds: body.noteIds, decision: body.decision }),
         submittedAt: new Date().toISOString(),
+        processed: null,
+        previousSubmission,
       };
     },
     { baseRevision: body.baseRevision }

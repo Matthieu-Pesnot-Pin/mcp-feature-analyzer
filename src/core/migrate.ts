@@ -47,8 +47,20 @@ export const addNoteFindingIds: MigrationStep = (doc) => {
   return { ...doc, notes: notes.map((note) => (missing(note) ? { ...(note as RawDocument), findingId: null } : note)) };
 };
 
+/**
+ * Ajoute à la revue `processed` et `previousSubmission` à null : une revue soumise
+ * avant ce format est à traiter, sans version précédente.
+ */
+export const addReviewProcessing: MigrationStep = (doc) => {
+  const review = doc.review;
+  if (!review || typeof review !== "object" || Array.isArray(review)) return null;
+  const raw = review as RawDocument;
+  if (raw.processed !== undefined && raw.previousSubmission !== undefined) return null;
+  return { ...doc, review: { ...raw, processed: raw.processed ?? null, previousSubmission: raw.previousSubmission ?? null } };
+};
+
 /** Étapes appliquées aux analyses (`analyses/<id>.json`), dans l'ordre. */
-export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [addProject, addOverview, addExplanations, addNoteFindingIds];
+export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [addProject, addOverview, addExplanations, addNoteFindingIds, addReviewProcessing];
 
 /** Étapes appliquées aux snapshots de diff (`diffs/<id>.json`), dans l'ordre. */
 export const SNAPSHOT_MIGRATIONS: readonly MigrationStep[] = [];

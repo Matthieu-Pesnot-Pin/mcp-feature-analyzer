@@ -7,7 +7,7 @@ import { sortBySeverity } from '@shared/severity'
 import { Icon, type IconName } from '../components/Icon'
 import { NotePill, SeverityPill } from '../components/Pills'
 import { useAnalysisStore } from '../store/useAnalysisStore'
-import { findingLocationLabel, formatDateTime, noteLocationLabel, plural } from '../utils/format'
+import { findingLocationLabel, formatDateTime, noteLocationLabel, plural, processedTitle } from '../utils/format'
 import { hrefs, navigate } from '../utils/router'
 import { firstFileToReview } from './review-model'
 
@@ -29,14 +29,19 @@ function pointsOf(analysis: Analysis): Point[] {
 }
 
 /**
- * Points exclus au départ : aucun pour une revue en attente, ceux qui ne sont
- * pas dans la sélection pour une revue déjà enregistrée.
+ * Points exclus au départ : ceux qui ne sont pas dans la sélection pour une
+ * revue enregistrée ; pour une revue rouverte, ceux que sa dernière version
+ * soumise écartait, les points apparus depuis étant retenus ; aucun sinon.
  */
 function initialExcluded(analysis: Analysis): Set<string> {
   const review = analysis.review
-  if (review.state !== 'submitted') return new Set()
-  const selected = new Set([...review.selectedFindingIds.map((id) => `f:${id}`), ...review.selectedNoteIds.map((id) => `n:${id}`)])
-  return new Set(pointsOf(analysis).map((point) => point.key).filter((key) => !selected.has(key)))
+  if (review.state === 'submitted') {
+    const selected = new Set([...review.selectedFindingIds.map((id) => `f:${id}`), ...review.selectedNoteIds.map((id) => `n:${id}`)])
+    return new Set(pointsOf(analysis).map((point) => point.key).filter((key) => !selected.has(key)))
+  }
+  const previous = review.previousSubmission
+  if (!previous) return new Set()
+  return new Set([...previous.excludedFindingIds.map((id) => `f:${id}`), ...previous.excludedNoteIds.map((id) => `n:${id}`)])
 }
 
 /** Écran Fin de revue : décision, points à transmettre, aperçu du prompt et enregistrement du retour. */
@@ -48,7 +53,7 @@ export function FinishScreen({ analysis }: { analysis: Analysis }) {
 
   const points = pointsOf(analysis)
   const [decision, setDecision] = useState<ReviewDecision>(
-    () => analysis.review.decision ?? (points.length > 0 ? 'request_changes' : 'approve'),
+    () => analysis.review.decision ?? analysis.review.previousSubmission?.decision ?? (points.length > 0 ? 'request_changes' : 'approve'),
   )
   const [excluded, setExcluded] = useState<Set<string>>(() => initialExcluded(analysis))
 
@@ -86,8 +91,20 @@ export function FinishScreen({ analysis }: { analysis: Analysis }) {
         <div className="submitted-banner">
           <Icon name="circle-check" color="#3fb950" size={16} />
           <span>
-            Retour enregistré le {formatDateTime(review.submittedAt)} · décision « {DECISION_LABELS[review.decision]} ». L'agent
-            le lit avec l'outil get_review_feedback ; un nouvel enregistrement le remplace.
+            Retour enregistré le {formatDateTime(review.submittedAt)} · décision « {DECISION_LABELS[review.decision]} ».{' '}
+            {review.processed
+              ? `${processedTitle(review.processed)}.`
+              : "L'agent le lit avec l'outil get_review_feedback ; il n'est pas encore traité."}{' '}
+            Un nouvel enregistrement le remplace.
+          </span>
+        </div>
+      )}
+      {review.state === 'pending' && review.previousSubmission && (
+        <div className="submitted-banner is-reopened">
+          <Icon name="pencil" color="#e3a33b" size={16} />
+          <span>
+            Revue modifiée depuis le retour du {formatDateTime(review.previousSubmission.submittedAt)} : l'agent ne le traite plus.
+            Enregistrez-la à nouveau pour qu'il traite la nouvelle version ; il verra ce qui a changé.
           </span>
         </div>
       )}

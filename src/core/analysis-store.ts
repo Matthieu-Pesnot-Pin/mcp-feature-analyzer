@@ -11,7 +11,7 @@ import {
   type Review,
 } from "../../shared/schemas/analysis.schema.js";
 import { DiffSnapshotSchema, type DiffSnapshot } from "../../shared/schemas/diff.schema.js";
-import { reviewProgress } from "../../shared/review-state.js";
+import { pendingReview, reviewProgress } from "../../shared/review-state.js";
 import { emptySeverityCounts } from "../../shared/severity.js";
 import { AnalysisError, NotFoundError, RevisionConflictError } from "./errors.js";
 import type { ComputedSnapshot } from "./git.js";
@@ -46,11 +46,6 @@ export interface ReplaceSnapshotResult {
   stats: RefreshStats;
   /** Revue en place avant le recalcul, remplacée par une revue vierge. */
   previousReview: Review;
-}
-
-/** Revue vierge : en attente, sans décision, sélection ni prompt. */
-export function pendingReview(): Review {
-  return { state: "pending", decision: null, selectedFindingIds: [], selectedNoteIds: [], prompt: null, submittedAt: null };
 }
 
 /** Signature de fichier servant à détecter l'écriture d'un autre processus. */

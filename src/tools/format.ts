@@ -97,9 +97,13 @@ export function progressStateLabel(state: ReviewProgressState): string {
   return REVIEW_PROGRESS_TEXT[state];
 }
 
-/** `in progress (2/7 files reviewed)` ou `submitted, decision approve (7/7 files reviewed)`. */
+/**
+ * `in progress (2/7 files reviewed)`, `submitted, decision approve, pending processing (7/7 files reviewed)`
+ * ou `submitted, decision approve, processed at <date> (7/7 files reviewed)`.
+ */
 export function progressLabel(progress: ReviewProgress): string {
-  const decision = progress.state === "submitted" ? `, decision ${progress.decision}` : "";
+  const processing = progress.processed === null ? "pending processing" : `processed at ${progress.processed.at}`;
+  const decision = progress.state === "submitted" ? `, decision ${progress.decision}, ${processing}` : "";
   return `${REVIEW_PROGRESS_TEXT[progress.state]}${decision} (${progress.reviewedFiles}/${progress.totalFiles} files reviewed)`;
 }
 

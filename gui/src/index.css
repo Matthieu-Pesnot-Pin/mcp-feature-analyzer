@@ -2936,6 +2936,11 @@ button.diff-num:hover {
   flex-shrink: 0;
 }
 
+.submitted-banner.is-reopened {
+  background: #241d0e;
+  border-color: #4a3816;
+}
+
 .field-label {
   margin: 28px 0 8px;
   font-size: 12px;

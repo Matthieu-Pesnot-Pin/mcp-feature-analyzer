@@ -5,7 +5,15 @@ import path from "node:path";
 
 import { AnalysisStore } from "../src/core/analysis-store.js";
 import { AnalysisError } from "../src/core/errors.js";
-import { addProject, applyMigrations, migrateAnalysis, migrateSnapshot, repoFolderName, type MigrationStep } from "../src/core/migrate.js";
+import {
+  addProject,
+  addReviewProcessing,
+  applyMigrations,
+  migrateAnalysis,
+  migrateSnapshot,
+  repoFolderName,
+  type MigrationStep,
+} from "../src/core/migrate.js";
 import { makeStore, sampleFinding, sampleSnapshot } from "./helpers.js";
 
 function listFiles(dir: string): string[] {
@@ -74,7 +82,7 @@ test("list returns lightweight summaries, most recent first", (t) => {
   const summary = analyses[0];
   assert.equal(summary.title, "First");
   assert.equal(summary.project, "demo");
-  assert.deepEqual(summary.progress, { state: "in_progress", reviewedFiles: 1, totalFiles: 2, decision: null });
+  assert.deepEqual(summary.progress, { state: "in_progress", reviewedFiles: 1, totalFiles: 2, decision: null, processed: null });
   assert.equal(summary.mode, "branch");
   assert.equal(summary.base, "master");
   assert.equal(summary.head, "HEAD");
@@ -399,6 +407,13 @@ test("migration leaves the existing reviewer notes unlinked from any finding, on
     [null, "f1"]
   );
   assert.equal(migrateAnalysis(migrated), null, "a second pass must change nothing");
+});
+
+test("migration leaves a review submitted before processing existed to process, without previous version, once", () => {
+  const review = { state: "submitted", decision: "approve", selectedFindingIds: [], selectedNoteIds: [], prompt: "x", submittedAt: "2026-09-29T11:00:00.000Z" };
+  const migrated = addReviewProcessing({ id: "x-abc123", review });
+  assert.deepEqual(migrated?.review, { ...review, processed: null, previousSubmission: null });
+  assert.equal(addReviewProcessing(migrated!), null, "a second pass must change nothing");
 });
 
 test("migration refuses to guess a project when the repository path has no folder name", () => {

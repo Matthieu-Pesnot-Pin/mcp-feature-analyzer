@@ -73,6 +73,9 @@ export const REVIEW_PROGRESS_STYLES: Record<ReviewProgressState, BadgeStyle> = {
   submitted: { label: "Soumise", color: "#3fb950", background: "#11201a" },
 };
 
+/** Pastille d'une revue soumise dont l'agent a marqué le retour traité. */
+export const PROCESSED_STYLE: BadgeStyle = { label: "Traitée", color: "#5fd4c4", background: "#10272a" };
+
 /** Pastille de la décision d'une revue soumise, affichée à côté de « Soumise ». */
 export const DECISION_STYLES: Record<ReviewDecision, BadgeStyle> = {
   approve: { label: "Approuvée", color: "#3fb950", background: "#11201a" },

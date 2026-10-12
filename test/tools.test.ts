@@ -17,6 +17,7 @@ import { deleteFindings } from "../src/tools/delete-findings.js";
 import { setDiagram } from "../src/tools/set-diagram.js";
 import { deleteDiagram } from "../src/tools/delete-diagram.js";
 import { getReviewFeedback } from "../src/tools/get-review-feedback.js";
+import { markFeedbackProcessed } from "../src/tools/mark-feedback-processed.js";
 import { deleteAnalysis } from "../src/tools/delete-analysis.js";
 import { buildAgentPrompt } from "../shared/prompt.js";
 import { git, makeGitRepo, makeStore } from "./helpers.js";
@@ -149,7 +150,7 @@ test("list_analyses groups analyses by project with their review state, and filt
   assert.ok(demoAt !== -1 && billingAt !== -1 && demoAt < billingAt, "the most recently updated project comes first");
   assert.match(all, /## Project "billing" \(2 analysis\(es\): 1 in progress, 1 all files reviewed, not submitted\)/);
   assert.match(all, /## Project "demo" \(1 analysis\(es\): 1 submitted\)/);
-  assert.match(all, /review: submitted, decision approve \(0\/7 files reviewed\) — read it with get_review_feedback/);
+  assert.match(all, /review: submitted, decision approve, pending processing \(0\/7 files reviewed\) — read it with get_review_feedback/);
   assert.match(all, /review: in progress \(1\/7 files reviewed\)/);
   assert.match(all, /review: all files reviewed, not submitted \(7\/7 files reviewed\)/);
 
@@ -581,6 +582,35 @@ test("get_review_feedback reports progress before submission and the feedback af
   assert.equal(store.get(id).revision, revision);
 });
 
+test("a submitted review made of notes only is to process until mark_feedback_processed, and its feedback stays readable", async (t) => {
+  const { store, id } = await setup(t);
+  assert.match(await fails(markFeedbackProcessed, store, { analysis_id: id }), /is not submitted yet: there is no feedback to mark processed/);
+
+  submitReview(store, id, []);
+  assert.match(await ok(listAnalyses, store, {}), /decision request_changes, pending processing/);
+  assert.match(await ok(listAnalyses, store, { review_state: "to_process" }), new RegExp(`- ${id} — `));
+  assert.match(await ok(listAnalyses, store, { review_state: "processed" }), /^No analysis with review state processed\./);
+  assert.match(await ok(getReviewFeedback, store, { analysis_id: id }), /Processing: to process \(call mark_feedback_processed once handled\)/);
+
+  const marked = await ok(markFeedbackProcessed, store, { analysis_id: id, note: "answers given in the conversation" });
+  assert.match(marked, /as processed at .+\.\nNote: answers given in the conversation\./);
+  const review = store.get(id).review;
+  assert.equal(review.state, "submitted");
+  assert.equal(review.processed?.note, "answers given in the conversation");
+
+  const listed = await ok(listAnalyses, store, {});
+  assert.match(listed, /decision request_changes, processed at /);
+  assert.match(listed, /processing note: answers given in the conversation/);
+  assert.match(await ok(listAnalyses, store, { review_state: "to_process" }), /^No analysis with review state to_process\./);
+  const feedback = await ok(getReviewFeedback, store, { analysis_id: id });
+  assert.match(feedback, /Processing: processed at .+ \(note: answers given in the conversation\)/);
+  assert.match(feedback, /Selected reviewer notes \(1\):\n- n1 — src\/app\.ts:2\n {4}Rename this/);
+
+  assert.match(await ok(markFeedbackProcessed, store, { analysis_id: id }), /Note: none\.\nThis replaces the processing mark of /);
+  assert.match(await fails(markFeedbackProcessed, store, { analysis_id: id, notes: "x" }), /Unknown field\(s\): notes/);
+  assert.match(await fails(listAnalyses, store, { review_state: "done" }), /review_state/);
+});
+
 test("refresh_analysis recomputes the diff, outdates changed findings and resets the review", async (t) => {
   const { repo, store, id } = await setup(t);
   await ok(addFindings, store, {
@@ -609,6 +639,8 @@ test("refresh_analysis recomputes the diff, outdates changed findings and resets
     selectedNoteIds: [],
     prompt: null,
     submittedAt: null,
+    processed: null,
+    previousSubmission: null,
   });
   assert.deepEqual(analysis.findings.map((finding) => [finding.id, finding.status]), [
     ["f_changed", "outdated"],

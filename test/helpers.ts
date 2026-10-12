@@ -300,7 +300,7 @@ export function sampleAnalysis(overrides: Partial<Analysis> = {}): Analysis {
     explanations: [],
     notes: [],
     diagrams: [],
-    review: { state: "pending", decision: null, selectedFindingIds: [], selectedNoteIds: [], prompt: null, submittedAt: null },
+    review: { state: "pending", decision: null, selectedFindingIds: [], selectedNoteIds: [], prompt: null, submittedAt: null, processed: null, previousSubmission: null },
     revision: 0,
     createdAt: "2026-09-29T10:00:00.000Z",
     updatedAt: "2026-09-29T10:00:00.000Z",

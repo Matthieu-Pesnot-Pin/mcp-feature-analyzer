@@ -40,7 +40,7 @@ import {
 } from "../shared/schemas/analysis.schema.js";
 import { errorResult, textResult, type MutationResult, type ToolResult } from "./tools/types.js";
 import { createAnalysis } from "./tools/create-analysis.js";
-import { listAnalyses } from "./tools/list-analyses.js";
+import { listAnalyses, REVIEW_STATE_FILTERS } from "./tools/list-analyses.js";
 import { getAnalysis } from "./tools/get-analysis.js";
 import { getDiff } from "./tools/get-diff.js";
 import { refreshAnalysis } from "./tools/refresh-analysis.js";
@@ -54,6 +54,7 @@ import { deleteExplanations } from "./tools/delete-explanations.js";
 import { DEFAULT_NODE_SHAPE, DEFAULT_NODE_STATUS, setDiagram } from "./tools/set-diagram.js";
 import { deleteDiagram } from "./tools/delete-diagram.js";
 import { getReviewFeedback } from "./tools/get-review-feedback.js";
+import { markFeedbackProcessed } from "./tools/mark-feedback-processed.js";
 import { deleteAnalysis } from "./tools/delete-analysis.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -128,8 +129,8 @@ Workflow:
 5. add_findings for every problem, including requirement_gap findings for requested behaviour that is missing.
 6. set_diagram when a picture helps (impacted layers, process flow, concept tree).
 7. Tell the user to review the analysis in the GUI (the link is in the tool results).
-8. get_review_feedback to read the decision, the selected points and the prompt.
-9. Fix the code, then refresh_analysis to recompute the diff for a new review round; re-anchor or rewrite the outdated findings and explanations.
+8. get_review_feedback to read the decision, the selected points and the prompt. list_analyses with review_state "to_process" lists the submitted reviews you have not handled yet.
+9. Fix the code, then refresh_analysis to recompute the diff for a new review round; re-anchor or rewrite the outdated findings and explanations. When the diff must stay as it is (an analysis of one commit, fixes in other commits, answers given in the conversation), call mark_feedback_processed instead, with a note saying how the feedback was handled.
 
 Explanation rules:
 - Write one for every added or removed block that is long (a function or a block of about 30 lines or more) or complex (non-trivial algorithm, state machine, concurrency, recursion, tricky regular expression or data transformation). A 100-line function always gets one.
@@ -434,13 +435,21 @@ const TOOLS = [
     name: "list_analyses",
     description:
       "List the analyses grouped by project, with their refs, open findings by severity, reviewed files, diagram count and review state " +
-      "(not started, in progress, all files reviewed, submitted). Start here: when the project already has an analysis of the feature, " +
+      "(not started, in progress, all files reviewed, submitted; a submitted review is pending processing until mark_feedback_processed or refresh_analysis). " +
+      "Start here: when the project already has an analysis of the feature, " +
       "continue it (update_analysis to rewrite the overview and summary, refresh_analysis after changing the code) instead of creating a duplicate; " +
       "create a new one with create_analysis for another feature or another diff.",
     inputSchema: {
       type: "object" as const,
       properties: {
         project: { type: "string", description: "Only list the analyses of this project (exact name). An unknown name lists the existing projects." },
+        review_state: {
+          type: "string",
+          enum: [...REVIEW_STATE_FILTERS],
+          description:
+            "Only list the analyses in this review state. to_process = submitted reviews not marked processed yet: the feedback you still have to handle; " +
+            "processed = submitted reviews marked processed.",
+        },
       },
     },
   },
@@ -750,11 +759,32 @@ const TOOLS = [
   {
     name: "get_review_feedback",
     description:
-      "Read the reviewer's feedback once the review is submitted: decision, selected findings and notes, and the prompt to act on. " +
-      "Before submission it reports the review progress. Read-only. Always read the feedback before calling refresh_analysis, which discards it.",
+      "Read the reviewer's feedback once the review is submitted: decision, whether you already processed it, selected findings and notes, and the prompt to act on. " +
+      "After a resubmission it also lists what changed since the previous submitted version and recalls how that one was processed. " +
+      "Before submission, or while the reviewer is changing a submitted review, it reports the review progress only. " +
+      "Read-only. Always read the feedback before calling refresh_analysis, which discards it.",
     inputSchema: {
       type: "object" as const,
       properties: { analysis_id: { type: "string", description: ANALYSIS_ID_DOC } },
+      required: ["analysis_id"],
+    },
+  },
+  {
+    name: "mark_feedback_processed",
+    description:
+      "Mark the submitted feedback of an analysis as processed once you handled it, when refresh_analysis does not fit: the analysis freezes one commit " +
+      "and the fixes are in other commits, or the notes were answered in the conversation. Records the date and an optional note; the feedback stays readable " +
+      "with get_review_feedback and the GUI shows the review as processed. Refused while the review is not submitted. " +
+      "If the reviewer changes the review afterwards, it becomes pending again until it is resubmitted.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        analysis_id: { type: "string", description: ANALYSIS_ID_DOC },
+        note: {
+          type: "string",
+          description: 'How the feedback was handled, shown to the reviewer, e.g. "fixed by 12785d6e3 and 1ff5baaad" or "answers given in the conversation".',
+        },
+      },
       required: ["analysis_id"],
     },
   },
@@ -843,6 +873,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
         return afterMutation(setDiagram(store, params));
       case "delete_diagram":
         return afterMutation(deleteDiagram(store, params));
+      case "mark_feedback_processed":
+        return afterMutation(markFeedbackProcessed(store, params));
       case "refresh_analysis":
         return await withRepoAccess(exec, async (repoFor) => afterMutation(await refreshAnalysis(store, params, repoFor)));
       case "delete_analysis": {
