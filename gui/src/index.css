@@ -666,24 +666,6 @@ code {
   color: var(--faint);
 }
 
-/* « Traitées par l'agent » non vide : le relecteur a des corrections à vérifier. */
-.home-filter.is-highlighted {
-  color: #5fd4c4;
-}
-
-.home-filter.is-highlighted.is-active {
-  background: #10272a;
-  border-color: #1d4a45;
-}
-
-.home-filter.is-highlighted .home-filter-count {
-  min-width: 0;
-  padding: 1px 8px;
-  border-radius: 8px;
-  background: #1d4a45;
-  color: #5fd4c4;
-  text-align: center;
-}
 
 .home-projects {
   display: flex;

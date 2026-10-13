@@ -26,10 +26,7 @@ const FILTERS: Record<HomeFilter, { label: string; icon: IconName; empty: string
   all: { label: 'Toutes', icon: 'list', empty: 'Aucune analyse.' },
 }
 
-/**
- * Colonne des filtres, chacun avec son icône et son nombre d'analyses.
- * « Traitées par l'agent » ressort tant qu'il en reste : le relecteur y a du nouveau.
- */
+/** Colonne des filtres, chacun avec son icône et son nombre d'analyses. */
 function FilterColumn({ counts }: { counts: Record<HomeFilter, number> }) {
   const filter = useAnalysisStore((state) => state.homeFilter)
   const setHomeFilter = useAnalysisStore((state) => state.setHomeFilter)
@@ -38,16 +35,15 @@ function FilterColumn({ counts }: { counts: Record<HomeFilter, number> }) {
     <nav className="home-filters" aria-label="Filtrer les analyses">
       {HOME_FILTERS.map((entry) => {
         const active = entry === filter
-        const highlighted = entry === 'processed' && counts.processed > 0
         return (
           <button
             key={entry}
             type="button"
-            className={`home-filter${active ? ' is-active' : ''}${highlighted ? ' is-highlighted' : ''}${entry === 'all' ? ' is-all' : ''}`}
+            className={`home-filter${active ? ' is-active' : ''}${entry === 'all' ? ' is-all' : ''}`}
             aria-pressed={active}
             onClick={() => setHomeFilter(entry)}
           >
-            <Icon name={FILTERS[entry].icon} size={16} color={highlighted ? PROCESSED_STYLE.color : '#9aa1b1'} />
+            <Icon name={FILTERS[entry].icon} size={16} color="#9aa1b1" />
             <span className="home-filter-label">{FILTERS[entry].label}</span>
             <span className="home-filter-count">{counts[entry]}</span>
           </button>
