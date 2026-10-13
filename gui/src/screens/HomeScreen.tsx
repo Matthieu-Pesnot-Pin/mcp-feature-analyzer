@@ -107,7 +107,7 @@ function MarkProcessedButton({ analysis }: { analysis: AnalysisSummary }) {
   }
 
   return (
-    <div className="mark-processed" ref={rootRef}>
+    <div className={`mark-processed${open ? ' is-open' : ''}`} ref={rootRef}>
       <button
         type="button"
         className="button button-secondary mark-processed-button"

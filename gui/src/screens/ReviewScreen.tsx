@@ -39,24 +39,17 @@ function MiddleEllipsis({ name }: { name: string }) {
 }
 
 /**
- * Panneau gauche : progression de la revue et liste des fichiers, un intertitre
- * par dossier, chaque fichier suivi de la lettre de son statut git. Chaque
- * pastille de gravité ouvre le fichier sur son premier constat ouvert de cette gravité.
+ * Panneau gauche : liste des fichiers, un intertitre par dossier, chaque fichier
+ * suivi de la lettre de son statut git. Chaque pastille de gravité ouvre le
+ * fichier sur son premier constat ouvert de cette gravité. La progression de la
+ * revue est dans la barre supérieure.
  */
 function FilesPanel({ analysis, currentPath }: { analysis: Analysis; currentPath: string }) {
-  const reviewed = analysis.files.filter((file) => file.reviewed).length
-  const progress = analysis.files.length === 0 ? 0 : (reviewed / analysis.files.length) * 100
-
   return (
     <aside className="files-panel">
       <div className="files-panel-head">
         <span className="files-panel-title">Fichiers</span>
-        <span className="files-panel-count">
-          {reviewed} / {analysis.files.length} revus
-        </span>
-      </div>
-      <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={analysis.files.length} aria-valuenow={reviewed}>
-        <div className="progress-fill" style={{ width: `${progress}%` }} />
+        <span className="files-panel-count">{analysis.files.length}</span>
       </div>
       <nav className="files-list">
         {analysis.files.map((file, index) => {

@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react'
 import { NoticeToast } from './components/NoticeToast'
+import { ReviewProgressMeter } from './components/ReviewProgressMeter'
 import { TopBar } from './components/TopBar'
 import { useServerChanges } from './hooks/useServerChanges'
 import { FeatureScreen } from './screens/FeatureScreen'
@@ -37,9 +38,12 @@ export default function App() {
 
   const action =
     route.name === 'review' && analysis ? (
-      <button type="button" className="button button-primary topbar-action" onClick={() => navigate(hrefs.finish(analysis.id))}>
-        Terminer la revue
-      </button>
+      <>
+        <ReviewProgressMeter analysis={analysis} />
+        <button type="button" className="button button-primary topbar-action" onClick={() => navigate(hrefs.finish(analysis.id))}>
+          Terminer la revue
+        </button>
+      </>
     ) : null
 
   let screen: ReactNode
