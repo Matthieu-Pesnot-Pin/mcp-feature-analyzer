@@ -3,6 +3,7 @@ import { DECISION_LABELS } from '@shared/labels'
 import { lineRange } from '@shared/text'
 import { formatDateTime, noteLocationLabel, processedTitle, splitPath } from '../utils/format'
 import { hrefs } from '../utils/router'
+import { AnalysisLinkButton } from './AnalysisLinkButton'
 import { Icon } from './Icon'
 import { NotePill, ReviewStateBadge, SeverityPill } from './Pills'
 
@@ -59,11 +60,8 @@ export function FollowUpBanner({ analysisId, links }: { analysisId: string; link
     <section className="follow-banner" aria-label="Revues de suivi">
       {next && (
         <div className="follow-banner-row">
-          <Icon name="arrow-right" size={14} color="#8b97ff" />
           <span className="follow-banner-label">Nouvelle revue disponible :</span>
-          <a className="follow-banner-link" href={hrefs.feature(next.id)}>
-            {next.title}
-          </a>
+          <AnalysisLinkButton link={next} direction="next" />
           <ReviewStateBadge progress={next.progress} small />
           <span className="spacer" />
           {!previous && <RoundChain chain={chain} currentId={analysisId} />}
@@ -72,11 +70,8 @@ export function FollowUpBanner({ analysisId, links }: { analysisId: string; link
       {previous && (
         <>
           <div className="follow-banner-row">
-            <Icon name="corner-up-left" size={14} color="#8b97ff" />
             <span className="follow-banner-label">Revue faisant suite à :</span>
-            <a className="follow-banner-link" href={hrefs.feature(previous.id)}>
-              {previous.title}
-            </a>
+            <AnalysisLinkButton link={previous} direction="previous" />
             <span className="spacer" />
             <RoundChain chain={chain} currentId={analysisId} />
           </div>

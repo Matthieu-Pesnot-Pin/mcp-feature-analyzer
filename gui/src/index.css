@@ -978,25 +978,57 @@ code {
   color: var(--muted);
 }
 
-.home-row-follow svg {
+.home-row-follow-round {
+  color: var(--faint);
+}
+
+/* Bouton vers une autre analyse de la chaîne, au-dessus du lien qui couvre une carte. */
+.analysis-link-button {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 3px 12px;
+  background: #1b1f3d;
+  border: 1px solid #2c3470;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 18px;
+  color: #c3c9ff;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.analysis-link-button:hover {
+  background: #242a52;
+  border-color: #4350a8;
+  color: #ffffff;
+}
+
+.analysis-link-button:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+.analysis-link-button svg {
   flex-shrink: 0;
 }
 
-/* Lien vers l'autre analyse, au-dessus du lien qui couvre la carte. */
-.home-row-follow-link {
-  position: relative;
-  z-index: 1;
-  font-weight: 600;
-  color: #8b97ff;
+.analysis-link-button-title {
+  min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.home-row-follow-link:hover {
-  text-decoration: underline;
-}
-
-.home-row-follow-round {
-  color: var(--faint);
+.analysis-link-button.is-small {
+  gap: 6px;
+  min-height: 22px;
+  padding: 1px 9px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  line-height: 16px;
 }
 
 /* --- Bandeau de suivi (écran d'une analyse) ------------------------------ */
@@ -1021,22 +1053,7 @@ code {
   color: var(--text-soft);
 }
 
-.follow-banner-row svg {
-  flex-shrink: 0;
-}
-
-.follow-banner-link {
-  font-weight: 600;
-  color: #8b97ff;
-  overflow-wrap: anywhere;
-}
-
-.follow-banner-link:hover {
-  text-decoration: underline;
-}
-
 .follow-banner-meta {
-  padding-left: 22px;
   font-size: 12px;
   color: var(--faint);
 }

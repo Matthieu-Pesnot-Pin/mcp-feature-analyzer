@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { AnalysisSummary } from '@shared/schemas/analysis.schema'
 import { PROCESSED_STYLE, REVIEW_PROGRESS_STYLES } from '@shared/labels'
+import { AnalysisLinkButton } from '../components/AnalysisLinkButton'
 import { Icon, type IconName } from '../components/Icon'
 import { ReviewStateBadge, SeverityDot } from '../components/Pills'
 import { useAnalysisStore } from '../store/useAnalysisStore'
@@ -69,7 +70,7 @@ function ProcessingLine({ analysis }: { analysis: AnalysisSummary }) {
 /**
  * Lignes de suivi d'une carte : « Nouvelle revue disponible » avec l'état de la
  * revue de suivi, et « Revue faisant suite à » avec le rang dans la chaîne.
- * Chaque titre est un lien vers l'autre analyse.
+ * Chaque titre est un bouton vers l'autre analyse.
  */
 function FollowUpLines({ analysis }: { analysis: AnalysisSummary }) {
   const { followedBy, followUpOf } = analysis
@@ -77,22 +78,16 @@ function FollowUpLines({ analysis }: { analysis: AnalysisSummary }) {
     <>
       {followedBy && (
         <span className="home-row-follow">
-          <Icon name="arrow-right" size={12} color="#8b97ff" />
           <span>Nouvelle revue disponible :</span>
-          <a className="home-row-follow-link" href={hrefs.feature(followedBy.id)}>
-            {followedBy.title}
-          </a>
+          <AnalysisLinkButton link={followedBy} direction="next" small />
           <ReviewStateBadge progress={followedBy.progress} small />
         </span>
       )}
       {followUpOf && (
         <span className="home-row-follow">
-          <Icon name="corner-up-left" size={12} color="#8b97ff" />
           <span>Revue faisant suite à :</span>
-          <a className="home-row-follow-link" href={hrefs.feature(followUpOf.id)}>
-            {followUpOf.title}
-          </a>
-          <span className="home-row-follow-round">· tour {analysis.round}</span>
+          <AnalysisLinkButton link={followUpOf} direction="previous" small />
+          <span className="home-row-follow-round">tour {analysis.round}</span>
         </span>
       )}
     </>
