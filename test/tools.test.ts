@@ -603,7 +603,7 @@ test("a submitted review made of notes only is to process until mark_feedback_pr
   assert.match(listed, /processing note: answers given in the conversation/);
   assert.match(await ok(listAnalyses, store, { review_state: "to_process" }), /^No analysis with review state to_process\./);
   const feedback = await ok(getReviewFeedback, store, { analysis_id: id });
-  assert.match(feedback, /Processing: processed at .+ \(note: answers given in the conversation\)/);
+  assert.match(feedback, /Processing: processed at .+ by the agent \(note: answers given in the conversation\)/);
   assert.match(feedback, /Selected reviewer notes \(1\):\n- n1 — src\/app\.ts:2\n {4}Rename this/);
 
   assert.match(await ok(markFeedbackProcessed, store, { analysis_id: id }), /Note: none\.\nThis replaces the processing mark of /);

@@ -47,7 +47,14 @@ export const SubmitReviewBodySchema = z.strictObject({
   baseRevision: BaseRevisionSchema,
 });
 
+/** Marquage du retour soumis comme traité par le relecteur, avec une note facultative. */
+export const MarkProcessedBodySchema = z.strictObject({
+  note: z.string().trim().min(1, "the note is empty").nullable().optional(),
+  baseRevision: BaseRevisionSchema,
+});
+
 export type SetFileReviewedBody = z.infer<typeof SetFileReviewedBodySchema>;
+export type MarkProcessedBody = z.infer<typeof MarkProcessedBodySchema>;
 export type SetFindingStatusBody = z.infer<typeof SetFindingStatusBodySchema>;
 export type AddNoteBody = z.infer<typeof AddNoteBodySchema>;
 export type UpdateNoteBody = z.infer<typeof UpdateNoteBodySchema>;
@@ -72,3 +79,4 @@ export const DeleteNoteRequestSchema = AnalysisRequestSchema.extend({
   body: DeleteNoteBodySchema,
 });
 export const SubmitReviewRequestSchema = AnalysisRequestSchema.extend({ body: SubmitReviewBodySchema });
+export const MarkProcessedRequestSchema = AnalysisRequestSchema.extend({ body: MarkProcessedBodySchema });

@@ -59,8 +59,44 @@ export const addReviewProcessing: MigrationStep = (doc) => {
   return { ...doc, review: { ...raw, processed: raw.processed ?? null, previousSubmission: raw.previousSubmission ?? null } };
 };
 
+/** `processed` augmenté de `by: "agent"` quand il n'a pas d'auteur ; null quand il n'y a rien à changer. */
+function withProcessingAuthor(processed: unknown): RawDocument | null {
+  if (!processed || typeof processed !== "object" || Array.isArray(processed)) return null;
+  const raw = processed as RawDocument;
+  return raw.by !== undefined ? null : { ...raw, by: "agent" };
+}
+
+/**
+ * Ajoute `by: "agent"` aux traitements enregistrés sans auteur, dans la revue et
+ * dans sa version soumise précédente : seul l'agent pouvait alors les poser.
+ */
+export const addProcessingAuthor: MigrationStep = (doc) => {
+  const review = doc.review;
+  if (!review || typeof review !== "object" || Array.isArray(review)) return null;
+  const raw = review as RawDocument;
+  const processed = withProcessingAuthor(raw.processed);
+  const previous = raw.previousSubmission as RawDocument | null | undefined;
+  const previousProcessed = previous && typeof previous === "object" ? withProcessingAuthor(previous.processed) : null;
+  if (processed === null && previousProcessed === null) return null;
+  return {
+    ...doc,
+    review: {
+      ...raw,
+      ...(processed === null ? {} : { processed }),
+      ...(previousProcessed === null ? {} : { previousSubmission: { ...previous, processed: previousProcessed } }),
+    },
+  };
+};
+
 /** Étapes appliquées aux analyses (`analyses/<id>.json`), dans l'ordre. */
-export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [addProject, addOverview, addExplanations, addNoteFindingIds, addReviewProcessing];
+export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [
+  addProject,
+  addOverview,
+  addExplanations,
+  addNoteFindingIds,
+  addReviewProcessing,
+  addProcessingAuthor,
+];
 
 /** Étapes appliquées aux snapshots de diff (`diffs/<id>.json`), dans l'ordre. */
 export const SNAPSHOT_MIGRATIONS: readonly MigrationStep[] = [];

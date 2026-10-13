@@ -1,7 +1,8 @@
-import type { Analysis } from "../../shared/schemas/analysis.schema.js";
+import type { Analysis, Editor } from "../../shared/schemas/analysis.schema.js";
 import type {
   AddNoteBody,
   DeleteNoteBody,
+  MarkProcessedBody,
   SetFileReviewedBody,
   SetFindingStatusBody,
   SubmitReviewBody,
@@ -9,7 +10,7 @@ import type {
 } from "../../shared/schemas/api.schema.js";
 import { buildAgentPrompt } from "../../shared/prompt.js";
 import { recordSubmission, reopenSubmittedReview } from "../../shared/review-state.js";
-import type { AnalysisStore } from "./analysis-store.js";
+import type { AnalysisStore, MutateOptions } from "./analysis-store.js";
 import { AnalysisError, NotFoundError } from "./errors.js";
 import { itemId } from "./ids.js";
 import { assertNoteLocation } from "./locations.js";
@@ -129,6 +130,52 @@ export function deleteNote(store: AnalysisStore, analysisId: string, noteId: str
     },
     { baseRevision: body.baseRevision }
   );
+}
+
+/** Analyse marquée traitée, et date du marquage qu'elle remplace s'il y en avait un. */
+export interface MarkProcessedResult {
+  analysis: Analysis;
+  replaced: string | null;
+}
+
+/**
+ * Marque traité le retour soumis d'une analyse : date, note facultative et
+ * auteur (`agent` par l'outil MCP, `user` depuis la GUI). Refusé tant que la
+ * revue n'est pas soumise ; un nouveau marquage remplace le précédent.
+ */
+export function markFeedbackProcessed(
+  store: AnalysisStore,
+  analysisId: string,
+  editor: Editor,
+  note: string | null,
+  options: MutateOptions = {}
+): MarkProcessedResult {
+  let replaced: string | null = null;
+  const analysis = store.mutate(
+    analysisId,
+    editor,
+    (draft) => {
+      const review = draft.review;
+      if (review.state !== "submitted") {
+        const reopened = review.previousSubmission;
+        throw new AnalysisError(
+          reopened
+            ? `The review of analysis "${analysisId}" is not submitted: the reviewer reopened the feedback submitted at ${reopened.submittedAt} and is changing it. ` +
+                `Wait until it is submitted again, then read it with get_review_feedback.`
+            : `The review of analysis "${analysisId}" is not submitted yet: there is no feedback to mark processed.`
+        );
+      }
+      replaced = review.processed?.at ?? null;
+      review.processed = { at: new Date().toISOString(), note, by: editor };
+    },
+    options
+  );
+  return { analysis, replaced };
+}
+
+/** Marque traité, depuis la GUI, le retour soumis d'une analyse. */
+export function markProcessedByReviewer(store: AnalysisStore, analysisId: string, body: MarkProcessedBody): Analysis {
+  return markFeedbackProcessed(store, analysisId, "user", body.note ?? null, { baseRevision: body.baseRevision }).analysis;
 }
 
 function assertKnownIds(label: string, ids: string[], known: string[]): void {

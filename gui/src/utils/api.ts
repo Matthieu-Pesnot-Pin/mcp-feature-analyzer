@@ -2,6 +2,7 @@ import type { DiffSnapshot } from '@shared/schemas/diff.schema'
 import type {
   AddNoteBody,
   DeleteNoteBody,
+  MarkProcessedBody,
   SetFileReviewedBody,
   SetFindingStatusBody,
   SubmitReviewBody,
@@ -82,4 +83,6 @@ export const api = {
     send<AnalysisResponse>('DELETE', `${analysisPath(id)}/notes/${encodeURIComponent(noteId)}`, body),
 
   submitReview: (id: string, body: SubmitReviewBody) => send<AnalysisResponse>('POST', `${analysisPath(id)}/review`, body),
+
+  markProcessed: (id: string, body: MarkProcessedBody) => send<AnalysisResponse>('POST', `${analysisPath(id)}/review/processed`, body),
 }

@@ -86,6 +86,8 @@ interface AnalysisState {
   updateNote: (noteId: string, text: string) => Promise<boolean>
   deleteNote: (noteId: string) => Promise<boolean>
   submitReview: (decision: ReviewDecision, findingIds: string[], noteIds: string[]) => Promise<boolean>
+  /** Marque traité le retour soumis de l'analyse `summary`, depuis la liste, avec une note facultative. */
+  markProcessed: (summary: AnalysisSummary, note: string | null) => Promise<boolean>
 
   copy: (text: string, successMessage: string) => Promise<void>
   notify: (kind: Notice['kind'], text: string) => void
@@ -268,6 +270,27 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
       mutate('Retour non enregistré', (analysis) =>
         api.submitReview(analysis.id, { decision, findingIds, noteIds, baseRevision: analysis.revision }),
       ),
+
+    markProcessed: async (summary, note) => {
+      set({ saving: true })
+      try {
+        await api.markProcessed(summary.id, { note, baseRevision: summary.revision })
+        await get().loadAnalyses()
+        if (get().current?.id === summary.id) await get().reloadCurrent()
+        get().notify('info', `« ${summary.title} » est marquée traitée.`)
+        return true
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
+          await get().loadAnalyses()
+          get().notify('info', CONFLICT_MESSAGE)
+        } else {
+          get().notify('error', `Marquage impossible : ${(err as Error).message}`)
+        }
+        return false
+      } finally {
+        set({ saving: false })
+      }
+    },
 
     copy: async (text, successMessage) => {
       try {

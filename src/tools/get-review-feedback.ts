@@ -5,9 +5,12 @@ import { sortBySeverity } from "../../shared/severity.js";
 import { findingLine, indentBlock, noteLocationLabel, overviewLines, progressLabel } from "./format.js";
 import { rejectUnknownFields, requireString, textResult, type Args, type ToolResult } from "./types.js";
 
-/** `processed at <date> (note: …)`, `nothing to process (approved)` ou `not processed`. */
+/** `processed at <date> by the agent (note: …)`, `nothing to process (approved)` ou `not processed`. */
 function processingLabel(decision: ReviewDecision, processed: Processing | null): string {
-  if (processed !== null) return `processed at ${processed.at}${processed.note === null ? "" : ` (note: ${processed.note})`}`;
+  if (processed !== null) {
+    const by = processed.by === "user" ? "the reviewer" : "the agent";
+    return `processed at ${processed.at} by ${by}${processed.note === null ? "" : ` (note: ${processed.note})`}`;
+  }
   return decision === "approve" ? "nothing to process (approved)" : "not processed";
 }
 

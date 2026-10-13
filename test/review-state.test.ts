@@ -50,7 +50,7 @@ function submittedAnalysis() {
       selectedNoteIds: ["n_1"],
       prompt: "x",
       submittedAt: "2026-09-29T11:00:00.000Z",
-      processed: { at: "2026-09-29T12:00:00.000Z", note: "fixed by abc" },
+      processed: { at: "2026-09-29T12:00:00.000Z", note: "fixed by abc", by: "agent" },
     },
   });
 }
@@ -60,7 +60,7 @@ test("needsProcessing: a submitted review waits for the agent unless it is appro
   assert.equal(needsProcessing(submitted), true);
   assert.equal(needsProcessing({ ...submitted, decision: "reject" }), true);
   assert.equal(needsProcessing({ ...submitted, decision: "approve" }), false);
-  assert.equal(needsProcessing({ ...submitted, processed: { at: "2026-09-29T12:00:00.000Z", note: null } }), false);
+  assert.equal(needsProcessing({ ...submitted, processed: { at: "2026-09-29T12:00:00.000Z", note: null, by: "agent" } }), false);
   assert.equal(needsProcessing(pendingReview()), false);
 });
 
@@ -68,7 +68,7 @@ test("recordSubmission copies the selected points and the points the reviewer le
   assert.deepEqual(recordSubmission(submittedAnalysis()), {
     decision: "request_changes",
     submittedAt: "2026-09-29T11:00:00.000Z",
-    processed: { at: "2026-09-29T12:00:00.000Z", note: "fixed by abc" },
+    processed: { at: "2026-09-29T12:00:00.000Z", note: "fixed by abc", by: "agent" },
     findings: [{ id: "f_1", title: "Wrong value" }],
     notes: [{ id: "n_1", location: { path: "src/a.ts", line: 2 }, text: "Rename" }],
     excludedFindingIds: ["f_2"],

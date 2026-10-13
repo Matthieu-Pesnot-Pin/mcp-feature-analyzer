@@ -17,7 +17,15 @@ import { DEFAULT_HEAD_REF, localRepo, type RepoAccess } from "./core/git.js";
 import { agentRepo } from "./core/agent-repo.js";
 import { EXEC_ARG, handleAgentExec } from "./core/gateway-exec.js";
 import { resolveRole, type Role } from "./core/role.js";
-import { addNote, deleteNote, setFileReviewed, setFindingStatus, submitReview, updateNote } from "./core/review-actions.js";
+import {
+  addNote,
+  deleteNote,
+  markProcessedByReviewer,
+  setFileReviewed,
+  setFindingStatus,
+  submitReview,
+  updateNote,
+} from "./core/review-actions.js";
 import { GUI_REQUEST_TYPES, IPCMessageSchema, type IPCMessage, type IpcErrorKind } from "../shared/schemas/ipc.schema.js";
 import {
   AddNoteRequestSchema,
@@ -26,6 +34,7 @@ import {
   SetFileReviewedRequestSchema,
   SetFindingStatusRequestSchema,
   SubmitReviewRequestSchema,
+  MarkProcessedRequestSchema,
   UpdateNoteRequestSchema,
 } from "../shared/schemas/api.schema.js";
 import type { z } from "zod";
@@ -264,6 +273,13 @@ function handleGuiRequest(msg: IPCMessage): unknown {
     case "SUBMIT_REVIEW": {
       const request = parseRequest(SubmitReviewRequestSchema, msg.data);
       const analysis = submitReview(store, request.analysisId, request.body);
+      afterUserMutation(analysis.id);
+      return { analysis };
+    }
+
+    case "MARK_PROCESSED": {
+      const request = parseRequest(MarkProcessedRequestSchema, msg.data);
+      const analysis = markProcessedByReviewer(store, request.analysisId, request.body);
       afterUserMutation(analysis.id);
       return { analysis };
     }

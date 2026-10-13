@@ -139,10 +139,14 @@ export const DiagramSchema = z.object({
   updatedAt: IsoDateSchema,
 });
 
-/** Traitement d'un retour par l'agent : date et note facultative (commits, réponses données…). */
+/**
+ * Traitement d'un retour : date, note facultative (commits, réponses données…) et
+ * auteur du marquage — l'agent, ou le relecteur depuis la GUI.
+ */
 export const ProcessingSchema = z.object({
   at: IsoDateSchema,
   note: z.string().min(1).nullable(),
+  by: z.enum(EDITORS),
 });
 
 /**

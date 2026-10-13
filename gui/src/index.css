@@ -705,6 +705,7 @@ code {
 
 /* Une carte par analyse : le fond de la page les sépare. */
 .home-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 20px;
@@ -736,6 +737,113 @@ code {
   line-height: 20px;
   color: var(--text);
   overflow-wrap: anywhere;
+}
+
+.home-row-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+/* Le lien du titre couvre toute la carte ; le bouton « Marquer comme traité » passe au-dessus. */
+.home-row-link {
+  flex: 1;
+  min-width: 0;
+}
+
+.home-row-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+}
+
+.home-row-link:focus-visible {
+  outline: none;
+}
+
+.home-row-link:focus-visible::after {
+  box-shadow: 0 0 0 2px var(--accent-strong);
+}
+
+.mark-processed {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  margin: -4px 0;
+}
+
+.mark-processed-button {
+  height: 28px;
+  padding: 0 12px;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.mark-processed-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 340px;
+  padding: 14px 16px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.mark-processed-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.mark-processed-label {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.mark-processed-input {
+  height: 32px;
+  padding: 0 10px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.mark-processed-input:focus {
+  outline: none;
+  border-color: var(--accent-strong);
+}
+
+.mark-processed-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+.mark-processed-confirm {
+  height: 30px;
+  background: #1d4a45;
+  color: #5fd4c4;
+  font-weight: 600;
+}
+
+.mark-processed-confirm:hover:not(:disabled) {
+  background: #245a54;
+}
+
+.mark-processed-confirm:disabled {
+  opacity: 0.5;
 }
 
 .home-row-details {

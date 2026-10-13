@@ -47,6 +47,7 @@ export const GUI_REQUEST_TYPES = [
   "UPDATE_NOTE",
   "DELETE_NOTE",
   "SUBMIT_REVIEW",
+  "MARK_PROCESSED",
 ] as const;
 
 export type GuiRequestType = (typeof GUI_REQUEST_TYPES)[number];

@@ -166,7 +166,7 @@ test("the review only selects existing findings and notes, and its state is cohe
     "a submitted review needs a decision and a submittedAt date",
   ]);
   const processedPending = findInvariantViolations(
-    sampleAnalysis({ review: { ...pendingReview(), processed: { at: "2026-09-29T12:00:00.000Z", note: null } } })
+    sampleAnalysis({ review: { ...pendingReview(), processed: { at: "2026-09-29T12:00:00.000Z", note: null, by: "agent" } } })
   );
   assert.deepEqual(processedPending, ["a pending review cannot be marked processed"]);
   assert.throws(

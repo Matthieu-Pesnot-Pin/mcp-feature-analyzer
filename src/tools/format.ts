@@ -107,7 +107,7 @@ export function progressLabel(progress: ReviewProgress): string {
     ? "pending processing"
     : progress.processed === null
       ? "nothing to process"
-      : `processed at ${progress.processed.at}`;
+      : `processed at ${progress.processed.at}${progress.processed.by === "user" ? " by the reviewer" : ""}`;
   const decision = progress.state === "submitted" ? `, decision ${progress.decision}, ${processing}` : "";
   return `${REVIEW_PROGRESS_TEXT[progress.state]}${decision} (${progress.reviewedFiles}/${progress.totalFiles} files reviewed)`;
 }

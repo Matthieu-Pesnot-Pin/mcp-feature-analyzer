@@ -6,6 +6,7 @@ import path from "node:path";
 import { AnalysisStore } from "../src/core/analysis-store.js";
 import { AnalysisError } from "../src/core/errors.js";
 import {
+  addProcessingAuthor,
   addProject,
   addReviewProcessing,
   applyMigrations,
@@ -414,6 +415,17 @@ test("migration leaves a review submitted before processing existed to process, 
   const migrated = addReviewProcessing({ id: "x-abc123", review });
   assert.deepEqual(migrated?.review, { ...review, processed: null, previousSubmission: null });
   assert.equal(addReviewProcessing(migrated!), null, "a second pass must change nothing");
+});
+
+test("migration credits the agent with the processing marks recorded without an author, once", () => {
+  const processed = { at: "2026-09-29T12:00:00.000Z", note: "fixed" };
+  const review = { state: "submitted", processed, previousSubmission: { decision: "reject", processed } };
+  const migrated = addProcessingAuthor({ id: "x-abc123", review });
+  const migratedReview = migrated?.review as { processed: { by: string }; previousSubmission: { processed: { by: string } } };
+  assert.equal(migratedReview.processed.by, "agent");
+  assert.equal(migratedReview.previousSubmission.processed.by, "agent");
+  assert.equal(addProcessingAuthor(migrated!), null, "a second pass must change nothing");
+  assert.equal(addProcessingAuthor({ id: "x-abc123", review: { state: "pending", processed: null, previousSubmission: null } }), null);
 });
 
 test("migration refuses to guess a project when the repository path has no folder name", () => {

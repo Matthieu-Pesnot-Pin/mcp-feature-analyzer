@@ -27,9 +27,14 @@ export function formatDateTime(iso: string): string {
   return `${day} à ${time}`
 }
 
+/** « Traitée par l'agent » ou « Marquée traitée par le relecteur », selon l'auteur du marquage. */
+export function processedByLabel(processed: Processing): string {
+  return processed.by === 'user' ? 'Marquée traitée par le relecteur' : "Traitée par l'agent"
+}
+
 /** « Traitée par l'agent le 29/09/2026 à 14:32 — <note> » : traitement d'un retour. */
 export function processedTitle(processed: Processing): string {
-  return `Traitée par l'agent le ${formatDateTime(processed.at)}${processed.note === null ? '' : ` — ${processed.note}`}`
+  return `${processedByLabel(processed)} le ${formatDateTime(processed.at)}${processed.note === null ? '' : ` — ${processed.note}`}`
 }
 
 /**

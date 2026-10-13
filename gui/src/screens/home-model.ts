@@ -5,14 +5,14 @@ import { REVIEW_PROGRESS_STATES, SEVERITIES } from '@shared/schemas/analysis.sch
  * Filtre de l'accueil. Les quatre premiers se partagent les analyses sans se
  * recouvrir :
  * - `to_review` : revue pas encore soumise ;
- * - `processed` : revue soumise que l'agent a marquée traitée ;
  * - `to_process` : revue soumise qui attend l'agent ;
+ * - `processed` : revue soumise que l'agent a marquée traitée ;
  * - `approved` : revue approuvée, sans traitement de l'agent ;
  * - `all` : toutes les analyses.
  */
 export type HomeFilter = 'to_review' | 'processed' | 'to_process' | 'approved' | 'all'
 
-export const HOME_FILTERS: readonly HomeFilter[] = ['to_review', 'processed', 'to_process', 'approved', 'all']
+export const HOME_FILTERS: readonly HomeFilter[] = ['to_review', 'to_process', 'processed', 'approved', 'all']
 
 /** Analyses d'un projet, avec le nombre d'analyses de chaque état de revue présent. */
 export interface ProjectGroup {

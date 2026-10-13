@@ -303,6 +303,32 @@ test("POST review submits the review, and get_review_feedback returns it to the 
   assert.match(changed.text, /~ note .+ — src\/app\.ts:2\n {6}Reuse the shared helper\n {4}was: src\/app\.ts:2\n {6}Use the shared helper/);
 });
 
+test("POST review/processed marks the submitted feedback processed by the reviewer", async () => {
+  const { json } = await call("GET", `analyses/${analysisId}`);
+  assert.equal(json.analysis.review.state, "submitted");
+
+  const empty = await call("POST", `analyses/${analysisId}/review/processed`, { note: "  ", baseRevision: json.analysis.revision });
+  assert.equal(empty.status, 400);
+  assert.match(empty.json.error, /the note is empty/);
+
+  const marked = await call("POST", `analyses/${analysisId}/review/processed`, {
+    note: "fixed in 1ff5baaad",
+    baseRevision: json.analysis.revision,
+  });
+  assert.equal(marked.status, 200, marked.json.error);
+  const processed = marked.json.analysis.review.processed;
+  assert.equal(processed.note, "fixed in 1ff5baaad");
+  assert.equal(processed.by, "user");
+
+  const listed = await call("GET", "analyses");
+  assert.equal(listed.json.analyses.find((summary: { id: string }) => summary.id === analysisId).progress.toProcess, false);
+  const feedback = await client.callTool("get_review_feedback", { analysis_id: analysisId });
+  assert.match(feedback.text, /Processing: processed at .+ by the reviewer \(note: fixed in 1ff5baaad\)/);
+
+  const stale = await call("POST", `analyses/${analysisId}/review/processed`, { note: null, baseRevision: json.analysis.revision });
+  assert.equal(stale.status, 409);
+});
+
 test("GET /api/changes answers a reset first, then the events pushed by the master", async () => {
   const first = await call("GET", "changes");
   assert.equal(first.status, 200);

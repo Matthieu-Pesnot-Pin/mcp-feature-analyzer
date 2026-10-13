@@ -11,6 +11,7 @@ import { IPCMessageSchema, PUSHED_EVENT_TYPES, type ChangesResponse, type IPCMes
 import {
   AddNoteBodySchema,
   DeleteNoteBodySchema,
+  MarkProcessedBodySchema,
   SetFileReviewedBodySchema,
   SetFindingStatusBodySchema,
   SubmitReviewBodySchema,
@@ -336,6 +337,12 @@ app.post("/api/analyses/:id/review", async (c) => {
   const read = await readBody(c, SubmitReviewBodySchema);
   if ("response" in read) return read.response;
   return forward(c, "SUBMIT_REVIEW", { analysisId: c.req.param("id"), body: read.body });
+});
+
+app.post("/api/analyses/:id/review/processed", async (c) => {
+  const read = await readBody(c, MarkProcessedBodySchema);
+  if ("response" in read) return read.response;
+  return forward(c, "MARK_PROCESSED", { analysisId: c.req.param("id"), body: read.body });
 });
 
 /** Route d'API inconnue : 404 explicite plutôt que la page de la SPA. */
