@@ -35,6 +35,7 @@ export default function App() {
 
   const analysis = current && current.id === routeId ? current.analysis : null
   const loadError = current && current.id === routeId ? current.error : null
+  const links = current && current.id === routeId ? current.links : null
 
   const action =
     route.name === 'review' && analysis ? (
@@ -69,7 +70,7 @@ export default function App() {
   } else if (!analysis) {
     screen = <Message><p>Chargement de l'analyse…</p></Message>
   } else if (route.name === 'feature') {
-    screen = <FeatureScreen analysis={analysis} tab={route.tab} />
+    screen = <FeatureScreen analysis={analysis} links={links} tab={route.tab} />
   } else if (route.name === 'review') {
     screen = <ReviewScreen analysis={analysis} path={route.path} line={route.line} />
   } else {

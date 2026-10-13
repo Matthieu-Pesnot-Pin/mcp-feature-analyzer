@@ -25,6 +25,8 @@ export interface CreateAnalysisInput {
   title: string;
   request?: AnalysisRequest | null;
   summary?: string[];
+  /** Analyse dont la nouvelle analyse est la revue de suivi. */
+  followUpOf?: string | null;
 }
 
 export interface MutateOptions {
@@ -279,6 +281,7 @@ export class AnalysisStore {
       .filter((file) => file.endsWith(".json"))
       .map((file) => file.slice(0, -".json".length));
 
+    const followUpOf = new Map<string, string>();
     for (const id of ids) {
       let analysis: Analysis;
       try {
@@ -289,7 +292,9 @@ export class AnalysisStore {
         continue;
       }
       analyses.push(summarize(analysis));
+      if (analysis.followUpOf !== null) followUpOf.set(analysis.id, analysis.followUpOf);
     }
+    linkFollowUps(analyses, followUpOf);
     analyses.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     return { analyses, unreadable };
   }
@@ -351,6 +356,7 @@ export class AnalysisStore {
       headCommit: snapshot.headCommit,
       snapshotAt: snapshot.snapshotAt,
       request: input.request ?? null,
+      followUpOf: input.followUpOf ?? null,
       overview: null,
       summary: input.summary ?? [],
       files: snapshot.files.map((file) => ({ ...file, reviewed: false })),
@@ -461,7 +467,35 @@ export class AnalysisStore {
   }
 }
 
-/** Vue légère d'une analyse. */
+/**
+ * Renseigne les liens de suivi des résumés : `followUpOf` (analyse suivie),
+ * `followedBy` (revue de suivi) et `round` (rang dans la chaîne). `followUpOf`
+ * associe chaque revue de suivi à l'analyse qu'elle suit ; un lien vers une
+ * analyse absente de la liste est ignoré.
+ */
+export function linkFollowUps(summaries: AnalysisSummary[], followUpOf: ReadonlyMap<string, string>): void {
+  const byId = new Map(summaries.map((summary) => [summary.id, summary]));
+  for (const [followUpId, originId] of followUpOf) {
+    const followUp = byId.get(followUpId);
+    const origin = byId.get(originId);
+    if (!followUp || !origin) continue;
+    followUp.followUpOf = { id: origin.id, title: origin.title };
+    origin.followedBy = { id: followUp.id, title: followUp.title, progress: followUp.progress };
+  }
+  for (const summary of summaries) {
+    const seen = new Set([summary.id]);
+    let round = 1;
+    let previous = summary.followUpOf;
+    while (previous !== null && !seen.has(previous.id)) {
+      seen.add(previous.id);
+      round++;
+      previous = byId.get(previous.id)?.followUpOf ?? null;
+    }
+    summary.round = round;
+  }
+}
+
+/** Vue légère d'une analyse, sans ses liens de suivi (voir `linkFollowUps`). */
 export function summarize(analysis: Analysis): AnalysisSummary {
   const openFindings = emptySeverityCounts();
   for (const finding of analysis.findings) {
@@ -479,6 +513,9 @@ export function summarize(analysis: Analysis): AnalysisSummary {
     openFindings,
     diagramCount: analysis.diagrams.length,
     progress: reviewProgress(analysis),
+    followUpOf: null,
+    followedBy: null,
+    round: 1,
     updatedAt: analysis.updatedAt,
     revision: analysis.revision,
   };

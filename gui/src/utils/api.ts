@@ -9,7 +9,7 @@ import type {
   UpdateNoteBody,
 } from '@shared/schemas/api.schema'
 import type { ChangesResponse } from '@shared/schemas/ipc.schema'
-import type { AnalysisListing, AnalysisResponse, AppConfig } from '../types'
+import type { AnalysisDetail, AnalysisListing, AnalysisResponse, AppConfig } from '../types'
 
 /** Erreur HTTP de l'API : `status` distingue un conflit de révision (409) des autres échecs. */
 export class ApiError extends Error {
@@ -64,7 +64,7 @@ export const api = {
 
   listAnalyses: () => request<AnalysisListing>('analyses'),
 
-  getAnalysis: (id: string) => request<AnalysisResponse>(analysisPath(id)),
+  getAnalysis: (id: string) => request<AnalysisDetail>(analysisPath(id)),
 
   getDiff: (id: string) => request<{ diff: DiffSnapshot }>(`${analysisPath(id)}/diff`),
 

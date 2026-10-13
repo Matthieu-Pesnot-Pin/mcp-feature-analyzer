@@ -112,7 +112,7 @@ export function findingLocationLabel(finding: Finding, request: Analysis['reques
 }
 
 /** Emplacement court d'une remarque. */
-export function noteLocationLabel(note: Note): string {
+export function noteLocationLabel(note: Pick<Note, 'location'>): string {
   if (!note.location) return 'analyse entière'
   const name = splitPath(note.location.path).name
   return note.location.line === null ? name : `${name}:${note.location.line}`

@@ -293,6 +293,7 @@ export function sampleAnalysis(overrides: Partial<Analysis> = {}): Analysis {
     headCommit: snapshot.headCommit,
     snapshotAt: snapshot.snapshotAt,
     request: null,
+    followUpOf: null,
     overview: null,
     summary: [],
     files: structuredClone(snapshot.files),

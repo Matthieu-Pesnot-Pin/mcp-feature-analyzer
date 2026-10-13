@@ -88,6 +88,9 @@ export const addProcessingAuthor: MigrationStep = (doc) => {
   };
 };
 
+/** Ajoute `followUpOf` à null : l'analyse n'est la revue de suivi d'aucune autre. */
+export const addFollowUpOf: MigrationStep = (doc) => (doc.followUpOf !== undefined ? null : { ...doc, followUpOf: null });
+
 /** Étapes appliquées aux analyses (`analyses/<id>.json`), dans l'ordre. */
 export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [
   addProject,
@@ -96,6 +99,7 @@ export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [
   addNoteFindingIds,
   addReviewProcessing,
   addProcessingAuthor,
+  addFollowUpOf,
 ];
 
 /** Étapes appliquées aux snapshots de diff (`diffs/<id>.json`), dans l'ordre. */

@@ -214,6 +214,8 @@ export const AnalysisSchema = z.object({
   headCommit: z.string().min(1).nullable(),
   snapshotAt: IsoDateSchema,
   request: RequestSchema.nullable(),
+  /** Analyse dont celle-ci est la revue de suivi ; null pour une première revue. */
+  followUpOf: z.string().regex(ANALYSIS_ID_PATTERN).nullable(),
   overview: OverviewSchema.nullable(),
   /** Changements fonctionnels de la feature, une puce par changement. */
   summary: z.array(z.string().min(1)),
@@ -278,6 +280,17 @@ export interface ReviewProgress {
   toProcess: boolean;
 }
 
+/** Référence à une autre analyse. */
+export interface AnalysisLink {
+  id: string;
+  title: string;
+}
+
+/** Revue de suivi d'une analyse, avec l'avancement de sa revue. */
+export interface FollowUpLink extends AnalysisLink {
+  progress: ReviewProgress;
+}
+
 /** Vue légère d'une analyse, pour les listes. */
 export interface AnalysisSummary {
   id: string;
@@ -292,6 +305,12 @@ export interface AnalysisSummary {
   openFindings: Record<Severity, number>;
   diagramCount: number;
   progress: ReviewProgress;
+  /** Analyse dont celle-ci est la revue de suivi. */
+  followUpOf: AnalysisLink | null;
+  /** Revue de suivi de celle-ci ; une analyse en a au plus une. */
+  followedBy: FollowUpLink | null;
+  /** Rang de l'analyse dans sa chaîne de revues : 1 pour une première revue. */
+  round: number;
   updatedAt: string;
   revision: number;
 }

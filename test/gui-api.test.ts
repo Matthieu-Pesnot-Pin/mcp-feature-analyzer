@@ -104,6 +104,7 @@ test("GET /api/analyses/:id and /diff return the analysis and its frozen diff", 
   assert.equal(analysis.status, 200);
   assert.equal(analysis.json.analysis.title, "GUI API");
   assert.equal(analysis.json.analysis.findings.length, 3);
+  assert.deepEqual(analysis.json.links, { previous: null, next: null, chain: [{ id: analysisId, title: "GUI API" }] });
 
   const diff = await call("GET", `analyses/${analysisId}/diff`);
   assert.equal(diff.status, 200);

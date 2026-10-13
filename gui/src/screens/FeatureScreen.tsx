@@ -1,5 +1,7 @@
+import type { AnalysisLinks } from '@shared/follow-ups'
 import type { Analysis } from '@shared/schemas/analysis.schema'
 import { MODE_LABELS } from '@shared/labels'
+import { FollowUpBanner } from '../components/FollowUpBanner'
 import { diffTotals, headLabel, plural, refLabel, relativeTime } from '../utils/format'
 import { FEATURE_TABS, hrefs, navigate, type FeatureTab } from '../utils/router'
 import { FilesTab } from './FilesTab'
@@ -35,8 +37,11 @@ function refsDescription(analysis: Analysis): string {
   return `${MODE_LABELS.working_tree} par rapport à HEAD`
 }
 
-/** Écran Feature : en-tête de l'analyse, onglets et contenu de l'onglet `tab`. */
-export function FeatureScreen({ analysis, tab }: { analysis: Analysis; tab: FeatureTab }) {
+/**
+ * Écran Feature : en-tête de l'analyse, bandeau de suivi quand elle fait partie
+ * d'une chaîne de revues, onglets et contenu de l'onglet `tab`.
+ */
+export function FeatureScreen({ analysis, links, tab }: { analysis: Analysis; links: AnalysisLinks | null; tab: FeatureTab }) {
   const totals = diffTotals(analysis)
   const startPath = firstFileToReview(analysis)
 
@@ -63,6 +68,8 @@ export function FeatureScreen({ analysis, tab }: { analysis: Analysis; tab: Feat
           Commencer la revue
         </button>
       </div>
+
+      {links && <FollowUpBanner analysisId={analysis.id} links={links} />}
 
       <nav className="tabs" aria-label="Sections de l'analyse">
         {FEATURE_TABS.map((entry) => {

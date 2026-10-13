@@ -47,6 +47,10 @@ function analysisLines(summary: AnalysisSummary): string[] {
     `  review: ${progressLabel(summary.progress)}${feedback} | updated ${summary.updatedAt}`,
   ];
   if (processed?.note) lines.push(`  processing note: ${processed.note}`);
+  if (summary.followUpOf) lines.push(`  follow-up of: ${summary.followUpOf.id} (round ${summary.round})`);
+  if (summary.followedBy) {
+    lines.push(`  followed by: ${summary.followedBy.id} — review ${progressLabel(summary.followedBy.progress)}`);
+  }
   return lines;
 }
 

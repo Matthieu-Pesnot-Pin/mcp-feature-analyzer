@@ -1,4 +1,5 @@
 import { summarize, type AnalysisStore } from "../core/analysis-store.js";
+import { analysisLinks } from "../core/follow-ups.js";
 import type { Analysis, Diagram, Note } from "../../shared/schemas/analysis.schema.js";
 import { diagramQuality } from "../../shared/diagram-quality.js";
 import { reviewProgress } from "../../shared/review-state.js";
@@ -8,6 +9,7 @@ import {
   explanationLine,
   fileTotals,
   findingLine,
+  followUpLines,
   noteLocationLabel,
   overviewLines,
   progressLabel,
@@ -59,6 +61,7 @@ export function getAnalysis(store: AnalysisStore, args: Args): ToolResult {
     `Repository: ${analysis.repoPath}`,
     `Diff: ${snapshotLabel(analysis)}`,
     `Revision ${analysis.revision}, last edited by ${analysis.lastEditor} at ${analysis.updatedAt}`,
+    ...followUpLines(analysisLinks(store, analysis.id), analysis.id),
     "",
   ];
 

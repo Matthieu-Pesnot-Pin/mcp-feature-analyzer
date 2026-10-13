@@ -1,4 +1,5 @@
 import type { AnalysisStore } from "../core/analysis-store.js";
+import { assertCanFollowUp, markOriginFollowed } from "../core/follow-ups.js";
 import { computeSnapshot, localRepo, type RepoAccess } from "../core/git.js";
 import { ANALYSIS_MODES } from "../../shared/schemas/analysis.schema.js";
 import { fileLine, fileTotals, snapshotLabel } from "./format.js";
@@ -12,9 +13,13 @@ import {
   type MutationResult,
 } from "./types.js";
 
-const FIELDS = ["repo_path", "project", "title", "mode", "base", "head", "request_text", "request_source"] as const;
+const FIELDS = ["repo_path", "project", "title", "mode", "base", "head", "request_text", "request_source", "follow_up_of"] as const;
 
-/** Calcule et fige le diff du dépôt, lu par `repoFor(repo_path)` (git local par défaut), puis crée l'analyse. */
+/**
+ * Calcule et fige le diff du dépôt, lu par `repoFor(repo_path)` (git local par
+ * défaut), puis crée l'analyse. Avec `follow_up_of`, la nouvelle analyse est la
+ * revue de suivi de celle-ci, dont le retour est marqué traité s'il attendait l'agent.
+ */
 export async function createAnalysis(
   store: AnalysisStore,
   args: Args,
@@ -33,9 +38,17 @@ export async function createAnalysis(
     throw new Error(`"request_source" describes the initial request: give "request_text" too.`);
   }
 
+  const followUpOf = optionalString(args, "follow_up_of");
+  const origin = followUpOf === undefined ? null : assertCanFollowUp(store, followUpOf);
+
   const computed = await computeSnapshot({ repoPath, mode, base, head }, repoFor(repoPath));
   const analysis = store.create(
-    { project, title, request: requestText === undefined ? null : { text: requestText, source: requestSource ?? null } },
+    {
+      project,
+      title,
+      request: requestText === undefined ? null : { text: requestText, source: requestSource ?? null },
+      followUpOf: origin?.id ?? null,
+    },
     computed
   );
 
@@ -43,8 +56,17 @@ export async function createAnalysis(
     `Created analysis "${analysis.title}" (id: ${analysis.id}) in project "${analysis.project}".`,
     `Repository: ${analysis.repoPath}`,
     `Diff: ${snapshotLabel(analysis)}`,
-    "",
   ];
+  if (origin !== null) {
+    const marked = markOriginFollowed(store, origin.id, analysis);
+    lines.push(
+      `Follow-up of: "${origin.title}" (${origin.id}). The reviewer sees the points of its feedback to check in this new review.`,
+      marked
+        ? `Its feedback was waiting for you: it is now marked processed, with a note naming this follow-up.`
+        : `Its feedback was already processed or approved: its processing mark is unchanged.`
+    );
+  }
+  lines.push("");
   if (analysis.files.length === 0) {
     lines.push(
       "Changed files: none — the diff is empty. Check the mode and refs; delete this analysis with delete_analysis and create it again with the right ones."

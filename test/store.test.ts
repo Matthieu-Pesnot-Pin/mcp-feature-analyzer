@@ -6,6 +6,7 @@ import path from "node:path";
 import { AnalysisStore } from "../src/core/analysis-store.js";
 import { AnalysisError } from "../src/core/errors.js";
 import {
+  addFollowUpOf,
   addProcessingAuthor,
   addProject,
   addReviewProcessing,
@@ -426,6 +427,12 @@ test("migration credits the agent with the processing marks recorded without an 
   assert.equal(migratedReview.previousSubmission.processed.by, "agent");
   assert.equal(addProcessingAuthor(migrated!), null, "a second pass must change nothing");
   assert.equal(addProcessingAuthor({ id: "x-abc123", review: { state: "pending", processed: null, previousSubmission: null } }), null);
+});
+
+test("migration leaves existing analyses as first reviews, once", () => {
+  const migrated = addFollowUpOf({ id: "x-abc123" });
+  assert.equal(migrated?.followUpOf, null);
+  assert.equal(addFollowUpOf(migrated!), null, "a second pass must change nothing");
 });
 
 test("migration refuses to guess a project when the repository path has no folder name", () => {

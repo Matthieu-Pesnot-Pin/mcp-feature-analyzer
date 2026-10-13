@@ -18,6 +18,9 @@ export function markFeedbackProcessed(store: AnalysisStore, args: Args): Mutatio
     `Note: ${processed.note ?? "none"}.`,
   ];
   if (replaced !== null) lines.push(`This replaces the processing mark of ${replaced}.`);
-  lines.push("The feedback stays readable with get_review_feedback. If the reviewer changes the review, it becomes pending again.");
+  lines.push(
+    "The feedback stays readable with get_review_feedback. If the reviewer changes the review, it becomes pending again.",
+    `If the fixes are in new commits, create their follow-up review with create_analysis and follow_up_of "${updated.id}".`
+  );
   return { result: textResult(lines.join("\n")), analysisId: updated.id };
 }

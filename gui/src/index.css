@@ -948,10 +948,11 @@ code {
   white-space: nowrap;
 }
 
+/* Au moins 210 px ; s'élargit quand la revue porte trois pastilles (soumise, décision, traitée). */
 .home-row-state {
   display: flex;
   justify-content: flex-end;
-  width: 210px;
+  min-width: 210px;
   flex-shrink: 0;
 }
 
@@ -966,6 +967,166 @@ code {
 
 .home-row-processing svg {
   flex-shrink: 0;
+}
+
+.home-row-follow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.home-row-follow svg {
+  flex-shrink: 0;
+}
+
+/* Lien vers l'autre analyse, au-dessus du lien qui couvre la carte. */
+.home-row-follow-link {
+  position: relative;
+  z-index: 1;
+  font-weight: 600;
+  color: #8b97ff;
+  overflow-wrap: anywhere;
+}
+
+.home-row-follow-link:hover {
+  text-decoration: underline;
+}
+
+.home-row-follow-round {
+  color: var(--faint);
+}
+
+/* --- Bandeau de suivi (écran d'une analyse) ------------------------------ */
+
+.follow-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 24px;
+  padding: 14px 20px;
+  background: #12162a;
+  border: 1px solid #262d55;
+  border-radius: 12px;
+}
+
+.follow-banner-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.follow-banner-row svg {
+  flex-shrink: 0;
+}
+
+.follow-banner-link {
+  font-weight: 600;
+  color: #8b97ff;
+  overflow-wrap: anywhere;
+}
+
+.follow-banner-link:hover {
+  text-decoration: underline;
+}
+
+.follow-banner-meta {
+  padding-left: 22px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.follow-banner-points {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid #262d55;
+}
+
+.follow-banner-points-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.follow-banner-points-count {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--faint);
+}
+
+.follow-banner-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.follow-banner-point {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.follow-banner-point-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.follow-banner-point-location {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.follow-banner-empty {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.round-chain {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.round-chain-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.round-chain-item {
+  padding: 2px 10px;
+  border-radius: 11px;
+  background: var(--divider);
+  font-size: 11px;
+  font-weight: 500;
+  color: #8b97ff;
+}
+
+a.round-chain-item:hover {
+  text-decoration: underline;
+}
+
+.round-chain-item.is-current {
+  background: #1b1f3d;
+  box-shadow: inset 0 0 0 1px #2c3470;
+  font-weight: 600;
+  color: #c3c9ff;
 }
 
 .home-row.is-unreadable .home-row-title {

@@ -10,6 +10,7 @@ import {
   type ReviewProgressState,
   type Severity,
 } from "../../shared/schemas/analysis.schema.js";
+import type { AnalysisLinks } from "../../shared/follow-ups.js";
 import { FILE_STATUS_LETTERS } from "../../shared/labels.js";
 import { lineRange, noteLocationText } from "../../shared/text.js";
 
@@ -110,6 +111,22 @@ export function progressLabel(progress: ReviewProgress): string {
       : `processed at ${progress.processed.at}${progress.processed.by === "user" ? " by the reviewer" : ""}`;
   const decision = progress.state === "submitted" ? `, decision ${progress.decision}, ${processing}` : "";
   return `${REVIEW_PROGRESS_TEXT[progress.state]}${decision} (${progress.reviewedFiles}/${progress.totalFiles} files reviewed)`;
+}
+
+/**
+ * Lignes de suivi d'une analyse : analyse suivie et revue de suivi, avec le rang
+ * dans la chaîne. Aucune ligne pour une analyse sans lien.
+ */
+export function followUpLines(links: Pick<AnalysisLinks, "previous" | "next" | "chain">, id: string): string[] {
+  const lines: string[] = [];
+  const round = links.chain.findIndex((link) => link.id === id) + 1;
+  if (links.previous) {
+    lines.push(`Follow-up of: "${links.previous.title}" (${links.previous.id}) — round ${round} of ${links.chain.length}.`);
+  }
+  if (links.next) {
+    lines.push(`Followed by: "${links.next.title}" (${links.next.id}), review ${progressLabel(links.next.progress)}.`);
+  }
+  return lines;
 }
 
 /** Bloc « Overview » : objectif, approche et points d'attention ; une ligne d'invitation quand il n'y en a pas. */

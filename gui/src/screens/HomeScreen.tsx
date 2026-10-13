@@ -67,6 +67,39 @@ function ProcessingLine({ analysis }: { analysis: AnalysisSummary }) {
 }
 
 /**
+ * Lignes de suivi d'une carte : « Nouvelle revue disponible » avec l'état de la
+ * revue de suivi, et « Revue faisant suite à » avec le rang dans la chaîne.
+ * Chaque titre est un lien vers l'autre analyse.
+ */
+function FollowUpLines({ analysis }: { analysis: AnalysisSummary }) {
+  const { followedBy, followUpOf } = analysis
+  return (
+    <>
+      {followedBy && (
+        <span className="home-row-follow">
+          <Icon name="arrow-right" size={12} color="#8b97ff" />
+          <span>Nouvelle revue disponible :</span>
+          <a className="home-row-follow-link" href={hrefs.feature(followedBy.id)}>
+            {followedBy.title}
+          </a>
+          <ReviewStateBadge progress={followedBy.progress} small />
+        </span>
+      )}
+      {followUpOf && (
+        <span className="home-row-follow">
+          <Icon name="corner-up-left" size={12} color="#8b97ff" />
+          <span>Revue faisant suite à :</span>
+          <a className="home-row-follow-link" href={hrefs.feature(followUpOf.id)}>
+            {followUpOf.title}
+          </a>
+          <span className="home-row-follow-round">· tour {analysis.round}</span>
+        </span>
+      )}
+    </>
+  )
+}
+
+/**
  * Bouton « Marquer comme traité » d'une carte et sa fenêtre : note facultative,
  * puis confirmation. Entrée confirme ; Échap ou un clic dehors referment la fenêtre.
  */
@@ -147,9 +180,9 @@ function MarkProcessedButton({ analysis }: { analysis: AnalysisSummary }) {
 
 /**
  * Carte d'une analyse : le titre en entier, puis refs, date, progression des
- * fichiers, constats ouverts et état de revue sur une seconde ligne, et la note
- * du traitement quand le retour est marqué traité. Toute la carte mène à
- * l'analyse ; `markable` ajoute le bouton « Marquer comme traité » à droite du titre.
+ * fichiers, constats ouverts et état de revue sur une seconde ligne, la note du
+ * traitement quand le retour est marqué traité, et ses liens de suivi. Toute la
+ * carte mène à l'analyse ; `markable` ajoute le bouton « Marquer comme traité » à droite du titre.
  */
 function AnalysisRow({ analysis, markable }: { analysis: AnalysisSummary; markable: boolean }) {
   const { reviewedFiles, totalFiles } = analysis.progress
@@ -197,6 +230,7 @@ function AnalysisRow({ analysis, markable }: { analysis: AnalysisSummary; markab
           </span>
         </span>
         <ProcessingLine analysis={analysis} />
+        <FollowUpLines analysis={analysis} />
       </span>
       <Icon name="chevron-right" color="#646b7b" />
     </div>

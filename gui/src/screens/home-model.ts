@@ -2,12 +2,12 @@ import type { AnalysisSummary, ReviewProgressState } from '@shared/schemas/analy
 import { REVIEW_PROGRESS_STATES, SEVERITIES } from '@shared/schemas/analysis.schema'
 
 /**
- * Filtre de l'accueil. Les quatre premiers se partagent les analyses sans se
- * recouvrir :
+ * Filtre de l'accueil. Les quatre premiers ne se recouvrent pas, et laissent de
+ * côté les analyses qui ont une revue de suivi, visibles dans `all` seulement :
  * - `to_review` : revue pas encore soumise ;
  * - `to_process` : revue soumise qui attend l'agent ;
- * - `processed` : revue soumise que l'agent a marquée traitée ;
- * - `approved` : revue approuvée, sans traitement de l'agent ;
+ * - `processed` : revue soumise marquée traitée ;
+ * - `approved` : revue approuvée, sans traitement marqué ;
  * - `all` : toutes les analyses.
  */
 export type HomeFilter = 'to_review' | 'processed' | 'to_process' | 'approved' | 'all'
@@ -24,6 +24,7 @@ export interface ProjectGroup {
 /** Vrai quand l'analyse fait partie des analyses retenues par `filter`. */
 export function matchesHomeFilter(analysis: AnalysisSummary, filter: HomeFilter): boolean {
   const { state, decision, processed, toProcess } = analysis.progress
+  if (filter !== 'all' && analysis.followedBy !== null) return false
   switch (filter) {
     case 'to_review':
       return state !== 'submitted'

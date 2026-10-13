@@ -64,6 +64,7 @@ import { DEFAULT_NODE_SHAPE, DEFAULT_NODE_STATUS, setDiagram } from "./tools/set
 import { deleteDiagram } from "./tools/delete-diagram.js";
 import { getReviewFeedback } from "./tools/get-review-feedback.js";
 import { markFeedbackProcessed } from "./tools/mark-feedback-processed.js";
+import { analysisLinks } from "./core/follow-ups.js";
 import { deleteAnalysis } from "./tools/delete-analysis.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -129,6 +130,7 @@ Concepts:
 - An **explanation** describes what a block of added or removed code does and how it works, so that the reviewer understands it before judging it. It is not a finding: it judges nothing and asks for nothing. It is anchored on new-side lines (added code) or old-side lines (removed code), and shown in the diff above the lines it describes.
 - A **diagram** is a flow, layers or mindmap picture of the feature. You give nodes and links only; the GUI lays them out.
 - The **review** belongs to the reviewer: files marked reviewed, findings ignored, notes, and a submitted decision with a prompt for you.
+- A **follow-up review** is a new analysis created with follow_up_of: it reviews the fixes for the submitted feedback of an earlier analysis. Each analysis has at most one follow-up, so the rounds form a chain.
 
 Workflow:
 1. list_analyses (with project) to find an analysis of the same feature: reuse it with update_analysis and refresh_analysis instead of creating a duplicate. Otherwise create_analysis with its project once the feature is developed.
@@ -139,7 +141,7 @@ Workflow:
 6. set_diagram when a picture helps (impacted layers, process flow, concept tree).
 7. Tell the user to review the analysis in the GUI (the link is in the tool results).
 8. get_review_feedback to read the decision, the selected points and the prompt. list_analyses with review_state "to_process" lists the submitted reviews you have not handled yet; an approved review has nothing to process.
-9. Fix the code, then refresh_analysis to recompute the diff for a new review round; re-anchor or rewrite the outdated findings and explanations. When the diff must stay as it is (an analysis of one commit, fixes in other commits, answers given in the conversation), call mark_feedback_processed instead, with a note saying how the feedback was handled.
+9. Fix the code, then refresh_analysis to recompute the diff for a new review round; re-anchor or rewrite the outdated findings and explanations. When the fixes are in other commits (typically an analysis of one commit), create their follow-up review instead: create_analysis on the fix commits with follow_up_of set to the analysis you fixed; it marks that feedback processed and shows its points to the reviewer. When nothing needs a new review (answers given in the conversation), call mark_feedback_processed with a note saying how the feedback was handled.
 
 Explanation rules:
 - Write one for every added or removed block that is long (a function or a block of about 30 lines or more) or complex (non-trivial algorithm, state machine, concurrency, recursion, tricky regular expression or data transformation). A 100-line function always gets one.
@@ -229,8 +231,10 @@ function handleGuiRequest(msg: IPCMessage): unknown {
     case "LIST_ANALYSES":
       return store.list();
 
-    case "GET_ANALYSIS":
-      return { analysis: store.get(parseRequest(AnalysisRequestSchema, msg.data).analysisId) };
+    case "GET_ANALYSIS": {
+      const analysisId = parseRequest(AnalysisRequestSchema, msg.data).analysisId;
+      return { analysis: store.get(analysisId), links: analysisLinks(store, analysisId) };
+    }
 
     case "GET_DIFF":
       return { diff: store.getSnapshot(parseRequest(AnalysisRequestSchema, msg.data).analysisId) };
@@ -503,6 +507,13 @@ const TOOLS = [
         },
         request_text: { type: "string", description: REQUEST_TEXT_DOC },
         request_source: { type: "string", description: `${REQUEST_SOURCE_DOC} Needs request_text.` },
+        follow_up_of: {
+          type: "string",
+          description:
+            "Id of the analysis whose submitted feedback this new analysis follows up, typically an analysis of the fix commits. " +
+            "Its feedback is marked processed if it was still waiting for you, and the reviewer sees its points to check in the new review. " +
+            "Refused when that review is not submitted or already has a follow-up (one follow-up per analysis; follow up the latest round instead).",
+        },
       },
       required: ["repo_path", "project", "title", "mode"],
     },
@@ -870,6 +881,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
         return await withRepoAccess(exec, async (repoFor) => {
           const mutation = await createAnalysis(store, params, repoFor);
           notifyAnalysesListChanged();
+          if (typeof params.follow_up_of === "string") notifyAnalysisChanged(params.follow_up_of.trim());
           return afterMutation(mutation);
         });
       case "update_analysis":

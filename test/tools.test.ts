@@ -624,6 +624,74 @@ test("an approved review has nothing to process, with or without points", async 
   assert.match(await ok(getReviewFeedback, store, { analysis_id: id }), /Processing: nothing to process \(approved\)/);
 });
 
+/** Commit de correction sur la branche `feature` du dépôt de test ; renvoie son sha. */
+function commitFix(repo: string, message: string): string {
+  const appPath = path.join(repo, "src", "app.ts");
+  fs.appendFileSync(appPath, `// ${message}\n`);
+  git(repo, "commit", "-q", "-am", message);
+  return git(repo, "rev-parse", "HEAD").trim();
+}
+
+/** Crée la revue de suivi de `originId` sur `sha^...sha` et renvoie le texte de create_analysis. */
+async function followUp(store: AnalysisStore, repo: string, originId: string, sha: string, title: string) {
+  return ok(createAnalysis, store, { repo_path: repo, project: "demo", title, mode: "branch", base: `${sha}^`, head: sha, follow_up_of: originId });
+}
+
+const idOf = (text: string) => /\(id: ([a-z0-9-]+)\)/.exec(text)![1];
+
+test("create_analysis with follow_up_of links a follow-up review and marks the followed feedback processed", async (t) => {
+  const { repo, store, id } = await setup(t);
+  const fix = commitFix(repo, "fix the review points");
+
+  assert.match(
+    await fails(createAnalysis, store, { repo_path: repo, project: "demo", title: "Fixes", mode: "branch", base: `${fix}^`, head: fix, follow_up_of: id }),
+    /cannot get a follow-up review: its review is not submitted/
+  );
+  assert.equal(store.list().analyses.length, 1, "a refused follow-up creates nothing");
+
+  submitReview(store, id, []);
+  const created = await followUp(store, repo, id, fix, "Fixes");
+  assert.match(created, /Follow-up of: "Feature X" \(/);
+  assert.match(created, /Its feedback was waiting for you: it is now marked processed/);
+  const followId = idOf(created);
+  assert.equal(store.get(followId).followUpOf, id);
+  const processed = store.get(id).review.processed;
+  assert.equal(processed?.by, "agent");
+  assert.equal(processed?.note, "Suivie par la revue « Fixes »");
+
+  const listed = await ok(listAnalyses, store, {});
+  assert.match(listed, new RegExp(`followed by: ${followId} — review not started`));
+  assert.match(listed, new RegExp(`follow-up of: ${id} \\(round 2\\)`));
+  assert.match(await ok(getAnalysis, store, { analysis_id: followId }), /Follow-up of: "Feature X" \([a-z0-9-]+\) — round 2 of 2\./);
+  assert.match(await ok(getAnalysis, store, { analysis_id: id }), /Followed by: "Fixes" \([a-z0-9-]+\), review not started/);
+  assert.match(await ok(getReviewFeedback, store, { analysis_id: id }), /Follow-up review: "Fixes"/);
+
+  assert.match(await fails(createAnalysis, store, {
+    repo_path: repo, project: "demo", title: "Again", mode: "branch", base: `${fix}^`, head: fix, follow_up_of: id,
+  }), new RegExp(`already has a follow-up review: "Fixes" \\(${followId}\\)`));
+});
+
+test("follow-up reviews form a chain, and deleting a round keeps its follow-up as a first review", async (t) => {
+  const { repo, store, id } = await setup(t);
+  submitReview(store, id, []);
+  const second = idOf(await followUp(store, repo, id, commitFix(repo, "round 2"), "Round 2"));
+  submitReview(store, second, []);
+  store.mutate(second, "user", (draft) => {
+    draft.review.decision = "approve";
+  });
+  const created = await followUp(store, repo, second, commitFix(repo, "round 3"), "Round 3");
+  assert.match(created, /already processed or approved: its processing mark is unchanged/);
+  const third = idOf(created);
+
+  const rounds = Object.fromEntries(store.list().analyses.map((summary) => [summary.id, summary.round]));
+  assert.deepEqual([rounds[id], rounds[second], rounds[third]], [1, 2, 3]);
+  assert.equal(store.get(second).review.processed, null, "an approved review is not marked processed");
+
+  assert.match(await ok(deleteAnalysis, store, { analysis_id: second }), new RegExp(`Its follow-up review ${third} is kept`));
+  assert.equal(store.get(third).followUpOf, null);
+  assert.equal(store.list().analyses.find((summary) => summary.id === third)?.round, 1);
+});
+
 test("refresh_analysis recomputes the diff, outdates changed findings and resets the review", async (t) => {
   const { repo, store, id } = await setup(t);
   await ok(addFindings, store, {

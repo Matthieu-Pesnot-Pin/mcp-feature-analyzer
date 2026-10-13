@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { AnalysisLinks } from '@shared/follow-ups'
 import type { Analysis, AnalysisSummary, FindingStatus, ReviewDecision } from '@shared/schemas/analysis.schema'
 import type { DiffSnapshot } from '@shared/schemas/diff.schema'
 import { ApiError, api } from '../utils/api'
@@ -20,6 +21,8 @@ export interface Notice {
 interface CurrentAnalysis {
   id: string
   analysis: Analysis | null
+  /** Liens de suivi de l'analyse, lus avec elle ; null tant qu'elle n'est pas chargée. */
+  links: AnalysisLinks | null
   error: string | null
 }
 
@@ -115,7 +118,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     try {
       const response = await send(analysis)
       if (get().current?.id === response.analysis.id) {
-        set({ current: { id: response.analysis.id, analysis: response.analysis, error: null } })
+        set({ current: { id: response.analysis.id, analysis: response.analysis, links: get().current?.links ?? null, error: null } })
       }
       return true
     } catch (err) {
@@ -203,7 +206,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
 
     openAnalysis: (id) => {
       if (get().current?.id === id) return
-      set({ current: { id, analysis: null, error: null } })
+      set({ current: { id, analysis: null, links: null, error: null } })
       void get().reloadCurrent()
     },
 
@@ -211,13 +214,13 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
       const id = get().current?.id
       if (!id) return
       try {
-        const { analysis } = await api.getAnalysis(id)
+        const { analysis, links } = await api.getAnalysis(id)
         if (get().current?.id !== id) return
-        set({ current: { id, analysis, error: null } })
+        set({ current: { id, analysis, links, error: null } })
         await get().ensureDiff()
       } catch (err) {
         if (get().current?.id !== id) return
-        set({ current: { id, analysis: null, error: (err as Error).message } })
+        set({ current: { id, analysis: null, links: null, error: (err as Error).message } })
       }
     },
 

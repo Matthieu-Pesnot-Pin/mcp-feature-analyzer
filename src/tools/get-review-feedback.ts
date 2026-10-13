@@ -1,4 +1,5 @@
 import type { AnalysisStore } from "../core/analysis-store.js";
+import { analysisLinks } from "../core/follow-ups.js";
 import type { Analysis, Finding, Note, Processing, ReviewDecision, SubmissionRecord } from "../../shared/schemas/analysis.schema.js";
 import { hasNoChanges, needsProcessing, recordSubmission, reviewProgress, submissionChanges } from "../../shared/review-state.js";
 import { sortBySeverity } from "../../shared/severity.js";
@@ -116,9 +117,12 @@ export function getReviewFeedback(store: AnalysisStore, args: Args): ToolResult 
   } else {
     lines.push(
       "Next steps: address the points above in the repository. Then either call refresh_analysis to recompute the diff " +
-        "(it discards this feedback and starts a new review round), or, when the diff stays as it is (an analysis of one commit, " +
-        "fixes made in other commits, answers given in the conversation), call mark_feedback_processed with a note saying how it was handled."
+        "(it discards this feedback and starts a new review round), or, when the fixes are in other commits, create the follow-up review " +
+        `with create_analysis and follow_up_of "${analysis.id}" on those commits (it marks this feedback processed and shows these points ` +
+        "to the reviewer). When nothing needs a new review (answers given in the conversation), call mark_feedback_processed with a note."
     );
   }
+  const next = analysisLinks(store, analysis.id).next;
+  if (next) lines.push(`Follow-up review: "${next.title}" (${next.id}), review ${progressLabel(next.progress)}.`);
   return textResult(lines.join("\n"));
 }

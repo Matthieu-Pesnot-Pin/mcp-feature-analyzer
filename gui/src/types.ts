@@ -1,3 +1,4 @@
+import type { AnalysisLinks } from '@shared/follow-ups'
 import type { Analysis, AnalysisSummary } from '@shared/schemas/analysis.schema'
 
 /** Réponse de `GET /api/config`. */
@@ -15,4 +16,9 @@ export interface AnalysisListing {
 /** Réponse des routes qui renvoient une analyse, dont toutes les modifications. */
 export interface AnalysisResponse {
   analysis: Analysis
+}
+
+/** Réponse de `GET /api/analyses/:id` : l'analyse et ses liens de suivi. */
+export interface AnalysisDetail extends AnalysisResponse {
+  links: AnalysisLinks
 }
