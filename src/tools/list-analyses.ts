@@ -1,7 +1,7 @@
 import type { AnalysisStore } from "../core/analysis-store.js";
 import { REVIEW_PROGRESS_STATES, type AnalysisSummary } from "../../shared/schemas/analysis.schema.js";
 import { progressLabel, progressStateLabel, refsLabel, severityCountsLabel } from "./format.js";
-import { optionalEnum, optionalString, rejectUnknownFields, textResult, type Args, type ToolResult } from "./types.js";
+import { optionalEnum, optionalPositiveInt, optionalString, rejectUnknownFields, textResult, type Args, type ToolResult } from "./types.js";
 
 /**
  * Filtre `review_state` : un état d'avancement, ou parmi les revues soumises
@@ -54,19 +54,28 @@ function analysisLines(summary: AnalysisSummary): string[] {
   return lines;
 }
 
+/** Nombre d'analyses listées quand `limit` est absent. */
+export const DEFAULT_LIST_LIMIT = 5;
+
 /**
- * Liste les analyses regroupées par projet (projet le plus récemment modifié en
- * premier, puis analyses de la plus récente à la plus ancienne), éventuellement
- * limitées à un projet et à un état de revue, et les fichiers illisibles.
+ * Liste les `limit` analyses les plus récemment modifiées, éventuellement
+ * limitées à un projet et à un état de revue, regroupées par projet (projet le
+ * plus récemment modifié en premier, puis analyses de la plus récente à la plus
+ * ancienne), et les fichiers illisibles.
  */
 export function listAnalyses(store: AnalysisStore, args: Args): ToolResult {
-  rejectUnknownFields(args, ["project", "review_state"]);
+  rejectUnknownFields(args, ["project", "review_state", "limit"]);
   const project = optionalString(args, "project");
   const reviewState = optionalEnum(args, "review_state", REVIEW_STATE_FILTERS);
+  const limit = optionalPositiveInt(args, "limit") ?? DEFAULT_LIST_LIMIT;
   const { analyses: all, unreadable } = store.list();
   const known = new Set(all.map((summary) => summary.project));
-  const analyses = reviewState === undefined ? all : all.filter((summary) => matchesReviewState(summary, reviewState));
-  const groups = groupByProject(analyses);
+  const matching = all.filter(
+    (summary) =>
+      (project === undefined || summary.project === project) &&
+      (reviewState === undefined || matchesReviewState(summary, reviewState))
+  );
+  const groups = groupByProject(matching.slice(0, limit));
   const lines: string[] = [];
 
   if (project !== undefined && !known.has(project)) {
@@ -79,23 +88,23 @@ export function listAnalyses(store: AnalysisStore, args: Args): ToolResult {
     );
   }
 
-  const shown = project === undefined ? [...groups] : groups.has(project) ? [[project, groups.get(project)!] as const] : [];
   const scope = project === undefined ? "" : ` in project "${project}"`;
   const filtered = reviewState === undefined ? "" : ` with review state ${reviewState}`;
   if (all.length === 0) {
     lines.push(
       "No analyses yet. Create one with create_analysis once the feature is developed: it freezes the diff of a branch or of the working tree for human review."
     );
-  } else if (shown.length === 0) {
+  } else if (matching.length === 0) {
     lines.push(`No analysis${scope}${filtered}. Call list_analyses without review_state to see them all.`);
   } else {
-    const total = shown.reduce((sum, [, list]) => sum + list.length, 0);
+    const inProjects = project === undefined ? ` in ${groups.size} project(s)` : "";
     lines.push(
-      project === undefined
-        ? `${total} analysis(es)${filtered} in ${groups.size} project(s), most recently updated first:`
-        : `${total} analysis(es)${filtered}${scope}, most recently updated first:`
+      matching.length > limit
+        ? `Showing only the ${limit} most recently updated of ${matching.length} analyses${filtered}${scope}${inProjects}. ` +
+            `Pass a higher limit to see more, or filter with project or review_state:`
+        : `${matching.length} analysis(es)${filtered}${scope}${inProjects}, most recently updated first:`
     );
-    for (const [name, list] of shown) {
+    for (const [name, list] of groups) {
       lines.push("", `## Project "${name}" (${projectCounts(list)})`);
       for (const summary of list) lines.push(...analysisLines(summary));
     }

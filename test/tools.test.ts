@@ -159,6 +159,14 @@ test("list_analyses groups analyses by project with their review state, and filt
   assert.doesNotMatch(billing, /Feature X/);
   assert.match(billing, /Invoices[\s\S]*Refunds|Refunds[\s\S]*Invoices/);
 
+  const limited = await ok(listAnalyses, store, { limit: 2 });
+  assert.match(limited, /^Showing only the 2 most recently updated of 3 analyses in 2 project\(s\)\. Pass a higher limit/);
+  assert.match(limited, /Feature X/);
+  assert.match(limited, /Refunds/);
+  assert.doesNotMatch(limited, /Invoices/);
+  assert.match(await ok(listAnalyses, store, { project: "billing", limit: 1 }), /^Showing only the 1 most recently updated of 2 analyses in project "billing"\./);
+  assert.match(await fails(listAnalyses, store, { limit: 0 }), /limit/);
+
   assert.match(
     await fails(listAnalyses, store, { project: "Billing" }),
     /Unknown project "Billing"\. Existing projects: "demo", "billing"\./

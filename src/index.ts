@@ -49,7 +49,7 @@ import {
 } from "../shared/schemas/analysis.schema.js";
 import { errorResult, textResult, type MutationResult, type ToolResult } from "./tools/types.js";
 import { createAnalysis } from "./tools/create-analysis.js";
-import { listAnalyses, REVIEW_STATE_FILTERS } from "./tools/list-analyses.js";
+import { DEFAULT_LIST_LIMIT, listAnalyses, REVIEW_STATE_FILTERS } from "./tools/list-analyses.js";
 import { getAnalysis } from "./tools/get-analysis.js";
 import { getDiff } from "./tools/get-diff.js";
 import { refreshAnalysis } from "./tools/refresh-analysis.js";
@@ -454,7 +454,8 @@ const TOOLS = [
   {
     name: "list_analyses",
     description:
-      "List the analyses grouped by project, with their refs, open findings by severity, reviewed files, diagram count and review state " +
+      `List the ${DEFAULT_LIST_LIMIT} most recently updated analyses by default (raise limit to see more), grouped by project, with their refs, ` +
+      "open findings by severity, reviewed files, diagram count and review state " +
       "(not started, in progress, all files reviewed, submitted; a submitted review is pending processing until mark_feedback_processed or refresh_analysis, " +
       "except an approved one, which has nothing to process). " +
       "Start here: when the project already has an analysis of the feature, " +
@@ -464,6 +465,11 @@ const TOOLS = [
       type: "object" as const,
       properties: {
         project: { type: "string", description: "Only list the analyses of this project (exact name). An unknown name lists the existing projects." },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          description: `Maximum number of analyses to list, most recently updated first, after the project and review_state filters. Default ${DEFAULT_LIST_LIMIT}.`,
+        },
         review_state: {
           type: "string",
           enum: [...REVIEW_STATE_FILTERS],
