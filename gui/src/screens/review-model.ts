@@ -36,3 +36,8 @@ export function openFindingCounts(analysis: Analysis, path: string): Array<{ sev
 export function unlocatedFindings(analysis: Analysis): Finding[] {
   return sortBySeverity(analysis.findings.filter((finding) => finding.location === null))
 }
+
+/** Vrai quand le mode zen s'applique à l'écran Revue : demandé, et `path` désigne un fichier de l'analyse. */
+export function zenApplies(zenMode: boolean, analysis: Analysis, path: string | null): boolean {
+  return zenMode && analysis.files.some((file) => file.path === path)
+}

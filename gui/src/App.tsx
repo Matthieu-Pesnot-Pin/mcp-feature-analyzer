@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
+import { FinishReviewButton } from './components/FinishReviewButton'
 import { NoticeToast } from './components/NoticeToast'
 import { ReviewProgressMeter } from './components/ReviewProgressMeter'
 import { TopBar } from './components/TopBar'
@@ -7,8 +8,9 @@ import { FeatureScreen } from './screens/FeatureScreen'
 import { FinishScreen } from './screens/FinishScreen'
 import { HomeScreen } from './screens/HomeScreen'
 import { ReviewScreen } from './screens/ReviewScreen'
+import { zenApplies } from './screens/review-model'
 import { useAnalysisStore } from './store/useAnalysisStore'
-import { hrefs, navigate, useRoute, type Route } from './utils/router'
+import { hrefs, useRoute, type Route } from './utils/router'
 
 function routeAnalysisId(route: Route): string | null {
   return route.name === 'feature' || route.name === 'review' || route.name === 'finish' ? route.id : null
@@ -27,6 +29,7 @@ export default function App() {
   const route = useRoute()
   const current = useAnalysisStore((state) => state.current)
   const openAnalysis = useAnalysisStore((state) => state.openAnalysis)
+  const zenMode = useAnalysisStore((state) => state.zenMode)
   const routeId = routeAnalysisId(route)
 
   useEffect(() => {
@@ -37,13 +40,14 @@ export default function App() {
   const loadError = current && current.id === routeId ? current.error : null
   const links = current && current.id === routeId ? current.links : null
 
+  // En mode zen, l'écran Revue porte sa propre barre à la place de la barre supérieure.
+  const zen = route.name === 'review' && analysis !== null && zenApplies(zenMode, analysis, route.path)
+
   const action =
     route.name === 'review' && analysis ? (
       <>
         <ReviewProgressMeter analysis={analysis} />
-        <button type="button" className="button button-primary topbar-action" onClick={() => navigate(hrefs.finish(analysis.id))}>
-          Terminer la revue
-        </button>
+        <FinishReviewButton analysis={analysis} />
       </>
     ) : null
 
@@ -79,7 +83,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <TopBar currentId={routeId} action={action} />
+      {!zen && <TopBar currentId={routeId} action={action} />}
       <main className={`main${route.name === 'review' ? ' main-fixed' : ''}`}>{screen}</main>
       <NoticeToast />
     </div>

@@ -1,17 +1,21 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import type { Analysis, FileEntry } from '@shared/schemas/analysis.schema'
 import { expandContext, stepContext } from '@shared/context-expansion'
 import { buildExplanationRequestPrompt } from '@shared/explanation-request'
 import { FILE_STATUS_LABELS, FILE_STATUS_LETTERS } from '@shared/labels'
 import { wholeFileDiff } from '@shared/whole-file-diff'
 import { FindingCard } from '../components/FindingCard'
+import { FinishReviewButton } from '../components/FinishReviewButton'
 import { Icon } from '../components/Icon'
+import { NoteComposer } from '../components/Notes'
 import { SeverityDot } from '../components/Pills'
+import { ReviewProgressMeter } from '../components/ReviewProgressMeter'
 import { useAnalysisStore } from '../store/useAnalysisStore'
 import { middleEllipsisParts, openFindingsLabel, plural, splitPath } from '../utils/format'
 import { hrefs, navigate } from '../utils/router'
-import { DiffView, type ComposerTarget } from './DiffView'
+import { DiffOptionMenus, DiffView, type ComposerTarget } from './DiffView'
 import { FindingsMargin } from './FindingsMargin'
+import { fileNotesOf, marginItems } from './margin-items'
 import {
   anchorSelector,
   appliedRemovals,
@@ -24,8 +28,9 @@ import {
   shownLineNumbers,
   type NumberedFinding,
 } from './review-diff-model'
-import { firstFileToReview, openFindingCounts, unlocatedFindings } from './review-model'
+import { firstFileToReview, openFindingCounts, unlocatedFindings, zenApplies } from './review-model'
 import { clampFilesPanelWidth, FILES_PANEL_WIDTH, useFilesPanelWidth, type WidthUpdate } from './useFilesPanelWidth'
+import { ZenRail } from './ZenRail'
 
 /** Nom de fichier tronqué au milieu : le début se coupe, l'extension et la fin du nom restent visibles. */
 function MiddleEllipsis({ name }: { name: string }) {
@@ -186,39 +191,11 @@ function EmptyDiffMessage({ file }: { file: FileEntry }) {
   return <p className="diff-message">Aucune ligne modifiée dans ce fichier (changement de mode ou fichier vide).</p>
 }
 
-/**
- * En-tête du fichier revu : bascule du panneau des fichiers, chemin, +/−, navigation,
- * remarque sur le fichier et « Marquer comme revu ».
- */
-function FileHeader({
-  analysis,
-  file,
-  onFileNote,
-}: {
-  analysis: Analysis
-  file: FileEntry
-  onFileNote: () => void
-}) {
-  const setFileReviewed = useAnalysisStore((state) => state.setFileReviewed)
-  const saving = useAnalysisStore((state) => state.saving)
-  const filesCollapsed = useAnalysisStore((state) => state.filesPanelCollapsed)
-  const setFilesCollapsed = useAnalysisStore((state) => state.setFilesPanelCollapsed)
-  const index = analysis.files.findIndex((entry) => entry.path === file.path)
-  const previous = analysis.files[index - 1]
-  const next = analysis.files[index + 1]
+/** Chemin du fichier revu, nombre de lignes ajoutées et supprimées, et statut quand il n'est pas « modifié ». */
+function FilePath({ file }: { file: FileEntry }) {
   const { folder, name } = splitPath(file.path)
-
   return (
-    <div className="file-head">
-      <button
-        type="button"
-        className="icon-button files-panel-toggle"
-        aria-pressed={!filesCollapsed}
-        title={filesCollapsed ? 'Afficher la liste des fichiers' : 'Masquer la liste des fichiers'}
-        onClick={() => setFilesCollapsed(!filesCollapsed)}
-      >
-        <Icon name={filesCollapsed ? 'panel-left-open' : 'panel-left-close'} color="#9aa1b1" />
-      </button>
+    <>
       <span className="file-head-path mono" title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}>
         <span className="path-folder">{folder}</span>
         <span className="file-head-name">{name}</span>
@@ -226,7 +203,20 @@ function FileHeader({
       <span className="count-add mono">+{file.additions}</span>
       <span className="count-del mono">−{file.deletions}</span>
       {file.status !== 'modified' && <span className={`tag tag-file-${file.status}`}>{FILE_STATUS_LABELS[file.status]}</span>}
-      <span className="spacer" />
+    </>
+  )
+}
+
+/** Actions sur le fichier revu : remarque sur le fichier, fichier précédent et suivant, « Marquer comme revu ». */
+function FileActions({ analysis, file, onFileNote }: { analysis: Analysis; file: FileEntry; onFileNote: () => void }) {
+  const setFileReviewed = useAnalysisStore((state) => state.setFileReviewed)
+  const saving = useAnalysisStore((state) => state.saving)
+  const index = analysis.files.findIndex((entry) => entry.path === file.path)
+  const previous = analysis.files[index - 1]
+  const next = analysis.files[index + 1]
+
+  return (
+    <>
       <button type="button" className="link-button muted" onClick={onFileNote}>
         <Icon name="message-square" size={13} />
         Remarque sur le fichier
@@ -261,13 +251,80 @@ function FileHeader({
         <Icon name="square-check" color={file.reviewed ? '#3fb950' : '#9aa1b1'} />
         {file.reviewed ? 'Revu' : 'Marquer comme revu'}
       </button>
+    </>
+  )
+}
+
+/**
+ * En-tête du fichier revu : bascule du panneau des fichiers, entrée dans le mode
+ * zen, chemin, +/−, remarque sur le fichier, navigation et « Marquer comme revu ».
+ */
+function FileHeader({ analysis, file, onFileNote }: { analysis: Analysis; file: FileEntry; onFileNote: () => void }) {
+  const filesCollapsed = useAnalysisStore((state) => state.filesPanelCollapsed)
+  const setFilesCollapsed = useAnalysisStore((state) => state.setFilesPanelCollapsed)
+  const setZenMode = useAnalysisStore((state) => state.setZenMode)
+
+  return (
+    <div className="file-head">
+      <div className="icon-button-group file-head-toggles">
+        <button
+          type="button"
+          className="icon-button"
+          aria-pressed={!filesCollapsed}
+          title={filesCollapsed ? 'Afficher la liste des fichiers' : 'Masquer la liste des fichiers'}
+          onClick={() => setFilesCollapsed(!filesCollapsed)}
+        >
+          <Icon name={filesCollapsed ? 'panel-left-open' : 'panel-left-close'} color="#9aa1b1" />
+        </button>
+        <button type="button" className="icon-button" title="Mode zen : le code sur toute la page" onClick={() => setZenMode(true)}>
+          <Icon name="maximize" color="#9aa1b1" />
+        </button>
+      </div>
+      <FilePath file={file} />
+      <span className="spacer" />
+      <FileActions analysis={analysis} file={file} onFileNote={onFileNote} />
     </div>
+  )
+}
+
+/**
+ * Barre unique du mode zen : marque (lien vers l'accueil), chemin et +/− du
+ * fichier, réglages du diff, progression de la revue, sortie du mode zen et
+ * « Terminer la revue ».
+ */
+function ZenBar({ analysis, file, menus }: { analysis: Analysis; file: FileEntry; menus: ReactNode }) {
+  const setZenMode = useAnalysisStore((state) => state.setZenMode)
+
+  return (
+    <header className="file-head zen-bar">
+      <a className="brand-mark" href={hrefs.home()} title="Feature Analyzer — accueil">
+        <Icon name="scan-search" color="#8b97ff" />
+      </a>
+      <span className="zen-bar-separator" aria-hidden="true" />
+      <FilePath file={file} />
+      <div className="zen-bar-menus">{menus}</div>
+      <span className="spacer" />
+      <ReviewProgressMeter analysis={analysis} />
+      <button
+        type="button"
+        className="icon-button is-on"
+        aria-pressed={true}
+        title="Quitter le mode zen"
+        onClick={() => setZenMode(false)}
+      >
+        <Icon name="minimize" color="#8b97ff" />
+      </button>
+      <FinishReviewButton analysis={analysis} />
+    </header>
   )
 }
 
 /**
  * Écran Revue : fichiers à gauche, diff du fichier `path` au centre avec les
  * correctifs proposés à leur place, constats et remarques dans la colonne de droite.
+ * En mode zen : une seule barre en haut, le diff sur toute la largeur, le rail
+ * des repères à droite et, flottant en bas, la saisie d'une remarque ouverte et
+ * les actions sur le fichier.
  */
 export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; path: string | null; line: number | null }) {
   const diff = useAnalysisStore((state) => state.diff)
@@ -284,6 +341,7 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const explanationsShown = useAnalysisStore((state) => state.explanationsShown)
   const setExplanationsShown = useAnalysisStore((state) => state.setExplanationsShown)
   const filesPanelCollapsed = useAnalysisStore((state) => state.filesPanelCollapsed)
+  const zenMode = useAnalysisStore((state) => state.zenMode)
   const filesPanel = useFilesPanelWidth()
   const reviewRef = useRef<HTMLDivElement>(null)
   // La saisie d'une remarque est liée au fichier où elle a été ouverte.
@@ -378,6 +436,120 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
     navigate(hrefs.review(analysis.id, path, entry.startLine))
   }
 
+  const center =(currentFile: FileEntry, zen: boolean) => (
+    <div className="review-center" ref={centerRef}>
+      {findingsShown && <GapBanner analysis={analysis} />}
+
+      {!currentFile.contentAvailable && !currentFile.binary && currentFile.status !== 'deleted' && (
+        <p className="diff-notice">
+          Fichier trop volumineux pour être conservé en entier : les remarques ne peuvent viser que le fichier entier.
+        </p>
+      )}
+
+      {failed ? (
+        <p className="diff-message is-error">{diffError}</p>
+      ) : !fileDiff ? (
+        <p className="diff-message">Chargement du diff…</p>
+      ) : snapshotDiff?.hunks.length === 0 ? (
+        <EmptyDiffMessage file={currentFile} />
+      ) : (
+        <DiffView
+          file={currentFile}
+          fileDiff={fileDiff}
+          hunks={hunks}
+          hunkContexts={expanded?.hunks ?? null}
+          addedContext={expanded?.added ?? null}
+          onContextChange={changeContext}
+          findings={numbered}
+          notedLines={notedLines}
+          scrollRef={bodyRef}
+          mode={fixMode}
+          onModeChange={setFixMode}
+          codeView={codeView}
+          onCodeViewChange={setCodeView}
+          scope={scope}
+          onScopeChange={setDiffScope}
+          wholeFileAvailable={wholeFileAvailable}
+          explained={shownExplanations.length > 0}
+          target={target}
+          onLineNote={(lineNo) => setComposer({ line: lineNo, findingId: null })}
+          onHideFix={(findingId) => setFixShown(findingId, false)}
+          onRequestExplanation={(hunk) =>
+            void copy(
+              buildExplanationRequestPrompt(analysis, currentFile, hunk),
+              "Demande d'explication copiée : collez-la dans la conversation de l'agent.",
+            )
+          }
+          zen={zen}
+        />
+      )}
+    </div>
+  )
+  const openFileNote = () => setComposer({ line: null, findingId: null })
+
+  if (file !== null && zenApplies(zenMode, analysis, path)) {
+    const railItems =
+      shownLines === null
+        ? []
+        : marginItems({
+            analysis,
+            file,
+            numbered,
+            explanations: shownExplanations,
+            fileDiff: fileDiff ?? null,
+            fixes,
+            mode: fixMode,
+            codeView,
+            removed,
+            lineNotes,
+            shown: shownLines,
+            setComposer,
+            onToggleFix: setFixShown,
+            revealedId,
+          })
+    return (
+      <div className="zen">
+        <ZenBar
+          analysis={analysis}
+          file={file}
+          menus={
+            <DiffOptionMenus
+              scope={scope}
+              onScopeChange={setDiffScope}
+              wholeFileAvailable={wholeFileAvailable}
+              codeView={codeView}
+              onCodeViewChange={setCodeView}
+              mode={fixMode}
+              onModeChange={setFixMode}
+            />
+          }
+        />
+        <div className="zen-main">
+          <div className="review-body" ref={bodyRef}>
+            {center(file, true)}
+          </div>
+          <ZenRail items={railItems} fileNotes={fileNotesOf(analysis, file)} scopeRef={centerRef} scrollRef={bodyRef} />
+          <div className="zen-dock">
+            {composer !== null && (
+              <div className="zen-composer">
+                <NoteComposer
+                  key={`${composer.line ?? 'file'}-${composer.findingId ?? ''}`}
+                  path={file.path}
+                  line={composer.line}
+                  findingId={composer.findingId}
+                  onClose={() => setComposer(null)}
+                />
+              </div>
+            )}
+            <div className="zen-actions">
+              <FileActions analysis={analysis} file={file} onFileNote={openFileNote} />
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Sans fichier valide, la liste reste visible : c'est le seul moyen d'en choisir un.
   const filesHidden = filesPanelCollapsed && file !== null
 
@@ -398,55 +570,10 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
           </div>
         ) : (
           <>
-            <FileHeader analysis={analysis} file={file} onFileNote={() => setComposer({ line: null, findingId: null })} />
+            <FileHeader analysis={analysis} file={file} onFileNote={openFileNote} />
             <div className="review-body" ref={bodyRef}>
               <div className="review-columns">
-                <div className="review-center" ref={centerRef}>
-                  {findingsShown && <GapBanner analysis={analysis} />}
-
-                  {!file.contentAvailable && !file.binary && file.status !== 'deleted' && (
-                    <p className="diff-notice">
-                      Fichier trop volumineux pour être conservé en entier : les remarques ne peuvent viser que le fichier entier.
-                    </p>
-                  )}
-
-                  {failed ? (
-                    <p className="diff-message is-error">{diffError}</p>
-                  ) : !fileDiff ? (
-                    <p className="diff-message">Chargement du diff…</p>
-                  ) : snapshotDiff?.hunks.length === 0 ? (
-                    <EmptyDiffMessage file={file} />
-                  ) : (
-                    <DiffView
-                      file={file}
-                      fileDiff={fileDiff}
-                      hunks={hunks}
-                      hunkContexts={expanded?.hunks ?? null}
-                      addedContext={expanded?.added ?? null}
-                      onContextChange={changeContext}
-                      findings={numbered}
-                      notedLines={notedLines}
-                      scrollRef={bodyRef}
-                      mode={fixMode}
-                      onModeChange={setFixMode}
-                      codeView={codeView}
-                      onCodeViewChange={setCodeView}
-                      scope={scope}
-                      onScopeChange={setDiffScope}
-                      wholeFileAvailable={wholeFileAvailable}
-                      explained={shownExplanations.length > 0}
-                      target={target}
-                      onLineNote={(lineNo) => setComposer({ line: lineNo, findingId: null })}
-                      onHideFix={(findingId) => setFixShown(findingId, false)}
-                      onRequestExplanation={(hunk) =>
-                        void copy(
-                          buildExplanationRequestPrompt(analysis, file, hunk),
-                          "Demande d'explication copiée : collez-la dans la conversation de l'agent.",
-                        )
-                      }
-                    />
-                  )}
-                </div>
+                {center(file, false)}
                 <FindingsMargin
                   analysis={analysis}
                   file={file}

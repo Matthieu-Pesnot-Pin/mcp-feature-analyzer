@@ -69,6 +69,44 @@ interface DiffViewProps {
   onHideFix: (findingId: string) => void
   /** Copie le prompt qui demande à l'agent d'expliquer ce bloc. */
   onRequestExplanation: (hunk: Hunk) => void
+  /** Mode zen : les réglages sont dans la barre de l'écran et le rail des repères tient lieu de mini-carte. */
+  zen: boolean
+}
+
+interface DiffOptionMenusProps {
+  scope: DiffScope
+  onScopeChange: (scope: DiffScope) => void
+  /** Le snapshot conserve le contenu du fichier : il peut s'afficher en entier. */
+  wholeFileAvailable: boolean
+  codeView: CodeView
+  onCodeViewChange: (view: CodeView) => void
+  mode: FixMode
+  onModeChange: (mode: FixMode) => void
+}
+
+/** Réglages du diff : étendue affichée, code affiché et affichage des correctifs. */
+export function DiffOptionMenus({
+  scope,
+  onScopeChange,
+  wholeFileAvailable,
+  codeView,
+  onCodeViewChange,
+  mode,
+  onModeChange,
+}: DiffOptionMenusProps) {
+  return (
+    <>
+      <OptionMenu
+        label="Afficher"
+        options={DIFF_SCOPE_OPTIONS}
+        value={scope}
+        onChange={onScopeChange}
+        disabled={wholeFileAvailable ? undefined : { file: "Contenu du fichier non conservé dans l'analyse" }}
+      />
+      <OptionMenu label="Code" options={CODE_VIEW_OPTIONS} value={codeView} onChange={onCodeViewChange} />
+      <OptionMenu label="Correctifs" options={FIX_MODE_OPTIONS} value={mode} onChange={onModeChange} />
+    </>
+  )
 }
 
 const MARKERS: Record<DiffLine['type'], string> = { context: ' ', add: '+', del: '−' }
@@ -340,7 +378,8 @@ function DiffLegend({
  * modifiées sont surlignées, sans fond sur le reste de la ligne. Une ligne dont seule
  * l'indentation change ne forme qu'une ligne, marquée d'une flèche, son
  * indentation ajoutée ou retirée surlignée. Quand le fichier entier est
- * affiché, une mini-carte longe le bord droit du diff ; sinon, l'en-tête de
+ * affiché hors mode zen, une mini-carte longe le bord droit du diff ; en
+ * « Modifications », l'en-tête de
  * chaque bloc élargit ou réduit son contexte, les lignes de contexte ajoutées
  * se distinguant par un fond plus sombre et un filet.
  */
@@ -366,13 +405,16 @@ export function DiffView({
   onLineNote,
   onHideFix,
   onRequestExplanation,
+  zen,
 }: DiffViewProps) {
   const canNote = file.contentAvailable
   const syntax = useSyntaxTokens(fileDiff)
   const toolbarRef = useRef<HTMLDivElement>(null)
   const rowsRef = useRef<HTMLDivElement>(null)
   const [toolbarHeight, setToolbarHeight] = useState(0)
-  const minimapShown = scope === 'file'
+  // En mode zen, la barre du diff ne s'affiche que pour signaler une coloration syntaxique indisponible.
+  const toolbarShown = !zen || syntax.status === 'error'
+  const minimapShown = scope === 'file' && !zen
   const minimap = useMemo(
     () => (minimapShown ? buildMinimap(hunks, codeView, findings, notedLines) : null),
     [minimapShown, hunks, codeView, findings, notedLines],
@@ -380,11 +422,14 @@ export function DiffView({
 
   useEffect(() => {
     const toolbar = toolbarRef.current
-    if (!toolbar) return
+    if (!toolbar) {
+      setToolbarHeight(0)
+      return
+    }
     const observer = new ResizeObserver(() => setToolbarHeight(toolbar.offsetHeight))
     observer.observe(toolbar)
     return () => observer.disconnect()
-  }, [])
+  }, [toolbarShown])
 
   const renderStrip = (row: Extract<DiffRow, { kind: 'fix-strip' }>, key: number) => (
     <FixStrip
@@ -472,18 +517,22 @@ export function DiffView({
 
   return (
     <div className="diff">
-      <div className="diff-toolbar" ref={toolbarRef}>
-        {syntax.status === 'error' && <span className="diff-toolbar-error">Coloration syntaxique indisponible : {syntax.message}</span>}
-        <OptionMenu
-          label="Afficher"
-          options={DIFF_SCOPE_OPTIONS}
-          value={scope}
-          onChange={onScopeChange}
-          disabled={wholeFileAvailable ? undefined : { file: "Contenu du fichier non conservé dans l'analyse" }}
-        />
-        <OptionMenu label="Code" options={CODE_VIEW_OPTIONS} value={codeView} onChange={onCodeViewChange} />
-        <OptionMenu label="Correctifs" options={FIX_MODE_OPTIONS} value={mode} onChange={onModeChange} />
-      </div>
+      {toolbarShown && (
+        <div className="diff-toolbar" ref={toolbarRef}>
+          {syntax.status === 'error' && <span className="diff-toolbar-error">Coloration syntaxique indisponible : {syntax.message}</span>}
+          {!zen && (
+            <DiffOptionMenus
+              scope={scope}
+              onScopeChange={onScopeChange}
+              wholeFileAvailable={wholeFileAvailable}
+              codeView={codeView}
+              onCodeViewChange={onCodeViewChange}
+              mode={mode}
+              onModeChange={onModeChange}
+            />
+          )}
+        </div>
+      )}
       <div className={`diff-body${minimapShown ? ' has-minimap' : ''}`}>
         <div className="diff-rows" ref={rowsRef}>
           {hunks.map((hunk, hunkIndex) => (

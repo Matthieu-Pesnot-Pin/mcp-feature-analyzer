@@ -1,18 +1,15 @@
 import { useRef, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import type { Analysis, Explanation, FileEntry } from '@shared/schemas/analysis.schema'
 import type { FileDiff } from '@shared/schemas/diff.schema'
-import { FINDING_STATUS_LABELS, NOTE_STYLE, SEVERITY_STYLES } from '@shared/labels'
-import { MarginExplanationCard } from '../components/MarginExplanationCard'
-import { FindingNumber, MarginFindingCard } from '../components/MarginFindingCard'
+import { FINDING_STATUS_LABELS, SEVERITY_STYLES } from '@shared/labels'
+import { FindingNumber } from '../components/MarginFindingCard'
 import { NoteCard, NoteComposer } from '../components/Notes'
 import { linesLabel, plural } from '../utils/format'
 import type { ComposerTarget } from './DiffView'
+import { fileNotesOf, marginItems } from './margin-items'
 import {
   anchorOrder,
   anchorSelector,
-  explanationAnchor,
-  findingAnchor,
-  firstShownLine,
   lineAnchorOf,
   type FixDisplay,
   type CodeView,
@@ -181,73 +178,34 @@ export function FindingsMargin({
   const below = useFindingsBelow(scrollRef, columnRef)
   const nextBelow = below.length === 0 ? undefined : numbered.find((entry) => entry.finding.id === below[0])
 
-  const canNote = file.contentAvailable
   const shown = shownLines ?? new Set<number>()
-  const fileNotes = analysis.notes.filter((note) => note.location?.path === file.path && note.location.line === null)
+  const fileNotes = fileNotesOf(analysis, file)
 
-  const findingCard = (entry: NumberedFinding, noteLine: number) => (
-    <MarginFindingCard
-      analysis={analysis}
-      entry={entry}
-      fix={fixes.get(entry.finding.id)!}
-      mode={mode}
-      onToggleFix={(value) => onToggleFix(entry.finding.id, value)}
-      onAddNote={canNote ? () => setComposer({ line: noteLine, findingId: entry.finding.id }) : undefined}
-      highlighted={entry.finding.id === revealedId}
-    />
-  )
   const composerCard = (line: number | null) => (
     <NoteComposer path={file.path} line={line} findingId={composer?.findingId ?? null} onClose={() => setComposer(null)} />
   )
 
+  const items = marginItems({
+    analysis,
+    file,
+    numbered,
+    explanations,
+    fileDiff,
+    fixes,
+    mode,
+    codeView,
+    removed,
+    lineNotes,
+    shown,
+    setComposer,
+    onToggleFix,
+    revealedId,
+  })
   const aligned: AlignedItem[] = []
   const outside: ReactNode[] = []
-  for (const entry of numbered) {
-    const anchor = findingAnchor(entry, fixes, shown, removed)
-    const noteLine = firstShownLine(shown, entry.startLine, entry.endLine)
-    if (anchor === null || noteLine === null) {
-      outside.push(<div key={entry.finding.id}>{findingCard(entry, entry.startLine)}</div>)
-      continue
-    }
-    aligned.push({
-      key: `finding-${entry.finding.id}`,
-      anchor: anchorSelector(anchor),
-      line: anchorOrder(anchor),
-      rank: entry.number,
-      color: entry.finding.status === 'open' ? SEVERITY_STYLES[entry.finding.severity].color : '#3a4050',
-      content: findingCard(entry, noteLine),
-    })
-  }
-  for (const explanation of explanations) {
-    const anchor = fileDiff === null ? null : explanationAnchor(fileDiff, explanation, removed, codeView)
-    const card = <MarginExplanationCard explanation={explanation} />
-    if (anchor === null) {
-      outside.push(<div key={`explanation-${explanation.id}`}>{card}</div>)
-      continue
-    }
-    aligned.push({
-      key: `explanation-${explanation.id}`,
-      anchor: anchor.selector,
-      line: anchor.order,
-      rank: 0,
-      color: explanation.status === 'current' ? '#3cc4b4' : '#3a4050',
-      content: card,
-    })
-  }
-  for (const note of lineNotes) {
-    if (!shown.has(note.location.line)) {
-      outside.push(<NoteCard key={note.id} note={note} />)
-      continue
-    }
-    const anchor = lineAnchorOf(note.location.line, removed)
-    aligned.push({
-      key: `note-${note.id}`,
-      anchor: anchorSelector(anchor),
-      line: anchorOrder(anchor),
-      rank: 1000,
-      color: NOTE_STYLE.color,
-      content: <NoteCard note={note} />,
-    })
+  for (const item of items) {
+    if (item.anchor === null) outside.push(<div key={item.key}>{item.content}</div>)
+    else aligned.push({ ...item, anchor: item.anchor })
   }
   const composerLine = composer?.line ?? null
   const composerAligned = composer !== null && composerLine !== null && shown.has(composerLine)
