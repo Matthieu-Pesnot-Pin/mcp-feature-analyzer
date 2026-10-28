@@ -384,6 +384,11 @@ code {
   border-radius: 50%;
 }
 
+/* Remarques : carré, comme leur repère sur le rail du mode zen. */
+.severity-dot-mark.is-square {
+  border-radius: 1px;
+}
+
 .severity-dot.is-link {
   height: 22px;
   margin: 0 -3px;

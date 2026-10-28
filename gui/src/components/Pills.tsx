@@ -47,10 +47,18 @@ export function KindTag({ kind }: { kind: FindingKind }) {
  * infobulle ; `href` en fait un lien.
  */
 export function SeverityDot({ severity, count, title, href }: { severity: Severity; count: number; title: string; href?: string }) {
-  const color = SEVERITY_STYLES[severity].color
+  return <CountDot color={SEVERITY_STYLES[severity].color} count={count} title={title} href={href} />
+}
+
+/** Pastille carrée de la couleur des remarques suivie de leur nombre, avec son libellé en infobulle ; `href` en fait un lien. */
+export function NoteDot({ count, title, href }: { count: number; title: string; href?: string }) {
+  return <CountDot color={NOTE_STYLE.color} count={count} title={title} href={href} square />
+}
+
+function CountDot({ color, count, title, href, square }: { color: string; count: number; title: string; href?: string; square?: boolean }) {
   const content = (
     <>
-      <span className="severity-dot-mark" style={{ background: color }} />
+      <span className={`severity-dot-mark${square ? ' is-square' : ''}`} style={{ background: color }} />
       {count}
     </>
   )

@@ -32,6 +32,18 @@ export function openFindingCounts(analysis: Analysis, path: string): Array<{ sev
   })
 }
 
+/**
+ * Remarques du relecteur sur un fichier, sur une de ses lignes ou sur le fichier
+ * entier ; `firstLine` est la première ligne portant une remarque, null quand
+ * toutes visent le fichier entier. Null sans remarque.
+ */
+export function fileNoteCount(analysis: Analysis, path: string): { count: number; firstLine: number | null } | null {
+  const notes = analysis.notes.filter((note) => note.location?.path === path)
+  if (notes.length === 0) return null
+  const lines = notes.flatMap((note) => (note.location?.line != null ? [note.location.line] : []))
+  return { count: notes.length, firstLine: lines.length === 0 ? null : Math.min(...lines) }
+}
+
 /** Constats sans emplacement (exigences manquantes), affichés en bandeau au-dessus du diff de chaque fichier. */
 export function unlocatedFindings(analysis: Analysis): Finding[] {
   return sortBySeverity(analysis.findings.filter((finding) => finding.location === null))

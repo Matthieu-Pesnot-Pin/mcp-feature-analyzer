@@ -8,7 +8,7 @@ import { FindingCard } from '../components/FindingCard'
 import { FinishReviewButton } from '../components/FinishReviewButton'
 import { Icon } from '../components/Icon'
 import { NoteComposer } from '../components/Notes'
-import { SeverityDot } from '../components/Pills'
+import { NoteDot, SeverityDot } from '../components/Pills'
 import { ReviewProgressMeter } from '../components/ReviewProgressMeter'
 import { useAnalysisStore } from '../store/useAnalysisStore'
 import { middleEllipsisParts, openFindingsLabel, plural, splitPath } from '../utils/format'
@@ -28,7 +28,7 @@ import {
   shownLineNumbers,
   type NumberedFinding,
 } from './review-diff-model'
-import { firstFileToReview, openFindingCounts, unlocatedFindings, zenApplies } from './review-model'
+import { fileNoteCount, firstFileToReview, openFindingCounts, unlocatedFindings, zenApplies } from './review-model'
 import { clampFilesPanelWidth, FILES_PANEL_WIDTH, useFilesPanelWidth, type WidthUpdate } from './useFilesPanelWidth'
 import { ZenRail } from './ZenRail'
 
@@ -46,7 +46,8 @@ function MiddleEllipsis({ name }: { name: string }) {
 /**
  * Panneau gauche : liste des fichiers, un intertitre par dossier, chaque fichier
  * suivi de la lettre de son statut git. Chaque pastille de gravité ouvre le
- * fichier sur son premier constat ouvert de cette gravité. La progression de la
+ * fichier sur son premier constat ouvert de cette gravité ; la pastille des
+ * remarques, sur sa première remarque de ligne. La progression de la
  * revue est dans la barre supérieure.
  */
 function FilesPanel({ analysis, currentPath }: { analysis: Analysis; currentPath: string }) {
@@ -63,6 +64,7 @@ function FilesPanel({ analysis, currentPath }: { analysis: Analysis; currentPath
           const color = file.reviewed ? '#3fb950' : current ? '#8b97ff' : '#3a4050'
           const folder = splitPath(file.path).folder
           const newFolder = index === 0 ? folder !== '' : splitPath(analysis.files[index - 1].path).folder !== folder
+          const notes = fileNoteCount(analysis, file.path)
           return (
             <Fragment key={file.path}>
               {newFolder && (
@@ -91,6 +93,17 @@ function FilesPanel({ analysis, currentPath }: { analysis: Analysis; currentPath
                     title={`${openFindingsLabel(severity, count)} — ${count > 1 ? 'aller au premier' : 'y aller'}`}
                   />
                 ))}
+                {notes && (
+                  <NoteDot
+                    count={notes.count}
+                    href={hrefs.review(analysis.id, file.path, notes.firstLine ?? undefined)}
+                    title={
+                      notes.firstLine === null
+                        ? `${plural(notes.count, 'remarque')} sur le fichier — y aller`
+                        : `${plural(notes.count, 'remarque')} — ${notes.count > 1 ? 'aller à la première' : 'y aller'}`
+                    }
+                  />
+                )}
                 <span className={`files-item-status mono is-${file.status}`} title={FILE_STATUS_LABELS[file.status]}>
                   {FILE_STATUS_LETTERS[file.status]}
                 </span>
