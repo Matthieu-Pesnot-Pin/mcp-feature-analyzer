@@ -2917,10 +2917,84 @@ button.diff-num:hover {
   text-decoration: underline;
 }
 
+/* Case de repli, entre le numéro et la marque : chevron visible au survol de la ligne, toujours visible sur un bloc replié. */
+.diff-fold {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 24px;
+  color: var(--faint);
+  user-select: none;
+}
+
+button.diff-fold {
+  position: relative;
+  opacity: 0;
+}
+
+/* Zone cliquable étendue sur la colonne de la marque, sur toute la hauteur de la ligne. */
+button.diff-fold::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  right: -18px;
+  border-radius: 4px;
+}
+
+button.diff-fold:hover::after {
+  background: color-mix(in srgb, var(--accent-soft) 14%, transparent);
+}
+
+.diff-line:hover button.diff-fold,
+button.diff-fold:focus-visible,
+button.diff-fold.is-folded {
+  opacity: 1;
+}
+
+button.diff-fold:hover {
+  color: var(--text);
+}
+
+button.diff-fold.is-folded {
+  color: var(--accent-soft);
+}
+
+/* Repère d'un bloc replié, après le texte de sa première ligne. */
+.diff-fold-ellipsis {
+  margin-left: 8px;
+  padding: 0 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--muted);
+  vertical-align: 1px;
+}
+
+.diff-fold-ellipsis:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+/* Rangée masquée par un bloc replié : sans hauteur, elle reste dans le diff pour les ancres des cartes et la mini-carte. */
+.is-fold-hidden {
+  height: 0;
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border: 0;
+  overflow: hidden;
+}
+
 .diff-marker {
   width: 18px;
   flex-shrink: 0;
-  margin-left: 14px;
   user-select: none;
 }
 

@@ -410,6 +410,30 @@ export function buildDiffRows(
   })
 }
 
+/** Clé d'une rangée, stable d'un affichage à l'autre : elle désigne le bloc repliable qui s'ouvre sur cette rangée. */
+export function rowKey(row: DiffRow): string {
+  switch (row.kind) {
+    case 'line':
+      return row.line.newNo !== null ? `n${row.line.newNo}` : `o${row.line.oldNo}`
+    case 'fix-strip':
+      return `s${row.entry.finding.id}`
+    case 'fix-line':
+      return `f${row.entry.finding.id}:${row.index}`
+  }
+}
+
+/** Texte d'une rangée dont l'indentation délimite les blocs repliables ; null pour un bandeau de correctif. */
+export function foldText(row: DiffRow): string | null {
+  switch (row.kind) {
+    case 'line':
+      return row.line.text
+    case 'fix-strip':
+      return null
+    case 'fix-line':
+      return row.text
+  }
+}
+
 type LineRow = Extract<DiffRow, { kind: 'line' }>
 
 /**
