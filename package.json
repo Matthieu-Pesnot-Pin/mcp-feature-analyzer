@@ -10,7 +10,6 @@
     "build": "npm run build:backend && npm run build:gui",
     "start": "node dist/src/index.js",
     "prepublishOnly": "npm run build",
-    "release": "npm version patch && npm publish && git push --follow-tags",
     "prebuild": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "keywords": [
@@ -52,5 +51,9 @@
   "devDependencies": {
     "@types/node": "^26.6.3",
     "typescript": "^7.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Matthieu-Pesnot-Pin/mcp-feature-analyzer.git"
   }
 }

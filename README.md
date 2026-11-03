@@ -370,3 +370,9 @@ La suite comprend des tests unitaires (parseur de diff, git sur de vrais dépôt
 - `test/e2e.test.ts` — l'enregistrement auprès du proxy (`E2E_PROXY_URL`, défaut `http://localhost:3000`), la balise `<base>`, `api/changes` et `reconnect_gui`. Sans proxy joignable, elle est ignorée plutôt qu'en échec.
 
 Pour inspecter le worker sans traverser le proxy, ajoutez `?__direct=1` à l'URL de son port local : les assets ne sont alors pas préfixés par le chemin de montage.
+
+## Publication
+
+Chaque push sur `master`, merge de pull request compris, publie une nouvelle version de `@imenam/mcp-feature-analyzer` sur npm (`.github/workflows/publish.yml`) : `npm ci`, build et tests, puis `npm version patch`, dont le commit et le tag sont poussés sur `master`, et `npm publish`. La publication passe par le trusted publishing de npm (OIDC, sans token), avec attestation de provenance. Un échec du build ou des tests arrête le workflow avant la montée de version.
+
+Sur npmjs.com, le paquet déclare ce workflow comme publieur de confiance (Settings → Trusted publishing → GitHub Actions : `Matthieu-Pesnot-Pin`, `mcp-feature-analyzer`, `publish.yml`, avec `npm publish` dans les actions autorisées). Le commit de version est poussé avec `GITHUB_TOKEN` : si `master` est protégée, la règle doit autoriser GitHub Actions à y pousser.
