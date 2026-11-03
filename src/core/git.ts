@@ -84,7 +84,12 @@ function runGit(cwd: string, args: string[], encoding: "utf-8" | "buffer", input
         resolve(stdout);
       }
     );
-    child.stdin?.end(input ?? "");
+    // git peut se terminer sans lire son entrée : l'écriture échoue alors en EPIPE, et seul son code de sortie compte.
+    child.stdin?.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code !== "EPIPE") reject(new GitError(`git ${args.join(" ")} failed in ${cwd}: ${err.message}`));
+    });
+    if (input === undefined) child.stdin?.end();
+    else child.stdin?.end(input);
   });
 }
 
