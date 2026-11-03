@@ -59,7 +59,7 @@ test("create requires a project and stores it trimmed, with no overview", (t) =>
   assert.equal(created.overview, null);
 });
 
-test("list returns lightweight summaries, most recent first", (t) => {
+test("list returns lightweight summaries, most recent first", async (t) => {
   const { store, cleanup } = makeStore();
   t.after(cleanup);
 
@@ -68,6 +68,8 @@ test("list returns lightweight summaries, most recent first", (t) => {
     { project: "demo", title: "Second" },
     sampleSnapshot({ mode: "working_tree", base: "HEAD", head: null, headCommit: null })
   );
+  // La date de mise à jour est à la milliseconde : la modification de « First » doit tomber après la création de « Second ».
+  await new Promise((resolve) => setTimeout(resolve, 2));
   store.mutate(first.id, "user", (draft) => {
     draft.files[1].reviewed = true;
     draft.findings.push(sampleFinding({ id: "f_1", severity: "critical" }));

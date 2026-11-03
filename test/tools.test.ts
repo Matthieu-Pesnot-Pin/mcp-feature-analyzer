@@ -133,12 +133,17 @@ test("list_analyses groups analyses by project with their review state, and filt
   const billingId = /\(id: ([a-z0-9-]+)\)/.exec(second)![1];
   const third = await ok(createAnalysis, store, { repo_path: repo, project: "billing", title: "Refunds", mode: "branch", base: "master" });
   const refundsId = /\(id: ([a-z0-9-]+)\)/.exec(third)![1];
+  // La date de mise à jour est à la milliseconde : chaque modification tombe dans la sienne, pour un tri « plus récente d'abord » déterminé.
+  const nextMillisecond = () => new Promise((resolve) => setTimeout(resolve, 2));
+  await nextMillisecond();
   store.mutate(billingId, "user", (draft) => {
     draft.files[0].reviewed = true;
   });
+  await nextMillisecond();
   store.mutate(refundsId, "user", (draft) => {
     for (const file of draft.files) file.reviewed = true;
   });
+  await nextMillisecond();
   store.mutate(id, "user", (draft) => {
     draft.review = { ...draft.review, state: "submitted", decision: "approve", submittedAt: new Date().toISOString() };
   });
