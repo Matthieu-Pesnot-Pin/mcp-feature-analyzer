@@ -114,7 +114,7 @@ test("in remote role, create_analysis runs git through the agent relay and other
   const data = makeTempDir("mcp-feature-analyzer-remote-");
   const client = new McpClient({
     ...baseEnv(),
-    MCP_FEATURE_ANALYZER_DATA_DIR: data.dir,
+    DATA_DIR: data.dir,
     MCP_FEATURE_ANALYZER_ROLE: "remote",
     MCP_SERVER_ROUTE: "/feature-analyzer",
   });

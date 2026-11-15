@@ -40,7 +40,7 @@ test("creates .mcp.json with the server entry and the generated env", () => {
     const result = runSetup(cwd);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Configuration mcp-feature-analyzer créée dans/);
-    assert.match(result.stdout, /MCP_FEATURE_ANALYZER_DATA_DIR/);
+    assert.match(result.stdout, /DATA_DIR/);
 
     const entry = readConfig(cwd).mcpServers["mcp-feature-analyzer"];
     assert.equal(entry.command, "npx");
@@ -51,7 +51,7 @@ test("creates .mcp.json with the server entry and the generated env", () => {
       APP_GROUP: "Mon_projet-web",
       APP_NAME: "Feature Analyzer Mon Projet Web",
       APP_PATH: "/feature-analyzer-mon_projet-web",
-      MCP_FEATURE_ANALYZER_DATA_DIR: path.join(cwd, ".feature-analyzer-data").replace(/\\/g, "/"),
+      DATA_DIR: path.join(cwd, ".feature-analyzer-data").replace(/\\/g, "/"),
       MCP_LOG_DIR: "",
     });
   });

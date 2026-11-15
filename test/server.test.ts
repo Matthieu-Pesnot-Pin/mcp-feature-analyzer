@@ -15,7 +15,7 @@ let temp: { dir: string; cleanup: () => void };
 
 before(async () => {
   temp = makeTempDir("mcp-feature-analyzer-server-");
-  client = new McpClient({ ...baseEnv(), MCP_FEATURE_ANALYZER_DATA_DIR: temp.dir });
+  client = new McpClient({ ...baseEnv(), DATA_DIR: temp.dir });
   await client.initialize("mcp-feature-analyzer-smoke");
 });
 
@@ -62,7 +62,7 @@ test("tools/list exposes exactly the 18 tools, each with a description and an ob
 });
 
 test("the server publishes instructions describing the review workflow", async () => {
-  const probe = new McpClient({ ...baseEnv(), MCP_FEATURE_ANALYZER_DATA_DIR: temp.dir });
+  const probe = new McpClient({ ...baseEnv(), DATA_DIR: temp.dir });
   try {
     const result = await probe.request("initialize", {
       protocolVersion: "2024-11-05",
@@ -105,7 +105,7 @@ test("create_analysis, add_findings and get_analysis round-trip through the stdi
 });
 
 test("the server identifies itself with its package name", async () => {
-  const probe = new McpClient({ ...baseEnv(), MCP_FEATURE_ANALYZER_DATA_DIR: temp.dir });
+  const probe = new McpClient({ ...baseEnv(), DATA_DIR: temp.dir });
   try {
     const result = await probe.request("initialize", {
       protocolVersion: "2024-11-05",

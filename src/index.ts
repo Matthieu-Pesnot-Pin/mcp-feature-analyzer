@@ -95,9 +95,6 @@ function findProjectRoot(startDir: string): string {
 const rootDir = findProjectRoot(__dirname);
 const packageEnvPath = path.join(rootDir, ".env");
 
-setupLogging({ processLabel: "mcp-feature-analyzer", logDir: resolveLogDir(rootDir) });
-const logger = createLogger("mcp-feature-analyzer");
-
 // Rechargé à chaque appel, avec override : le .env local prime sur les
 // variables héritées de la déclaration du MCP.
 function getConfig() {
@@ -106,6 +103,10 @@ function getConfig() {
 }
 
 getConfig();
+
+const dataDir = resolveDataDir();
+setupLogging({ processLabel: "mcp-feature-analyzer", logDir: resolveLogDir(dataDir) });
+const logger = createLogger("mcp-feature-analyzer");
 
 let role: Role;
 try {
@@ -116,7 +117,6 @@ try {
   process.exit(1);
 }
 
-const dataDir = resolveDataDir(rootDir);
 const store = new AnalysisStore(dataDir);
 
 /** Présentation du serveur transmise au client MCP : concepts, déroulé et règles. */

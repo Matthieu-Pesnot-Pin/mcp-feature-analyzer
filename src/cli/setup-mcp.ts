@@ -47,7 +47,7 @@ function buildServerEntry(codeRoot: string, exposure: GuiExposure) {
       APP_GROUP: capitalize(folder),
       APP_NAME: `Feature Analyzer ${toDisplayName(folder)}`,
       APP_PATH: `/feature-analyzer-${folder}`,
-      MCP_FEATURE_ANALYZER_DATA_DIR: toPosixPath(path.join(codeRoot, ".feature-analyzer-data")),
+      DATA_DIR: toPosixPath(path.join(codeRoot, ".feature-analyzer-data")),
       MCP_LOG_DIR: "",
     },
   };
@@ -59,7 +59,7 @@ const GENERATED_VARS = [
   ["APP_GROUP", "groupe d'affichage dans le dashboard du proxy"],
   ["APP_NAME", "nom affiché de la GUI dans le dashboard du proxy"],
   ["APP_PATH", "chemin de montage de la GUI derrière le proxy"],
-  ["MCP_FEATURE_ANALYZER_DATA_DIR", "répertoire de stockage des analyses (pré-rempli)"],
+  ["DATA_DIR", "répertoire de stockage des analyses (pré-rempli, obligatoire)"],
   ["MCP_LOG_DIR", "répertoire des logs (défaut : <data>/logs)"],
 ];
 

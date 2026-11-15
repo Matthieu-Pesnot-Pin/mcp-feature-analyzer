@@ -20,6 +20,7 @@ import {
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
+import { resolveDataDir } from "./core/data-dir.js";
 import { resolveLogDir } from "./core/log-dir.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -76,7 +77,7 @@ function resolveGuiMode(): GuiMode {
 const guiMode = resolveGuiMode();
 const isStandalone = guiMode.kind === "standalone";
 
-setupLogging({ processLabel: "mcp-feature-analyzer:GUI", logDir: resolveLogDir(rootDir) });
+setupLogging({ processLabel: "mcp-feature-analyzer:GUI", logDir: resolveLogDir(resolveDataDir()) });
 const logger = createLogger("mcp-feature-analyzer:GUI");
 
 process.on("uncaughtException", (err) => {

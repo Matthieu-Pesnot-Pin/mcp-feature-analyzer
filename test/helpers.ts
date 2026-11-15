@@ -129,8 +129,7 @@ export function baseEnv(): Record<string, string | undefined> {
     "APP_PATH_PREFIX",
     "APP_NAME",
     "APP_GROUP",
-    "MCP_FEATURE_ANALYZER_DATA_DIR",
-    "MCP_DATA_DIR",
+    "DATA_DIR",
     "MCP_LOG_DIR",
     "MCP_FEATURE_ANALYZER_ROLE",
   ]) {

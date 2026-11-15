@@ -58,7 +58,7 @@ Exemple d'entrée générée dans `C:/dev/mon-projet` avec `--proxy_url=http://l
         "APP_GROUP": "Mon-projet",
         "APP_NAME": "Feature Analyzer Mon Projet",
         "APP_PATH": "/feature-analyzer-mon-projet",
-        "MCP_FEATURE_ANALYZER_DATA_DIR": "C:/dev/mon-projet/.feature-analyzer-data",
+        "DATA_DIR": "C:/dev/mon-projet/.feature-analyzer-data",
         "MCP_LOG_DIR": ""
       }
     }
@@ -80,8 +80,8 @@ Elles se renseignent dans le champ `env` de `.mcp.json`, ou dans un fichier `.en
 | `APP_PATH_PREFIX` | Préfixe de namespace appliqué au chemin par le client proxy partagé ; le `<base href>` de la GUI suit le chemin réellement enregistré. |
 | `APP_NAME` | Nom affiché dans le dashboard du proxy (défaut `Feature Analyzer`). |
 | `APP_GROUP` | Section repliable du dashboard du proxy (facultatif). |
-| `MCP_FEATURE_ANALYZER_DATA_DIR` | Répertoire de stockage des analyses. À défaut : `MCP_DATA_DIR`, puis `<package>/.feature-analyzer-data`. |
-| `MCP_LOG_DIR` | Répertoire des logs. Défaut : `<données>/logs`. Lu au démarrage, depuis la déclaration du serveur. |
+| `DATA_DIR` | **Obligatoire**, sans défaut : répertoire de stockage des analyses, créé s'il n'existe pas. Le serveur refuse de démarrer sans lui. Le MCP Gateway Manager le renseigne automatiquement. |
+| `MCP_LOG_DIR` | Répertoire des logs. Défaut : `<DATA_DIR>/logs`. |
 | `MCP_FEATURE_ANALYZER_ROLE` | `standalone` (défaut) : `git` s'exécute sur la machine du serveur. `remote` : le serveur est derrière mcp-http-gateway et fait exécuter `git` sur la machine de l'agent. Une autre valeur fait refuser le démarrage. Lu au démarrage. |
 
 `PROXY_URL` et `APP_PORT` s'excluent : `PROXY_URL` prime si les deux sont renseignés. **Si aucune des deux n'est définie, la GUI est désactivée** ; les outils MCP continuent de fonctionner. Un `APP_PORT` qui n'est pas un entier entre 1 et 65535 désactive aussi la GUI : le worker s'arrête en écrivant la raison sur sa sortie d'erreur.

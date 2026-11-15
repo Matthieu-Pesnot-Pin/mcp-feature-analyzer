@@ -62,7 +62,7 @@ before(async () => {
   repo = makeGitRepo();
   const port = await freePort();
   baseUrl = `http://127.0.0.1:${port}`;
-  client = new McpClient({ ...baseEnv(), MCP_FEATURE_ANALYZER_DATA_DIR: temp.dir, APP_PORT: String(port) });
+  client = new McpClient({ ...baseEnv(), DATA_DIR: temp.dir, APP_PORT: String(port) });
   await client.initialize("mcp-feature-analyzer-gui-api");
   await waitForHealth(baseUrl, 20000);
 

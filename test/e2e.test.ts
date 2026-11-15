@@ -32,7 +32,7 @@ before(async () => {
   temp = makeTempDir("mcp-feature-analyzer-e2e-");
   client = new McpClient({
     ...baseEnv(),
-    MCP_FEATURE_ANALYZER_DATA_DIR: temp.dir,
+    DATA_DIR: temp.dir,
     PROXY_URL,
     APP_PATH,
     APP_NAME: "Feature Analyzer E2E",
