@@ -3,6 +3,7 @@ import type {
   AddNoteBody,
   DeleteNoteBody,
   MarkProcessedBody,
+  SetFileLevelBody,
   SetFileReviewedBody,
   SetFindingStatusBody,
   SubmitReviewBody,
@@ -32,6 +33,26 @@ export function setFileReviewed(store: AnalysisStore, analysisId: string, body: 
       const file = draft.files.find((entry) => entry.path === body.path);
       if (!file) throw new NotFoundError(`File "${body.path}" is not part of analysis "${analysisId}".`);
       file.reviewed = body.reviewed;
+    },
+    { baseRevision: body.baseRevision }
+  );
+}
+
+/**
+ * Change le niveau d'un fichier classé par l'agent. Choisir le niveau de
+ * l'agent efface le choix du relecteur.
+ */
+export function setFileLevel(store: AnalysisStore, analysisId: string, body: SetFileLevelBody): Analysis {
+  return store.mutate(
+    analysisId,
+    "user",
+    (draft) => {
+      const file = draft.files.find((entry) => entry.path === body.path);
+      if (!file) throw new NotFoundError(`File "${body.path}" is not part of analysis "${analysisId}".`);
+      if (file.classification === null) {
+        throw new AnalysisError(`File "${body.path}" is not classified yet: the agent classifies it first, with its reason.`);
+      }
+      file.classification.reviewerLevel = body.level === file.classification.level ? null : body.level;
     },
     { baseRevision: body.baseRevision }
   );

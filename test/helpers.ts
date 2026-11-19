@@ -248,8 +248,8 @@ export function sampleSnapshot(overrides: Partial<ComputedSnapshot> = {}): Compu
     headCommit: "b".repeat(40),
     snapshotAt: "2026-09-29T10:00:00.000Z",
     files: [
-      { path: "img.png", oldPath: null, status: "modified", additions: 0, deletions: 0, binary: true, contentAvailable: false, lineCount: 0, reviewed: false },
-      { path: "src/a.ts", oldPath: null, status: "modified", additions: 1, deletions: 1, binary: false, contentAvailable: true, lineCount: 5, reviewed: false },
+      { path: "img.png", oldPath: null, status: "modified", additions: 0, deletions: 0, binary: true, contentAvailable: false, lineCount: 0, reviewed: false, classification: null },
+      { path: "src/a.ts", oldPath: null, status: "modified", additions: 1, deletions: 1, binary: false, contentAvailable: true, lineCount: 5, reviewed: false, classification: null },
     ],
     diff: [
       { path: "img.png", hunks: [], newContent: null },

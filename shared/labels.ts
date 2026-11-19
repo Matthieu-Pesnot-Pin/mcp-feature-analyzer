@@ -1,5 +1,6 @@
 import type {
   AnalysisMode,
+  FileLevel,
   FileStatus,
   FindingKind,
   FindingStatus,
@@ -52,6 +53,13 @@ export const FILE_STATUS_LETTERS: Record<FileStatus, string> = {
   deleted: "D",
   renamed: "R",
   untracked: "U",
+};
+
+/** Niveau de relecture d'un fichier : libellé et ce qu'il recouvre. */
+export const FILE_LEVEL_LABELS: Record<FileLevel, { label: string; description: string }> = {
+  central: { label: "Central", description: "Règle métier ou calcul" },
+  check: { label: "À vérifier", description: "Appelant ou écran qui branche une règle" },
+  skim: { label: "Survol", description: "Tests, suppressions, imports, routes" },
 };
 
 export const MODE_LABELS: Record<AnalysisMode, string> = {

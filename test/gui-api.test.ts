@@ -131,6 +131,19 @@ test("POST files/reviewed marks a file reviewed and validates the body", async (
   assert.match(unknown.json.error, /"nope\.ts" is not part of analysis/);
 });
 
+test("POST files/level refuses an unclassified file and validates the body", async () => {
+  const unclassified = await call("POST", `analyses/${analysisId}/files/level`, { path: "src/app.ts", level: "skim", baseRevision: await revision() });
+  assert.equal(unclassified.status, 400);
+  assert.match(unclassified.json.error, /"src\/app\.ts" is not classified yet/);
+
+  const invalid = await call("POST", `analyses/${analysisId}/files/level`, { path: "src/app.ts", level: "later", baseRevision: await revision() });
+  assert.equal(invalid.status, 400);
+  assert.match(invalid.json.error, /^Invalid request body: level/);
+
+  const unknown = await call("POST", `analyses/${analysisId}/files/level`, { path: "nope.ts", level: "skim", baseRevision: await revision() });
+  assert.equal(unknown.status, 404);
+});
+
 test("POST findings/:id/status ignores a finding and refuses outdated", async () => {
   const ignored = await call("POST", `analyses/${analysisId}/findings/f_minor/status`, { status: "ignored", baseRevision: await revision() });
   assert.equal(ignored.status, 200, ignored.json.error);

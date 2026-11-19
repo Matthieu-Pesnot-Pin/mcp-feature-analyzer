@@ -1,17 +1,17 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import type { Analysis, FileEntry } from '@shared/schemas/analysis.schema'
 import { expandContext, stepContext } from '@shared/context-expansion'
 import { buildExplanationRequestPrompt } from '@shared/explanation-request'
-import { FILE_STATUS_LABELS, FILE_STATUS_LETTERS } from '@shared/labels'
+import { filesInReviewOrder } from '@shared/file-levels'
+import { FILE_STATUS_LABELS } from '@shared/labels'
 import { wholeFileDiff } from '@shared/whole-file-diff'
 import { FindingCard } from '../components/FindingCard'
 import { FinishReviewButton } from '../components/FinishReviewButton'
 import { Icon } from '../components/Icon'
 import { NoteComposer } from '../components/Notes'
-import { NoteDot, SeverityDot } from '../components/Pills'
 import { ReviewProgressMeter } from '../components/ReviewProgressMeter'
 import { useAnalysisStore } from '../store/useAnalysisStore'
-import { middleEllipsisParts, openFindingsLabel, plural, splitPath } from '../utils/format'
+import { plural, splitPath } from '../utils/format'
 import { hrefs, navigate } from '../utils/router'
 import { DiffOptionMenus, DiffView, type ComposerTarget } from './DiffView'
 import { FindingsMargin } from './FindingsMargin'
@@ -28,93 +28,11 @@ import {
   shownLineNumbers,
   type NumberedFinding,
 } from './review-diff-model'
-import { fileNoteCount, firstFileToReview, openFindingCounts, unlocatedFindings, zenApplies } from './review-model'
+import { ClassificationBar } from './ClassificationBar'
+import { FilesPanel } from './FilesPanel'
+import { firstFileToReview, unlocatedFindings, zenApplies } from './review-model'
 import { clampFilesPanelWidth, FILES_PANEL_WIDTH, useFilesPanelWidth, type WidthUpdate } from './useFilesPanelWidth'
 import { ZenRail } from './ZenRail'
-
-/** Nom de fichier tronqué au milieu : le début se coupe, l'extension et la fin du nom restent visibles. */
-function MiddleEllipsis({ name }: { name: string }) {
-  const { head, tail } = middleEllipsisParts(name)
-  return (
-    <span className="middle-ellipsis">
-      <span className="middle-ellipsis-head">{head}</span>
-      <span className="middle-ellipsis-tail">{tail}</span>
-    </span>
-  )
-}
-
-/**
- * Panneau gauche : liste des fichiers, un intertitre par dossier, chaque fichier
- * suivi de la lettre de son statut git. Chaque pastille de gravité ouvre le
- * fichier sur son premier constat ouvert de cette gravité ; la pastille des
- * remarques, sur sa première remarque de ligne. La progression de la
- * revue est dans la barre supérieure.
- */
-function FilesPanel({ analysis, currentPath }: { analysis: Analysis; currentPath: string }) {
-  return (
-    <aside className="files-panel">
-      <div className="files-panel-head">
-        <span className="files-panel-title">Fichiers</span>
-        <span className="files-panel-count">{analysis.files.length}</span>
-      </div>
-      <nav className="files-list">
-        {analysis.files.map((file, index) => {
-          const current = file.path === currentPath
-          const icon = file.reviewed ? 'circle-check' : current ? 'circle-dot' : 'circle'
-          const color = file.reviewed ? '#3fb950' : current ? '#8b97ff' : '#3a4050'
-          const folder = splitPath(file.path).folder
-          const newFolder = index === 0 ? folder !== '' : splitPath(analysis.files[index - 1].path).folder !== folder
-          const notes = fileNoteCount(analysis, file.path)
-          return (
-            <Fragment key={file.path}>
-              {newFolder && (
-                <span className="files-group mono" title={folder || 'racine du dépôt'}>
-                  {folder || './'}
-                </span>
-              )}
-              <div className={`files-item${current ? ' is-current' : ''}${file.reviewed ? ' is-reviewed' : ''}`}>
-                <a
-                  href={hrefs.review(analysis.id, file.path)}
-                  className="files-item-link"
-                  title={file.path}
-                  aria-current={current ? 'page' : undefined}
-                >
-                  <Icon name={icon} color={color} />
-                  <span className="files-item-name">
-                    <MiddleEllipsis name={splitPath(file.path).name} />
-                  </span>
-                </a>
-                {openFindingCounts(analysis, file.path).map(({ severity, count, firstLine }) => (
-                  <SeverityDot
-                    key={severity}
-                    severity={severity}
-                    count={count}
-                    href={hrefs.review(analysis.id, file.path, firstLine)}
-                    title={`${openFindingsLabel(severity, count)} — ${count > 1 ? 'aller au premier' : 'y aller'}`}
-                  />
-                ))}
-                {notes && (
-                  <NoteDot
-                    count={notes.count}
-                    href={hrefs.review(analysis.id, file.path, notes.firstLine ?? undefined)}
-                    title={
-                      notes.firstLine === null
-                        ? `${plural(notes.count, 'remarque')} sur le fichier — y aller`
-                        : `${plural(notes.count, 'remarque')} — ${notes.count > 1 ? 'aller à la première' : 'y aller'}`
-                    }
-                  />
-                )}
-                <span className={`files-item-status mono is-${file.status}`} title={FILE_STATUS_LABELS[file.status]}>
-                  {FILE_STATUS_LETTERS[file.status]}
-                </span>
-              </div>
-            </Fragment>
-          )
-        })}
-      </nav>
-    </aside>
-  )
-}
 
 /**
  * Poignée sur le bord droit du panneau des fichiers : un glissé règle sa largeur,
@@ -220,13 +138,18 @@ function FilePath({ file }: { file: FileEntry }) {
   )
 }
 
-/** Actions sur le fichier revu : remarque sur le fichier, fichier précédent et suivant, « Marquer comme revu ». */
+/**
+ * Actions sur le fichier revu : remarque sur le fichier, fichier précédent et
+ * suivant dans l'ordre de relecture (par niveau, puis dans l'ordre du diff),
+ * « Marquer comme revu ».
+ */
 function FileActions({ analysis, file, onFileNote }: { analysis: Analysis; file: FileEntry; onFileNote: () => void }) {
   const setFileReviewed = useAnalysisStore((state) => state.setFileReviewed)
   const saving = useAnalysisStore((state) => state.saving)
-  const index = analysis.files.findIndex((entry) => entry.path === file.path)
-  const previous = analysis.files[index - 1]
-  const next = analysis.files[index + 1]
+  const ordered = filesInReviewOrder(analysis.files)
+  const index = ordered.findIndex((entry) => entry.path === file.path)
+  const previous = ordered[index - 1]
+  const next = ordered[index + 1]
 
   return (
     <>
@@ -584,6 +507,7 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
         ) : (
           <>
             <FileHeader analysis={analysis} file={file} onFileNote={openFileNote} />
+            <ClassificationBar file={file} />
             <div className="review-body" ref={bodyRef}>
               <div className="review-columns">
                 {center(file, false)}

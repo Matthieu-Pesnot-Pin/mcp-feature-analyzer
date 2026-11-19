@@ -42,6 +42,17 @@ export function fileLine(file: FileEntry): string {
   return `${FILE_STATUS_LETTERS[file.status]} ${name}  ${counts}${extra}`;
 }
 
+/**
+ * Classement d'un fichier : `central: <raison>`, `reviewer moved it to skim (agent: central: <raison>)`
+ * ou `unclassified`.
+ */
+export function classificationLabel(file: FileEntry): string {
+  const classification = file.classification;
+  if (classification === null) return "unclassified";
+  const agent = `${classification.level}: ${classification.reason}`;
+  return classification.reviewerLevel === null ? agent : `reviewer moved it to ${classification.reviewerLevel} (agent: ${agent})`;
+}
+
 /** Totaux +/- des fichiers. */
 export function fileTotals(files: FileEntry[]): string {
   const additions = files.reduce((sum, file) => sum + file.additions, 0);

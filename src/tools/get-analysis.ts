@@ -5,6 +5,7 @@ import { diagramQuality } from "../../shared/diagram-quality.js";
 import { reviewProgress } from "../../shared/review-state.js";
 import { sortBySeverity } from "../../shared/severity.js";
 import {
+  classificationLabel,
   fileLine,
   explanationLine,
   fileTotals,
@@ -81,7 +82,11 @@ export function getAnalysis(store: AnalysisStore, args: Args): ToolResult {
 
   const reviewed = analysis.files.filter((file) => file.reviewed).length;
   lines.push(`Files (${fileTotals(analysis.files)}; reviewed ${reviewed}/${analysis.files.length}):`);
-  lines.push(...analysis.files.map((file) => `  [${file.reviewed ? "x" : " "}] ${fileLine(file)}`), "");
+  lines.push(...analysis.files.map((file) => `  [${file.reviewed ? "x" : " "}] ${fileLine(file)} — ${classificationLabel(file)}`));
+  if (analysis.files.some((file) => file.classification === null)) {
+    lines.push("  Classify the unclassified files with classify_files: the reviewer starts with the central ones.");
+  }
+  lines.push("");
 
   const counts = { open: 0, ignored: 0, outdated: 0 };
   for (const finding of analysis.findings) counts[finding.status]++;

@@ -3,7 +3,8 @@ import { analysisLinks } from "../core/follow-ups.js";
 import type { Analysis, Finding, Note, Processing, ReviewDecision, SubmissionRecord } from "../../shared/schemas/analysis.schema.js";
 import { hasNoChanges, needsProcessing, recordSubmission, reviewProgress, submissionChanges } from "../../shared/review-state.js";
 import { sortBySeverity } from "../../shared/severity.js";
-import { findingLine, indentBlock, noteLocationLabel, overviewLines, progressLabel } from "./format.js";
+import { reclassifiedFiles } from "../../shared/file-levels.js";
+import { classificationLabel, findingLine, indentBlock, noteLocationLabel, overviewLines, progressLabel } from "./format.js";
 import { rejectUnknownFields, requireString, textResult, type Args, type ToolResult } from "./types.js";
 
 /** `processed at <date> by the agent (note: …)`, `nothing to process (approved)` ou `not processed`. */
@@ -38,6 +39,17 @@ function changeLines(previous: SubmissionRecord, current: SubmissionRecord): str
   }
   for (const note of changes.removedNotes) lines.push(`  - note ${recordedNoteLine(note)}`);
   return lines;
+}
+
+/** Fichiers reclassés par le relecteur : son niveau, celui de l'agent et sa raison. */
+function reclassificationLines(analysis: Analysis): string[] {
+  const files = reclassifiedFiles(analysis);
+  if (files.length === 0) return [];
+  return [
+    `Files the reviewer reclassified (${files.length}) — compare with your levels to classify better next time:`,
+    ...files.map((file) => `- ${file.path}: ${classificationLabel(file)}`),
+    "",
+  ];
 }
 
 function findingDetails(finding: Finding): string[] {
@@ -103,6 +115,7 @@ export function getReviewFeedback(store: AnalysisStore, args: Args): ToolResult 
   lines.push(...(findings.length === 0 ? ["  none"] : findings.flatMap(findingDetails)), "");
   lines.push(`Selected reviewer notes (${notes.length}):`);
   lines.push(...(notes.length === 0 ? ["  none"] : notes.map(noteDetails)), "");
+  lines.push(...reclassificationLines(analysis));
 
   if (review.prompt === null) {
     lines.push("Prompt: none was recorded with this submission.");

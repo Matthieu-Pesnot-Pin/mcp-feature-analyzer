@@ -11,9 +11,9 @@ function fixture(): { snapshot: DiffSnapshot; files: FileEntry[] } {
   const computed = sampleSnapshot();
   const files: FileEntry[] = [
     ...computed.files,
-    { path: "gone.ts", oldPath: null, status: "deleted", additions: 0, deletions: 3, binary: false, contentAvailable: false, lineCount: 0, reviewed: false },
-    { path: "big.json", oldPath: null, status: "added", additions: 9, deletions: 0, binary: false, contentAvailable: false, lineCount: 0, reviewed: false },
-    { path: "crlf.txt", oldPath: null, status: "modified", additions: 1, deletions: 1, binary: false, contentAvailable: true, lineCount: 3, reviewed: false },
+    { path: "gone.ts", oldPath: null, status: "deleted", additions: 0, deletions: 3, binary: false, contentAvailable: false, lineCount: 0, reviewed: false, classification: null },
+    { path: "big.json", oldPath: null, status: "added", additions: 9, deletions: 0, binary: false, contentAvailable: false, lineCount: 0, reviewed: false, classification: null },
+    { path: "crlf.txt", oldPath: null, status: "modified", additions: 1, deletions: 1, binary: false, contentAvailable: true, lineCount: 3, reviewed: false, classification: null },
   ];
   const snapshot: DiffSnapshot = {
     analysisId: "sample-abc123",

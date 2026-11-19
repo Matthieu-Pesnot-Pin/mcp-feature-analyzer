@@ -91,6 +91,15 @@ export const addProcessingAuthor: MigrationStep = (doc) => {
 /** Ajoute `followUpOf` à null : l'analyse n'est la revue de suivi d'aucune autre. */
 export const addFollowUpOf: MigrationStep = (doc) => (doc.followUpOf !== undefined ? null : { ...doc, followUpOf: null });
 
+/** Ajoute `classification` à null aux fichiers qui n'en ont pas : ils ne sont pas classés. */
+export const addFileClassifications: MigrationStep = (doc) => {
+  if (!Array.isArray(doc.files)) return null;
+  const files = doc.files as unknown[];
+  const missing = (file: unknown) => !!file && typeof file === "object" && (file as RawDocument).classification === undefined;
+  if (!files.some(missing)) return null;
+  return { ...doc, files: files.map((file) => (missing(file) ? { ...(file as RawDocument), classification: null } : file)) };
+};
+
 /** Étapes appliquées aux analyses (`analyses/<id>.json`), dans l'ordre. */
 export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [
   addProject,
@@ -100,6 +109,7 @@ export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [
   addReviewProcessing,
   addProcessingAuthor,
   addFollowUpOf,
+  addFileClassifications,
 ];
 
 /** Étapes appliquées aux snapshots de diff (`diffs/<id>.json`), dans l'ordre. */

@@ -359,7 +359,7 @@ export class AnalysisStore {
       followUpOf: input.followUpOf ?? null,
       overview: null,
       summary: input.summary ?? [],
-      files: snapshot.files.map((file) => ({ ...file, reviewed: false })),
+      files: snapshot.files.map((file) => ({ ...file, reviewed: false, classification: null })),
       findings: [],
       explanations: [],
       notes: [],

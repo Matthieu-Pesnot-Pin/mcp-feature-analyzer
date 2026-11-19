@@ -16,14 +16,16 @@ interface OptionMenuProps<T extends string> {
   onChange: (value: T) => void
   /** Choix indisponibles, avec la raison affichée à la place de leur description. */
   disabled?: Partial<Record<T, string>>
+  /** Contenu du bouton à la place de la valeur courante : une action plutôt qu'un réglage. */
+  trigger?: { icon: IconName; label: string }
 }
 
 /**
- * Bouton qui affiche la valeur courante d'un réglage ; un clic ouvre la liste
+ * Bouton qui affiche la valeur courante d'un réglage, ou `trigger` ; un clic ouvre la liste
  * de ses choix, chacun avec son icône et sa description. Un clic hors du menu,
  * Échap, un défilement ou un redimensionnement de la fenêtre le referme.
  */
-export function OptionMenu<T extends string>({ label, options, value, onChange, disabled }: OptionMenuProps<T>) {
+export function OptionMenu<T extends string>({ label, options, value, onChange, disabled, trigger }: OptionMenuProps<T>) {
   // Position de la liste ouverte, alignée sur le bord droit du bouton ; null quand elle est fermée.
   const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null)
   const open = anchor !== null
@@ -55,7 +57,7 @@ export function OptionMenu<T extends string>({ label, options, value, onChange, 
     const rect = buttonRef.current?.getBoundingClientRect()
     setAnchor(open || !rect ? null : { top: rect.bottom + 6, right: window.innerWidth - rect.right })
   }
-  const current = options[value]
+  const current = trigger ?? options[value]
   return (
     <div className="option-menu" ref={rootRef}>
       <button

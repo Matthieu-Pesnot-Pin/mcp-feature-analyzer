@@ -196,6 +196,7 @@ function toEntry(parsed: ParsedFileDiff, newContent: string | null): { entry: Fi
       contentAvailable: newContent !== null,
       lineCount: newContent === null ? 0 : splitLines(newContent).length,
       reviewed: false,
+      classification: null,
     },
     diff: { path: parsed.path, hunks: parsed.hunks, newContent },
   };
@@ -312,7 +313,7 @@ async function workingTreeSnapshot(repo: RepoAccess) {
  * - `branch` : diff `base...head` (head vaut `HEAD` par défaut), contenu lu dans le commit de tête ;
  * - `working_tree` : diff de HEAD vers la copie de travail, index compris, fichiers non suivis
  *   au statut `untracked`, contenu lu sur disque.
- * Les fichiers sont triés par chemin ; `reviewed` vaut false partout.
+ * Les fichiers sont triés par chemin ; `reviewed` vaut false et `classification` null partout.
  */
 export async function computeSnapshot(
   request: SnapshotRequest,

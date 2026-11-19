@@ -12,6 +12,7 @@ import {
   AddNoteBodySchema,
   DeleteNoteBodySchema,
   MarkProcessedBodySchema,
+  SetFileLevelBodySchema,
   SetFileReviewedBodySchema,
   SetFindingStatusBodySchema,
   SubmitReviewBodySchema,
@@ -308,6 +309,12 @@ app.post("/api/analyses/:id/files/reviewed", async (c) => {
   const read = await readBody(c, SetFileReviewedBodySchema);
   if ("response" in read) return read.response;
   return forward(c, "SET_FILE_REVIEWED", { analysisId: c.req.param("id"), body: read.body });
+});
+
+app.post("/api/analyses/:id/files/level", async (c) => {
+  const read = await readBody(c, SetFileLevelBodySchema);
+  if ("response" in read) return read.response;
+  return forward(c, "SET_FILE_LEVEL", { analysisId: c.req.param("id"), body: read.body });
 });
 
 app.post("/api/analyses/:id/findings/:findingId/status", async (c) => {

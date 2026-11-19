@@ -1826,6 +1826,202 @@ a.round-chain-item:hover {
   flex-shrink: 0;
 }
 
+/* Onglets des niveaux de relecture, en tête de la liste des fichiers. */
+.level-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 18px 24px 0;
+  padding: 3px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.level-tab {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.level-tab:hover {
+  color: var(--text-soft);
+}
+
+.level-tab.is-active {
+  background: var(--brand-bg);
+  color: #d5daff;
+  font-weight: 600;
+}
+
+.level-tab-count {
+  font-weight: 400;
+  color: var(--faint);
+}
+
+.level-tab.is-active .level-tab-count {
+  color: #aab3ff;
+}
+
+.level-tab-alert {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+.level-tabs + .files-list {
+  margin-top: 12px;
+}
+
+.level-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 20px 24px 0;
+}
+
+.level-cards:empty {
+  display: none;
+}
+
+.level-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.level-card-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.level-next {
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.level-next:hover {
+  border-color: var(--border-strong);
+}
+
+.level-card-label {
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.level-card-title {
+  font-size: 12.5px;
+  color: var(--text-strong);
+}
+
+.level-alert {
+  align-items: flex-start;
+  background: #1d1912;
+  border: 1px solid #4a3a1c;
+}
+
+.level-alert > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.level-alert-title {
+  font-size: 12px;
+  color: var(--warning);
+}
+
+.level-alert-link {
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.level-alert-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* Niveau de relecture et raison du classement, sous l'en-tête du fichier. */
+.classification-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 4px 32px 4px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--divider);
+  flex-shrink: 0;
+}
+
+.level-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 11px 0 9px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.level-chip.is-central {
+  background: var(--brand-bg);
+  color: #d5daff;
+}
+
+.level-chip.is-central svg {
+  color: var(--accent-soft);
+}
+
+.level-chip.is-check {
+  background: #1a1e2b;
+  color: var(--text-soft);
+}
+
+.level-chip.is-skim {
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.classification-reason {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.classification-override {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
 .review-main {
   display: flex;
   flex-direction: column;

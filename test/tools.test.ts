@@ -12,6 +12,9 @@ import { getDiff } from "../src/tools/get-diff.js";
 import { refreshAnalysis } from "../src/tools/refresh-analysis.js";
 import { updateAnalysis } from "../src/tools/update-analysis.js";
 import { addFindings } from "../src/tools/add-findings.js";
+import { classifyFiles } from "../src/tools/classify-files.js";
+import { setFileLevel } from "../src/core/review-actions.js";
+import { sensitiveFileKind } from "../shared/file-levels.js";
 import { updateFinding } from "../src/tools/update-finding.js";
 import { deleteFindings } from "../src/tools/delete-findings.js";
 import { setDiagram } from "../src/tools/set-diagram.js";
@@ -69,6 +72,7 @@ async function setup(t: TestContext) {
 test("create_analysis freezes the branch diff and lists the changed files with next steps", async (t) => {
   const { store, id, createText } = await setup(t);
   assert.match(createText, /Created analysis "Feature X" \(id: [a-z0-9-]+\) in project "demo"/);
+  assert.match(createText, /3\. Classify every changed file with classify_files/);
   assert.match(createText, /2\. Write the overview \(objective, approach, attention_points\) and the summary/);
   assert.match(createText, /branch master\.\.\.HEAD/);
   assert.match(createText, /M src\/app\.ts {2}\+2 -1/);
@@ -745,6 +749,93 @@ test("refresh_analysis recomputes the diff, outdates changed findings and resets
   const reopened = await ok(updateFinding, store, { analysis_id: id, finding_id: "f_changed", path: "src/app.ts", start_line: 2 });
   assert.match(reopened, /It was outdated; the new location reopened it\./);
   assert.equal(store.get(id).findings[0].anchorText, "line 2 fixed");
+});
+
+// --- classify_files ----------------------------------------------------------
+
+test("classify_files records level and reason, lists the unclassified files, and get_analysis shows them", async (t) => {
+  const { store, id } = await setup(t);
+  const text = await ok(classifyFiles, store, {
+    analysis_id: id,
+    files: [
+      { path: "src/app.ts", level: "central", reason: "Computes the token expiry" },
+      { path: "src/new file.ts", level: "skim", reason: "Adds two constants" },
+    ],
+  });
+  assert.match(text, /Classified 2 file\(s\)/);
+  assert.match(text, /src\/app\.ts — central: Computes the token expiry/);
+  assert.match(text, /Still unclassified \(5\): .*docs\/new name\.md/);
+  assert.deepEqual(store.get(id).files.find((file) => file.path === "src/app.ts")!.classification, {
+    level: "central",
+    reason: "Computes the token expiry",
+    reviewerLevel: null,
+  });
+
+  const details = await ok(getAnalysis, store, { analysis_id: id });
+  assert.match(details, /M src\/app\.ts {2}\+2 -1 — central: Computes the token expiry/);
+  assert.match(details, /logo\.bin {2}binary — unclassified/);
+  assert.match(details, /Classify the unclassified files with classify_files/);
+});
+
+test("classify_files is all-or-nothing: unknown paths, duplicates and skimmed sensitive files are refused", async (t) => {
+  const { store, id } = await setup(t);
+  const revision = store.get(id).revision;
+  const text = await fails(classifyFiles, store, {
+    analysis_id: id,
+    files: [
+      { path: "src/app.ts", level: "check", reason: "Wires the rule" },
+      { path: "src/app.ts", level: "skim", reason: "Again" },
+      { path: "nope.ts", level: "skim", reason: "Unknown" },
+      { path: "crlf.txt", level: "rare", reason: "Bad level" },
+    ],
+  });
+  assert.match(text, /No file was classified: 3 of 4 item\(s\) are invalid/);
+  assert.match(text, /files\[1\]: "src\/app\.ts" appears twice/);
+  assert.match(text, /files\[2\]: "nope\.ts" is not a changed file/);
+  assert.match(text, /files\[3\]: "level" must be one of central, check, skim/);
+  assert.equal(store.get(id).revision, revision);
+});
+
+test("sensitive files are never skimmed: migrations, SQL, configuration, CI and container files", () => {
+  for (const path of ["db/migrations/0042_tokens.ts", "schema.sql", "package.json", "tsconfig.build.json", "vite.config.ts", ".env.local", "config/app.ts", ".github/workflows/ci.yml", "Dockerfile", "docker-compose.dev.yml"]) {
+    assert.notEqual(sensitiveFileKind(path), null, path);
+  }
+  for (const path of ["src/app.ts", "src/configure.ts", "test/app.test.ts", "README.md"]) {
+    assert.equal(sensitiveFileKind(path), null, path);
+  }
+});
+
+test("the reviewer's level is kept until the agent agrees, reported in the feedback, and kept by a refresh", async (t) => {
+  const { repo, store, id } = await setup(t);
+  await ok(classifyFiles, store, { analysis_id: id, files: [{ path: "src/app.ts", level: "central", reason: "Computes the expiry" }] });
+
+  setFileLevel(store, id, { path: "src/app.ts", level: "check", baseRevision: store.get(id).revision });
+  assert.equal(store.get(id).files.find((file) => file.path === "src/app.ts")!.classification!.reviewerLevel, "check");
+  assert.throws(
+    () => setFileLevel(store, id, { path: "crlf.txt", level: "skim", baseRevision: store.get(id).revision }),
+    /"crlf\.txt" is not classified yet/
+  );
+
+  const reclassified = await ok(classifyFiles, store, { analysis_id: id, files: [{ path: "src/app.ts", level: "central", reason: "Still central" }] });
+  assert.match(reclassified, /reviewer moved it to check \(agent: central: Still central\)/);
+  assert.match(reclassified, /The reviewer's own level is kept for 1 file\(s\)/);
+
+  submitReview(store, id, []);
+  assert.match(
+    await ok(getReviewFeedback, store, { analysis_id: id }),
+    /Files the reviewer reclassified \(1\)[^\n]*\n- src\/app\.ts: reviewer moved it to check \(agent: central: Still central\)/
+  );
+
+  const appPath = path.join(repo, "src", "app.ts");
+  fs.writeFileSync(appPath, fs.readFileSync(appPath, "utf-8").replace("line 2 changed", "line 2 fixed"));
+  git(repo, "commit", "-q", "-am", "fix line 2");
+  assert.match(await ok(refreshAnalysis, store, { analysis_id: id }), /Classification: kept for the files still in the diff; 6 file\(s\) unclassified\./);
+  assert.equal(store.get(id).files.find((file) => file.path === "src/app.ts")!.classification!.reviewerLevel, "check");
+
+  await ok(classifyFiles, store, { analysis_id: id, files: [{ path: "src/app.ts", level: "check", reason: "Now a caller" }] });
+  assert.equal(store.get(id).files.find((file) => file.path === "src/app.ts")!.classification!.reviewerLevel, null);
+  setFileLevel(store, id, { path: "src/app.ts", level: "check", baseRevision: store.get(id).revision });
+  assert.equal(store.get(id).files.find((file) => file.path === "src/app.ts")!.classification!.reviewerLevel, null);
 });
 
 test("delete_analysis removes the analysis and its snapshot, and reports unknown ids", async (t) => {

@@ -1,11 +1,47 @@
-import type { Analysis, Finding, Severity } from '@shared/schemas/analysis.schema'
-import { SEVERITIES } from '@shared/schemas/analysis.schema'
+import type { Analysis, FileEntry, FileLevel, Finding, Severity } from '@shared/schemas/analysis.schema'
+import { FILE_LEVELS, SEVERITIES } from '@shared/schemas/analysis.schema'
+import { effectiveLevel, filesInReviewOrder } from '@shared/file-levels'
 import { sortBySeverity } from '@shared/severity'
 import { hrefs } from '../utils/router'
 
-/** Premier fichier à revoir, ou le premier fichier quand tous sont revus ; null sans fichier. */
+/** Onglet de la liste des fichiers : un niveau de relecture, ou les fichiers non classés. */
+export type LevelTab = FileLevel | 'unclassified'
+
+/** Onglets dans l'ordre de relecture. */
+export const LEVEL_TABS: readonly LevelTab[] = [...FILE_LEVELS, 'unclassified']
+
+/** Onglet d'un fichier. */
+export function tabOf(file: Pick<FileEntry, 'classification'>): LevelTab {
+  return effectiveLevel(file) ?? 'unclassified'
+}
+
+/** Fichiers d'un onglet, dans l'ordre du diff. */
+export function filesOfTab(analysis: Analysis, tab: LevelTab): FileEntry[] {
+  return analysis.files.filter((file) => tabOf(file) === tab)
+}
+
+/** Premier fichier à revoir parmi `files`, ou le premier quand tous sont revus ; null sans fichier. */
+function firstToReview(files: readonly FileEntry[]): string | null {
+  return (files.find((file) => !file.reviewed) ?? files[0])?.path ?? null
+}
+
+/** Premier fichier à revoir dans l'ordre de relecture, ou le premier fichier quand tous sont revus ; null sans fichier. */
 export function firstFileToReview(analysis: Analysis): string | null {
-  return (analysis.files.find((file) => !file.reviewed) ?? analysis.files[0])?.path ?? null
+  return firstToReview(filesInReviewOrder(analysis.files))
+}
+
+/** Premier fichier à revoir d'un onglet, ou son premier fichier ; null pour un onglet vide. */
+export function firstFileOfTab(analysis: Analysis, tab: LevelTab): string | null {
+  return firstToReview(filesOfTab(analysis, tab))
+}
+
+/** Fichiers classés en survol qui portent un constat ouvert. */
+export function skimmedWithFindings(analysis: Analysis): FileEntry[] {
+  return analysis.files.filter(
+    (file) =>
+      effectiveLevel(file) === 'skim' &&
+      analysis.findings.some((finding) => finding.status === 'open' && finding.location?.path === file.path),
+  )
 }
 
 /**

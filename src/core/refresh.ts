@@ -14,6 +14,8 @@ export interface RefreshStats {
   reviewedKept: number;
   /** Fichiers revus toujours présents dont le diff a changé : ils repassent à « non revu ». */
   reviewedReset: number;
+  /** Fichiers sans classement après le recalcul. */
+  unclassified: number;
   /** Constats ouverts passés à `outdated`. */
   findingsOutdated: number;
   /** Constats `outdated` revenus à `open`. */
@@ -74,6 +76,7 @@ function currentText(finding: Finding, diffs: Map<string, FileDiff>): string | n
 /**
  * Calcule les champs d'une analyse après recalcul de son snapshot :
  * - `reviewed` n'est conservé que pour les fichiers dont le diff est inchangé ;
+ * - le classement d'un fichier toujours présent est conservé ; un nouveau fichier n'est pas classé ;
  * - un constat `open` dont les lignes ne correspondent plus à `anchorText`, ou dont le
  *   fichier a quitté le diff, passe à `outdated` ;
  * - un constat `outdated` dont les lignes correspondent de nouveau revient à `open` ;
@@ -98,6 +101,7 @@ export function applyRefresh(analysis: Analysis, oldSnapshot: DiffSnapshot, next
     filesRemoved: 0,
     reviewedKept: 0,
     reviewedReset: 0,
+    unclassified: 0,
     findingsOutdated: 0,
     findingsRestored: 0,
     explanationsOutdated: 0,
@@ -108,18 +112,20 @@ export function applyRefresh(analysis: Analysis, oldSnapshot: DiffSnapshot, next
     const previous = oldEntries.get(entry.path);
     if (!previous) {
       stats.filesAdded++;
-      return { ...entry, reviewed: false };
+      return { ...entry, reviewed: false, classification: null };
     }
-    if (!previous.reviewed) return { ...entry, reviewed: false };
+    const classification = previous.classification;
+    if (!previous.reviewed) return { ...entry, reviewed: false, classification };
     const newDiff = newDiffs.get(entry.path);
     if (!newDiff) throw new AnalysisError(`The new snapshot has no diff for "${entry.path}".`);
     if (sameFileDiff(previous, oldDiffs.get(entry.path), entry, newDiff)) {
       stats.reviewedKept++;
-      return { ...entry, reviewed: true };
+      return { ...entry, reviewed: true, classification };
     }
     stats.reviewedReset++;
-    return { ...entry, reviewed: false };
+    return { ...entry, reviewed: false, classification };
   });
+  stats.unclassified = files.filter((file) => file.classification === null).length;
   const newPaths = new Set(next.files.map((file) => file.path));
   stats.filesRemoved = analysis.files.filter((file) => !newPaths.has(file.path)).length;
 

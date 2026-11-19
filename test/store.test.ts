@@ -364,6 +364,22 @@ test("migrations are wired, idempotent and leave an up-to-date file untouched", 
   assert.equal(applyMigrations("not an object", [addSummary]), null);
 });
 
+test("migration adds a null classification to the files of an older analysis, once", (t) => {
+  const { store, dir, cleanup } = makeStore();
+  t.after(cleanup);
+
+  const created = store.create({ project: "demo", title: "Unclassified" }, sampleSnapshot());
+  const file = path.join(dir, "analyses", `${created.id}.json`);
+  const legacy = JSON.parse(fs.readFileSync(file, "utf-8"));
+  for (const entry of legacy.files) delete entry.classification;
+  fs.writeFileSync(file, JSON.stringify(legacy));
+
+  const migrated = new AnalysisStore(dir).get(created.id);
+  assert.ok(migrated.files.length > 0);
+  assert.ok(migrated.files.every((entry) => entry.classification === null));
+  assert.equal(migrateAnalysis(JSON.parse(fs.readFileSync(file, "utf-8"))), null);
+});
+
 test("migration derives the project from the repository folder and adds an empty overview, once", (t) => {
   const { store, dir, cleanup } = makeStore();
   t.after(cleanup);

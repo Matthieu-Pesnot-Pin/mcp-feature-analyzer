@@ -3,6 +3,7 @@ import type {
   AddNoteBody,
   DeleteNoteBody,
   MarkProcessedBody,
+  SetFileLevelBody,
   SetFileReviewedBody,
   SetFindingStatusBody,
   SubmitReviewBody,
@@ -70,6 +71,8 @@ export const api = {
 
   setFileReviewed: (id: string, body: SetFileReviewedBody) =>
     send<AnalysisResponse>('POST', `${analysisPath(id)}/files/reviewed`, body),
+
+  setFileLevel: (id: string, body: SetFileLevelBody) => send<AnalysisResponse>('POST', `${analysisPath(id)}/files/level`, body),
 
   setFindingStatus: (id: string, findingId: string, body: SetFindingStatusBody) =>
     send<AnalysisResponse>('POST', `${analysisPath(id)}/findings/${encodeURIComponent(findingId)}/status`, body),

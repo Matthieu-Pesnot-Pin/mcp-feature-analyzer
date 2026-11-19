@@ -27,6 +27,7 @@ function duplicates(ids: string[]): string[] {
  * - les liens d'un schéma relient des nœuds existants ; en `layers`, chaque nœud a une couche
  *   déclarée dans `layers`, sans doublon ;
  * - une remarque liée à un constat vise un constat existant ;
+ * - le niveau choisi par le relecteur diffère de celui de l'agent (null quand ils sont égaux) ;
  * - la revue ne sélectionne que des constats et remarques existants, et son état est cohérent.
  */
 export function findInvariantViolations(analysis: Analysis): string[] {
@@ -48,6 +49,13 @@ export function findInvariantViolations(analysis: Analysis): string[] {
     ["diagram id", analysis.diagrams.map((diagram) => diagram.id)],
   ] as const) {
     for (const id of duplicates(ids)) problems.push(`duplicate ${label} "${id}"`);
+  }
+
+  for (const file of analysis.files) {
+    const classification = file.classification;
+    if (classification !== null && classification.reviewerLevel === classification.level) {
+      problems.push(`file "${file.path}" has a reviewer level equal to the agent level (it must be null then)`);
+    }
   }
 
   for (const finding of analysis.findings) {
@@ -161,12 +169,12 @@ export function assertInvariants(analysis: Analysis): void {
 }
 
 /** Champ d'un fichier modifiable hors recalcul du snapshot. */
-const MUTABLE_FILE_FIELDS = new Set<keyof FileEntry>(["reviewed"]);
+const MUTABLE_FILE_FIELDS = new Set<keyof FileEntry>(["reviewed", "classification"]);
 
 /**
  * Vérifie qu'une modification ne touche pas aux champs fixés par le snapshot
  * (identité, dépôt, refs, commits, liste et métadonnées des fichiers hors
- * `reviewed`). Seul le recalcul du snapshot les change.
+ * `reviewed` et `classification`). Seul le recalcul du snapshot les change.
  */
 export function assertSnapshotFieldsUnchanged(before: Analysis, after: Analysis): void {
   const changed: string[] = [];

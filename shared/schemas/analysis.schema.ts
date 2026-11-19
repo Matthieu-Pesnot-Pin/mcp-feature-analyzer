@@ -14,6 +14,8 @@ export const NODE_STATUSES = ["new", "modified", "impacted", "existing", "findin
 export const REVIEW_STATES = ["pending", "submitted"] as const;
 export const REVIEW_DECISIONS = ["approve", "request_changes", "reject"] as const;
 export const EDITORS = ["agent", "user"] as const;
+/** Niveau de relecture d'un fichier : `central` (règle métier ou calcul), `check` (appelant ou écran qui branche une règle), `skim` (code mécanique). */
+export const FILE_LEVELS = ["central", "check", "skim"] as const;
 
 /** Identifiant d'analyse : slug en minuscules, sert aussi de nom de fichier. */
 export const ANALYSIS_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -28,6 +30,16 @@ const ItemIdSchema = z
 const LineSchema = z.number().int().positive();
 const IsoDateSchema = z.string().min(1);
 
+/**
+ * Classement d'un fichier : niveau choisi par l'agent et sa raison, niveau
+ * choisi par le relecteur quand il en change (null sinon).
+ */
+export const FileClassificationSchema = z.object({
+  level: z.enum(FILE_LEVELS),
+  reason: z.string().min(1),
+  reviewerLevel: z.enum(FILE_LEVELS).nullable(),
+});
+
 /** Fichier modifié par la feature, tel que figé au dernier snapshot. */
 export const FileEntrySchema = z.object({
   path: z.string().min(1),
@@ -41,6 +53,8 @@ export const FileEntrySchema = z.object({
   /** Nombre de lignes du côté « nouveau » ; 0 quand le contenu n'est pas disponible. */
   lineCount: z.number().int().nonnegative(),
   reviewed: z.boolean(),
+  /** Classement du fichier ; null tant que l'agent ne l'a pas classé. */
+  classification: FileClassificationSchema.nullable(),
 });
 
 /** Plage de lignes du côté « nouveau » du diff, bornes incluses. */
@@ -244,7 +258,9 @@ export type NodeStatus = (typeof NODE_STATUSES)[number];
 export type ReviewState = (typeof REVIEW_STATES)[number];
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
 export type Editor = (typeof EDITORS)[number];
+export type FileLevel = (typeof FILE_LEVELS)[number];
 
+export type FileClassification = z.infer<typeof FileClassificationSchema>;
 export type FileEntry = z.infer<typeof FileEntrySchema>;
 export type FindingLocation = z.infer<typeof FindingLocationSchema>;
 export type Finding = z.infer<typeof FindingSchema>;

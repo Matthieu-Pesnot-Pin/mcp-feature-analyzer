@@ -21,6 +21,7 @@ import {
   addNote,
   deleteNote,
   markProcessedByReviewer,
+  setFileLevel,
   setFileReviewed,
   setFindingStatus,
   submitReview,
@@ -31,6 +32,7 @@ import {
   AddNoteRequestSchema,
   AnalysisRequestSchema,
   DeleteNoteRequestSchema,
+  SetFileLevelRequestSchema,
   SetFileReviewedRequestSchema,
   SetFindingStatusRequestSchema,
   SubmitReviewRequestSchema,
@@ -42,6 +44,7 @@ import {
   ANALYSIS_MODES,
   DIAGRAM_KINDS,
   EXPLANATION_SIDES,
+  FILE_LEVELS,
   FINDING_KINDS,
   NODE_SHAPES,
   NODE_STATUSES,
@@ -55,6 +58,7 @@ import { getDiff } from "./tools/get-diff.js";
 import { refreshAnalysis } from "./tools/refresh-analysis.js";
 import { updateAnalysis } from "./tools/update-analysis.js";
 import { addFindings } from "./tools/add-findings.js";
+import { classifyFiles } from "./tools/classify-files.js";
 import { updateFinding } from "./tools/update-finding.js";
 import { deleteFindings } from "./tools/delete-findings.js";
 import { addExplanations } from "./tools/add-explanations.js";
@@ -126,6 +130,7 @@ Concepts:
 - An **analysis** is one feature under review. It freezes the git diff of a repository (branch mode: base...head; working_tree mode: uncommitted changes, index included, against HEAD) together with your overview, summary, findings and diagrams.
 - A **project** groups the analyses of one product or feature; the GUI files analyses by project.
 - The **overview** is your global analysis of the feature: its objective (what it lets users do), its approach (architecture choices, main flow) and the attention points the reviewer should check first. The **summary** lists the functional changes of the feature, one bullet per change, not one bullet per file.
+- A **file level** tells the reviewer how much attention each changed file deserves: central (it carries a business rule or a computation), check (a caller or a screen that wires such a rule), skim (mechanical code: tests, deletions, imports, routes). Each level comes with a one-sentence reason, so the reviewer can disagree without opening the file; the reviewer may move a file to another level, and get_review_feedback reports it. Migrations, SQL, configuration, CI and container files are never skimmed: classify them central or check. A skimmed file that carries an open finding is still pointed out to the reviewer.
 - A **finding** is a point for the reviewer: an issue anchored on changed lines, or a requirement_gap for requested behaviour that is missing (location optional). Severity: ${SEVERITIES.join(", ")}.
 - An **explanation** describes what a block of added or removed code does and how it works, so that the reviewer understands it before judging it. It is not a finding: it judges nothing and asks for nothing. It is anchored on new-side lines (added code) or old-side lines (removed code), and shown in the diff above the lines it describes.
 - A **diagram** is a flow, layers or mindmap picture of the feature. You give nodes and links only; the GUI lays them out.
@@ -136,12 +141,13 @@ Workflow:
 1. list_analyses (with project) to find an analysis of the same feature: reuse it with update_analysis and refresh_analysis instead of creating a duplicate. Otherwise create_analysis with its project once the feature is developed.
 2. get_diff to read the frozen diff.
 3. update_analysis with the overview (objective, approach, attention_points) and the summary (the functional changes).
-4. add_explanations for the long or complex blocks of added or removed code (see Explanation rules).
-5. add_findings for every problem, including requirement_gap findings for requested behaviour that is missing.
-6. set_diagram when a picture helps (impacted layers, process flow, concept tree).
-7. Tell the user to review the analysis in the GUI (the link is in the tool results).
-8. get_review_feedback to read the decision, the selected points and the prompt. list_analyses with review_state "to_process" lists the submitted reviews you have not handled yet; an approved review has nothing to process.
-9. Fix the code, then refresh_analysis to recompute the diff for a new review round; re-anchor or rewrite the outdated findings and explanations. When the fixes are in other commits (typically an analysis of one commit), create their follow-up review instead: create_analysis on the fix commits with follow_up_of set to the analysis you fixed; it marks that feedback processed and shows its points to the reviewer. When nothing needs a new review (answers given in the conversation), call mark_feedback_processed with a note saying how the feedback was handled.
+4. classify_files for every changed file: level and reason.
+5. add_explanations for the long or complex blocks of added or removed code (see Explanation rules).
+6. add_findings for every problem, including requirement_gap findings for requested behaviour that is missing.
+7. set_diagram when a picture helps (impacted layers, process flow, concept tree).
+8. Tell the user to review the analysis in the GUI (the link is in the tool results).
+9. get_review_feedback to read the decision, the selected points and the prompt. list_analyses with review_state "to_process" lists the submitted reviews you have not handled yet; an approved review has nothing to process.
+10. Fix the code, then refresh_analysis to recompute the diff for a new review round; re-anchor or rewrite the outdated findings and explanations. When the fixes are in other commits (typically an analysis of one commit), create their follow-up review instead: create_analysis on the fix commits with follow_up_of set to the analysis you fixed; it marks that feedback processed and shows its points to the reviewer. When nothing needs a new review (answers given in the conversation), call mark_feedback_processed with a note saying how the feedback was handled.
 
 Explanation rules:
 - Write one for every added or removed block that is long (a function or a block of about 30 lines or more) or complex (non-trivial algorithm, state machine, concurrency, recursion, tricky regular expression or data transformation). A 100-line function always gets one.
@@ -242,6 +248,13 @@ function handleGuiRequest(msg: IPCMessage): unknown {
     case "SET_FILE_REVIEWED": {
       const request = parseRequest(SetFileReviewedRequestSchema, msg.data);
       const analysis = setFileReviewed(store, request.analysisId, request.body);
+      afterUserMutation(analysis.id);
+      return { analysis };
+    }
+
+    case "SET_FILE_LEVEL": {
+      const request = parseRequest(SetFileLevelRequestSchema, msg.data);
+      const analysis = setFileLevel(store, request.analysisId, request.body);
       afterUserMutation(analysis.id);
       return { analysis };
     }
@@ -592,6 +605,38 @@ const TOOLS = [
     },
   },
   {
+    name: "classify_files",
+    description:
+      "Classify changed files by review level, as a batch, each with a one-sentence reason the reviewer reads in the GUI: " +
+      "central (carries a business rule or a computation: read in detail), check (a caller or a screen that wires such a rule), " +
+      "skim (mechanical code: tests, deletions, imports, routes, renames). Classify every file right after the overview. " +
+      "Migrations, SQL, configuration, CI and container files cannot be skimmed. A file the reviewer moved to another level keeps " +
+      "the reviewer's level unless you now choose the same. If any item is invalid, nothing is written and every problem is reported.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        analysis_id: { type: "string", description: ANALYSIS_ID_DOC },
+        files: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "Path of a changed file, as listed by get_analysis." },
+              level: { type: "string", enum: [...FILE_LEVELS], description: "Review level: central, check or skim." },
+              reason: {
+                type: "string",
+                description: 'One sentence saying what the file does in the feature, e.g. "Replaces one class name with another" or "Computes the token expiry".',
+              },
+            },
+            required: ["path", "level", "reason"],
+          },
+        },
+      },
+      required: ["analysis_id", "files"],
+    },
+  },
+  {
     name: "add_findings",
     description:
       "Record findings for the reviewer, as a batch. Each location is checked against the frozen diff and its lines are copied; " +
@@ -892,6 +937,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
         });
       case "update_analysis":
         return afterMutation(updateAnalysis(store, params));
+      case "classify_files":
+        return afterMutation(classifyFiles(store, params));
       case "add_findings":
         return afterMutation(addFindings(store, params));
       case "update_finding":

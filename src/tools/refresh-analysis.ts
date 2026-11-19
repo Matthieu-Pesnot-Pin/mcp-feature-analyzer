@@ -28,6 +28,7 @@ export async function refreshAnalysis(
     `Diff: ${snapshotLabel(analysis)}`,
     `Files: ${stats.fileCount} (${stats.filesAdded} new in the diff, ${stats.filesRemoved} no longer in it).`,
     `Reviewed files: ${stats.reviewedKept} kept (diff unchanged), ${stats.reviewedReset} reset to unreviewed (diff changed).`,
+    `Classification: kept for the files still in the diff; ${stats.unclassified} file(s) unclassified.`,
     `Findings: ${stats.findingsOutdated} became outdated (their lines changed or left the diff), ` +
       `${stats.findingsRestored} back to open (their lines match again); ${outdated.length} outdated in total.`,
     `Explanations: ${stats.explanationsOutdated} became outdated (the code they describe changed or left the diff), ` +
@@ -47,6 +48,7 @@ export async function refreshAnalysis(
     "- For each outdated finding: re-anchor it with update_finding (a new location reopens it), or remove it with delete_findings if it is solved.",
     "- For each outdated explanation: re-anchor it and rewrite its body with update_explanation, or remove it with delete_explanations.",
     "- Explain the new long or complex blocks with add_explanations.",
+    "- Classify the unclassified files with classify_files.",
     "- Ask the user to review the analysis again in the GUI."
   );
   if (outdated.length > 0) {

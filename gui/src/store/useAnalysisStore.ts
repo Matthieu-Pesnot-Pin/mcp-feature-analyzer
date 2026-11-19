@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { AnalysisLinks } from '@shared/follow-ups'
-import type { Analysis, AnalysisSummary, FindingStatus, ReviewDecision } from '@shared/schemas/analysis.schema'
+import type { Analysis, AnalysisSummary, FileLevel, FindingStatus, ReviewDecision } from '@shared/schemas/analysis.schema'
 import type { DiffSnapshot } from '@shared/schemas/diff.schema'
 import { ApiError, api } from '../utils/api'
 import { copyText } from '../utils/clipboard'
@@ -87,6 +87,7 @@ interface AnalysisState {
   ensureDiff: () => Promise<void>
 
   setFileReviewed: (path: string, reviewed: boolean) => Promise<boolean>
+  setFileLevel: (path: string, level: FileLevel) => Promise<boolean>
   setFindingStatus: (findingId: string, status: FindingStatus) => Promise<boolean>
   addNote: (path: string, line: number | null, text: string, findingId: string | null) => Promise<boolean>
   updateNote: (noteId: string, text: string) => Promise<boolean>
@@ -256,6 +257,9 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
       mutate('Marquage du fichier impossible', (analysis) =>
         api.setFileReviewed(analysis.id, { path, reviewed, baseRevision: analysis.revision }),
       ),
+
+    setFileLevel: (path, level) =>
+      mutate('Reclassement impossible', (analysis) => api.setFileLevel(analysis.id, { path, level, baseRevision: analysis.revision })),
 
     setFindingStatus: (findingId, status) =>
       mutate('Changement de statut impossible', (analysis) =>

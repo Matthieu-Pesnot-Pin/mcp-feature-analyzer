@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { FINDING_STATUSES, REVIEW_DECISIONS } from "./analysis.schema.js";
+import { FILE_LEVELS, FINDING_STATUSES, REVIEW_DECISIONS } from "./analysis.schema.js";
 
 /**
  * Corps des requêtes de modification envoyées par la GUI. Chaque corps porte
@@ -11,6 +11,13 @@ const BaseRevisionSchema = z.number().int().nonnegative();
 export const SetFileReviewedBodySchema = z.strictObject({
   path: z.string().min(1),
   reviewed: z.boolean(),
+  baseRevision: BaseRevisionSchema,
+});
+
+/** Niveau choisi par le relecteur pour un fichier classé par l'agent. */
+export const SetFileLevelBodySchema = z.strictObject({
+  path: z.string().min(1),
+  level: z.enum(FILE_LEVELS),
   baseRevision: BaseRevisionSchema,
 });
 
@@ -54,6 +61,7 @@ export const MarkProcessedBodySchema = z.strictObject({
 });
 
 export type SetFileReviewedBody = z.infer<typeof SetFileReviewedBodySchema>;
+export type SetFileLevelBody = z.infer<typeof SetFileLevelBodySchema>;
 export type MarkProcessedBody = z.infer<typeof MarkProcessedBodySchema>;
 export type SetFindingStatusBody = z.infer<typeof SetFindingStatusBodySchema>;
 export type AddNoteBody = z.infer<typeof AddNoteBodySchema>;
@@ -65,6 +73,7 @@ export type SubmitReviewBody = z.infer<typeof SubmitReviewBodySchema>;
 export const AnalysisRequestSchema = z.strictObject({ analysisId: z.string().min(1) });
 
 export const SetFileReviewedRequestSchema = AnalysisRequestSchema.extend({ body: SetFileReviewedBodySchema });
+export const SetFileLevelRequestSchema = AnalysisRequestSchema.extend({ body: SetFileLevelBodySchema });
 export const SetFindingStatusRequestSchema = AnalysisRequestSchema.extend({
   findingId: z.string().min(1),
   body: SetFindingStatusBodySchema,
