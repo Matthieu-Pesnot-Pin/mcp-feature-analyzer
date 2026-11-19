@@ -4,6 +4,8 @@ import net from "node:net";
 import os from "node:os";
 import test, { after, before } from "node:test";
 
+import { AnalysisStore } from "../src/core/analysis-store.js";
+import { writeWatcherBeat } from "../src/core/notifications.js";
 import { McpClient, baseEnv, makeGitRepo, makeTempDir } from "./helpers.js";
 
 /**
@@ -373,6 +375,62 @@ test("GET /api/changes answers a reset first, then the events pushed by the mast
   assert.deepEqual(
     changes.json.events.map((event: { type: string; data: { analysisId?: string } }) => [event.type, event.data.analysisId]),
     [["ANALYSIS_UPDATED", analysisId]],
+  );
+});
+
+test("a question sent from the GUI is answered by the agent, and the answer read by the reviewer", async () => {
+  const asked = await call("POST", `analyses/${analysisId}/notes`, {
+    path: "src/app.ts",
+    line: 2,
+    text: "Why this value?",
+    askAgent: true,
+    baseRevision: await revision(),
+  });
+  assert.equal(asked.status, 200, asked.json.error);
+  const question = asked.json.analysis.notes.find((note: { text: string }) => note.text === "Why this value?");
+  assert.equal(question.question.answer, null);
+
+  const edit = await call("PATCH", `analyses/${analysisId}/notes/${question.id}`, { text: "Other", baseRevision: await revision() });
+  assert.equal(edit.status, 400);
+  const early = await call("POST", `analyses/${analysisId}/notes/${question.id}/answer-seen`, { baseRevision: await revision() });
+  assert.equal(early.status, 400);
+  assert.match(early.json.error, /has not answered/);
+
+  const answered = await client.callTool("answer_question", { analysis_id: analysisId, question_id: question.id, answer: "It is the protocol default." });
+  assert.equal(answered.isError, false, answered.text);
+
+  const seen = await call("POST", `analyses/${analysisId}/notes/${question.id}/answer-seen`, { baseRevision: await revision() });
+  assert.equal(seen.status, 200, seen.json.error);
+  const read = seen.json.analysis.notes.find((note: { id: string }) => note.id === question.id);
+  assert.equal(read.question.answer.text, "It is the protocol default.");
+  assert.ok(read.question.answerSeenAt);
+});
+
+test("GET /api/watchers lists the projects followed by a live notification watcher", async () => {
+  assert.deepEqual((await call("GET", "watchers")).json, { projects: [] });
+  writeWatcherBeat(temp.dir, "demo", new Date().toISOString());
+  assert.deepEqual((await call("GET", "watchers")).json, { projects: ["demo"] });
+});
+
+test("an analysis written by another process is announced by GET /api/changes", async () => {
+  const { json: current } = await call("GET", "changes");
+  const store = new AnalysisStore(temp.dir);
+  store.mutate(analysisId, "agent", (draft) => {
+    draft.summary = ["Written by another session"];
+  });
+
+  let changes = await call("GET", `changes?since=${current.seq}&epoch=${current.epoch}`);
+  const deadline = Date.now() + 6000;
+  while (changes.json.events?.length === 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    changes = await call("GET", `changes?since=${current.seq}&epoch=${current.epoch}`);
+  }
+  assert.deepEqual(
+    changes.json.events.map((event: { type: string; data: { analysisId?: string } }) => [event.type, event.data.analysisId]),
+    [
+      ["ANALYSIS_UPDATED", analysisId],
+      ["ANALYSES_UPDATED", undefined],
+    ],
   );
 });
 

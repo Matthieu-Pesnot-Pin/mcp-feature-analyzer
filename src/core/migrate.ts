@@ -100,6 +100,15 @@ export const addFileClassifications: MigrationStep = (doc) => {
   return { ...doc, files: files.map((file) => (missing(file) ? { ...(file as RawDocument), classification: null } : file)) };
 };
 
+/** Ajoute `question` à null aux remarques qui n'en ont pas : elles sont transmises en fin de revue. */
+export const addNoteQuestions: MigrationStep = (doc) => {
+  if (!Array.isArray(doc.notes)) return null;
+  const notes = doc.notes as unknown[];
+  const missing = (note: unknown) => !!note && typeof note === "object" && (note as RawDocument).question === undefined;
+  if (!notes.some(missing)) return null;
+  return { ...doc, notes: notes.map((note) => (missing(note) ? { ...(note as RawDocument), question: null } : note)) };
+};
+
 /** Étapes appliquées aux analyses (`analyses/<id>.json`), dans l'ordre. */
 export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [
   addProject,
@@ -110,6 +119,7 @@ export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [
   addProcessingAuthor,
   addFollowUpOf,
   addFileClassifications,
+  addNoteQuestions,
 ];
 
 /** Étapes appliquées aux snapshots de diff (`diffs/<id>.json`), dans l'ordre. */

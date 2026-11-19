@@ -28,13 +28,20 @@ export const SetFindingStatusBodySchema = z.strictObject({
 
 /**
  * Remarque sur une ligne du côté « nouveau » (`line`), ou sur le fichier entier (`line` absent ou null).
- * `findingId` lie la remarque au constat auquel elle répond.
+ * `findingId` lie la remarque au constat auquel elle répond. `askAgent` l'envoie tout de suite à
+ * l'agent comme une question, au lieu de la garder pour la fin de revue.
  */
 export const AddNoteBodySchema = z.strictObject({
   path: z.string().min(1),
   line: z.number().int().nullable().optional(),
   findingId: z.string().min(1).nullable().optional(),
   text: z.string().trim().min(1, "the note text is empty"),
+  askAgent: z.boolean().optional(),
+  baseRevision: BaseRevisionSchema,
+});
+
+/** Lecture, par le relecteur, de la réponse de l'agent à une question. */
+export const MarkAnswerSeenBodySchema = z.strictObject({
   baseRevision: BaseRevisionSchema,
 });
 
@@ -67,6 +74,7 @@ export type SetFindingStatusBody = z.infer<typeof SetFindingStatusBodySchema>;
 export type AddNoteBody = z.infer<typeof AddNoteBodySchema>;
 export type UpdateNoteBody = z.infer<typeof UpdateNoteBodySchema>;
 export type DeleteNoteBody = z.infer<typeof DeleteNoteBodySchema>;
+export type MarkAnswerSeenBody = z.infer<typeof MarkAnswerSeenBodySchema>;
 export type SubmitReviewBody = z.infer<typeof SubmitReviewBodySchema>;
 
 /** Données IPC des requêtes de la GUI qui visent une analyse. */
@@ -86,6 +94,10 @@ export const UpdateNoteRequestSchema = AnalysisRequestSchema.extend({
 export const DeleteNoteRequestSchema = AnalysisRequestSchema.extend({
   noteId: z.string().min(1),
   body: DeleteNoteBodySchema,
+});
+export const MarkAnswerSeenRequestSchema = AnalysisRequestSchema.extend({
+  noteId: z.string().min(1),
+  body: MarkAnswerSeenBodySchema,
 });
 export const SubmitReviewRequestSchema = AnalysisRequestSchema.extend({ body: SubmitReviewBodySchema });
 export const MarkProcessedRequestSchema = AnalysisRequestSchema.extend({ body: MarkProcessedBodySchema });

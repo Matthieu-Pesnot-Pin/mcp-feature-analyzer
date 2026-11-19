@@ -86,7 +86,7 @@ function stampOf(file: string): FileStamp | null {
 }
 
 /** Écriture atomique : fichier temporaire unique puis `rename`, JSON indenté. */
-function writeJsonAtomic(target: string, value: unknown): void {
+export function writeJsonAtomic(target: string, value: unknown): void {
   const tmp = `${target}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
   try {
     fs.writeFileSync(tmp, JSON.stringify(value, null, 2), "utf-8");
@@ -272,14 +272,19 @@ export class AnalysisStore {
     return ANALYSIS_ID_PATTERN.test(id) && fs.existsSync(this.analysisPath(id));
   }
 
+  /** Identifiants des fichiers d'analyse présents, lisibles ou non. */
+  ids(): string[] {
+    return fs
+      .readdirSync(this.analysesDir)
+      .filter((file) => file.endsWith(".json"))
+      .map((file) => file.slice(0, -".json".length));
+  }
+
   /** Résumés des analyses, de la plus récemment modifiée à la plus ancienne. */
   list(): AnalysisListing {
     const analyses: AnalysisSummary[] = [];
     const unreadable: AnalysisListing["unreadable"] = [];
-    const ids = fs
-      .readdirSync(this.analysesDir)
-      .filter((file) => file.endsWith(".json"))
-      .map((file) => file.slice(0, -".json".length));
+    const ids = this.ids();
 
     const followUpOf = new Map<string, string>();
     for (const id of ids) {

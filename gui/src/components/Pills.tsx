@@ -5,11 +5,13 @@ import {
   FINDING_STATUS_LABELS,
   NOTE_STYLE,
   PROCESSED_STYLE,
+  QUESTION_STYLE,
   REVIEW_PROGRESS_STYLES,
   SEVERITY_STYLES,
   type BadgeStyle,
 } from '@shared/labels'
 import { processedTitle } from '../utils/format'
+import { Icon } from './Icon'
 
 /** Pastille de gravité ; `fixed` lui donne la largeur constante des listes. */
 export function SeverityPill({ severity, fixed = true }: { severity: Severity; fixed?: boolean }) {
@@ -26,6 +28,19 @@ export function NotePill({ fixed = true }: { fixed?: boolean }) {
   return (
     <span className={`pill${fixed ? ' pill-fixed' : ''}`} style={{ color: NOTE_STYLE.color, background: NOTE_STYLE.background }}>
       {NOTE_STYLE.label}
+    </span>
+  )
+}
+
+/** Pastille des questions envoyées tout de suite à l'agent. */
+export function QuestionPill({ fixed = true }: { fixed?: boolean }) {
+  return (
+    <span
+      className={`pill pill-question${fixed ? ' pill-fixed' : ''}`}
+      style={{ color: QUESTION_STYLE.color, background: QUESTION_STYLE.background }}
+    >
+      <Icon name="send" size={11} />
+      {QUESTION_STYLE.label}
     </span>
   )
 }

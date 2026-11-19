@@ -2,6 +2,7 @@ import type { Analysis, Editor } from "../../shared/schemas/analysis.schema.js";
 import type {
   AddNoteBody,
   DeleteNoteBody,
+  MarkAnswerSeenBody,
   MarkProcessedBody,
   SetFileLevelBody,
   SetFileReviewedBody,
@@ -95,7 +96,9 @@ export function setFindingStatus(
 
 /**
  * Ajoute une remarque du relecteur sur une ligne du côté « nouveau » ou sur un fichier entier,
- * liée au constat `findingId` quand elle y répond.
+ * liée au constat `findingId` quand elle y répond. Avec `askAgent`, la remarque est une
+ * question envoyée tout de suite à l'agent : elle ne fait pas partie du retour de fin de
+ * revue et ne repasse donc pas une revue soumise en attente.
  */
 export function addNote(store: AnalysisStore, analysisId: string, body: AddNoteBody): Analysis {
   return store.mutate(
@@ -108,20 +111,62 @@ export function addNote(store: AnalysisStore, analysisId: string, body: AddNoteB
       if (findingId !== null && !draft.findings.some((finding) => finding.id === findingId)) {
         throw new NotFoundError(`Finding "${findingId}" not found in analysis "${analysisId}".`);
       }
-      reopenSubmittedReview(draft);
+      const now = new Date().toISOString();
+      const question = body.askAgent ? { askedAt: now, answer: null, answerSeenAt: null } : null;
+      if (question === null) reopenSubmittedReview(draft);
       draft.notes.push({
         id: itemId("note", new Set(draft.notes.map((note) => note.id))),
         location,
         findingId,
         text: body.text,
-        createdAt: new Date().toISOString(),
+        createdAt: now,
+        question,
       });
     },
     { baseRevision: body.baseRevision }
   );
 }
 
-/** Remplace le texte d'une remarque. */
+/** Enregistre que le relecteur a lu la réponse de l'agent à une question. */
+export function markAnswerSeen(store: AnalysisStore, analysisId: string, noteId: string, body: MarkAnswerSeenBody): Analysis {
+  return store.mutate(
+    analysisId,
+    "user",
+    (draft) => {
+      const note = draft.notes.find((entry) => entry.id === noteId);
+      if (!note) throw new NotFoundError(`Note "${noteId}" not found in analysis "${analysisId}".`);
+      if (note.question === null) throw new AnalysisError(`Note "${noteId}" is not a question sent to the agent.`);
+      if (note.question.answer === null) throw new AnalysisError(`The agent has not answered question "${noteId}" yet.`);
+      if (note.question.answerSeenAt !== null) return;
+      note.question.answerSeenAt = new Date().toISOString();
+    },
+    { baseRevision: body.baseRevision }
+  );
+}
+
+/**
+ * Enregistre la réponse de l'agent à une question du relecteur. Refusé pour une
+ * remarque qui n'est pas une question ou une question déjà répondue.
+ */
+export function answerQuestion(store: AnalysisStore, analysisId: string, noteId: string, answer: string): Analysis {
+  return store.mutate(analysisId, "agent", (draft) => {
+    const note = draft.notes.find((entry) => entry.id === noteId);
+    if (!note) {
+      throw new NotFoundError(`Question "${noteId}" not found in analysis "${analysisId}". get_analysis lists the reviewer notes and questions.`);
+    }
+    if (note.question === null) {
+      throw new AnalysisError(
+        `Note "${noteId}" is not a question: the reviewer keeps it for the end of the review, and get_review_feedback hands it to you once the review is submitted.`
+      );
+    }
+    if (note.question.answer !== null) {
+      throw new AnalysisError(`Question "${noteId}" was already answered at ${note.question.answer.at}.`);
+    }
+    note.question.answer = { text: answer, at: new Date().toISOString() };
+  });
+}
+
+/** Remplace le texte d'une remarque ; une question déjà envoyée à l'agent ne change plus. */
 export function updateNote(store: AnalysisStore, analysisId: string, noteId: string, body: UpdateNoteBody): Analysis {
   return store.mutate(
     analysisId,
@@ -129,6 +174,7 @@ export function updateNote(store: AnalysisStore, analysisId: string, noteId: str
     (draft) => {
       const note = draft.notes.find((entry) => entry.id === noteId);
       if (!note) throw new NotFoundError(`Note "${noteId}" not found in analysis "${analysisId}".`);
+      if (note.question !== null) throw new AnalysisError(`Note "${noteId}" was sent to the agent as a question: its text cannot change.`);
       if (note.text === body.text) return;
       reopenSubmittedReview(draft);
       note.text = body.text;
@@ -220,6 +266,10 @@ export function submitReview(store: AnalysisStore, analysisId: string, body: Sub
     (draft) => {
       assertKnownIds("finding", body.findingIds, draft.findings.map((finding) => finding.id));
       assertKnownIds("note", body.noteIds, draft.notes.map((note) => note.id));
+      const questions = body.noteIds.filter((id) => draft.notes.find((note) => note.id === id)?.question !== null);
+      if (questions.length > 0) {
+        throw new AnalysisError(`Questions already sent to the agent cannot be selected in the review: ${questions.join(", ")}.`);
+      }
       const previousSubmission = draft.review.state === "submitted" ? recordSubmission(draft) : draft.review.previousSubmission;
       draft.review = {
         state: "submitted",

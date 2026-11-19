@@ -47,6 +47,7 @@ export const GUI_REQUEST_TYPES = [
   "ADD_NOTE",
   "UPDATE_NOTE",
   "DELETE_NOTE",
+  "MARK_ANSWER_SEEN",
   "SUBMIT_REVIEW",
   "MARK_PROCESSED",
 ] as const;

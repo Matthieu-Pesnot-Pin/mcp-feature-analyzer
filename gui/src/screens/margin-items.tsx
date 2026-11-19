@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import type { Analysis, Explanation, FileEntry, Note } from '@shared/schemas/analysis.schema'
 import type { FileDiff } from '@shared/schemas/diff.schema'
-import { NOTE_STYLE, SEVERITY_STYLES } from '@shared/labels'
+import { NOTE_STYLE, QUESTION_STYLE, SEVERITY_STYLES } from '@shared/labels'
 import { MarginExplanationCard } from '../components/MarginExplanationCard'
 import { MarginFindingCard } from '../components/MarginFindingCard'
 import { NoteCard } from '../components/Notes'
@@ -129,8 +129,8 @@ export function marginItems({
       anchor: placed ? anchorSelector(anchor) : null,
       line: placed ? anchorOrder(anchor) : note.location.line,
       rank: 1000,
-      color: NOTE_STYLE.color,
-      label: `Remarque · ligne ${note.location.line}`,
+      color: note.question === null ? NOTE_STYLE.color : QUESTION_STYLE.color,
+      label: `${note.question === null ? 'Remarque' : 'Question'} · ligne ${note.location.line}`,
       content: <NoteCard note={note} />,
     })
   }

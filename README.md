@@ -10,6 +10,8 @@ Agent ──create_analysis / add_findings / set_diagram──▶  Analyse  ◀�
   └──────────── get_review_feedback ──── décision, points retenus, prompt ◀── « Enregistrer le retour »
 ```
 
+En cours de relecture, l'utilisateur peut aussi **poser une question tout de suite** à l'agent depuis la saisie d'une remarque : l'agent en est notifié, répond avec `answer_question`, et la réponse s'affiche à côté de la question. L'agent est notifié de la même façon quand la revue est enregistrée (voir [Notifications](#notifications)).
+
 Le serveur n'appelle aucun LLM et n'écrit jamais dans le dépôt : il lit git, conserve l'analyse, et affiche.
 
 ---
@@ -211,6 +213,14 @@ Le retour se lit **avant** `refresh_analysis`, qui le remplace par une revue vie
 
 Une revue soumise est **à traiter** jusqu'à `mark_feedback_processed` ou `refresh_analysis`, sauf une revue approuvée, qui n'a rien à traiter dès sa soumission, qu'elle retienne des points ou non. Dès que le relecteur la modifie (remarque ajoutée, modifiée ou supprimée, constat ignoré ou réactivé), elle repasse en attente, qu'elle ait été traitée ou non : `get_review_feedback` n'en donne plus que l'avancement, et l'agent n'agit pas sur un retour en cours de modification. La version soumise est conservée, avec son traitement s'il a eu lieu ; à la nouvelle soumission, la revue est de nouveau à traiter et `get_review_feedback` montre ce qui a changé. Changer la sélection ou la décision se fait en soumettant à nouveau, avec le même effet.
 
+### Questions et notifications
+
+| Outil | Effet |
+|---|---|
+| `enable_notifications` | Pour un `project` existant : dépose le relais du veilleur et renvoie l'appel Monitor exact à faire (commande, description, `timeout_ms: 1800000`). Le veilleur annonce, pour toutes les analyses du projet, y compris celles créées ensuite, chaque question envoyée par le relecteur et chaque revue enregistrée. Si un veilleur est déjà vivant pour ce projet, il le dit et ne propose pas d'en armer un second. Les questions envoyées avant le veilleur et restées sans réponse sont listées dans le résultat. Derrière mcp-http-gateway, renvoie la spécification de veille que le relais exécute (argument réservé `_gateway_watch`). |
+| `wait_for_notifications` | Réservé au veilleur du relais de mcp-http-gateway : attend un événement du projet postérieur à `cursor` (ou jusqu'à `timeout_seconds`, 50 s par défaut, 300 au plus) et renvoie une ligne par événement avec le curseur suivant. |
+| `answer_question` | Répond à une question du relecteur (`analysis_id`, `question_id`, `answer`). La réponse s'affiche dans la GUI à côté de la question ; une question n'a qu'une réponse. |
+
 ### GUI
 
 | Outil | Effet |
@@ -235,6 +245,9 @@ set_diagram     { analysis_id, kind: "flow", nodes: [...], links: [...] }
 
   … l'agent donne le lien à l'utilisateur, qui relit dans la GUI et enregistre son retour …
 
+enable_notifications { project: "mon-projet" }      ← puis l'appel Monitor qu'il renvoie
+answer_question { analysis_id, question_id, answer: "…" } ← à chaque question annoncée par le veilleur
+
 list_analyses       { review_state: "to_process" }  ← revues soumises restant à traiter
 get_review_feedback { analysis_id }                 ← décision, points retenus, prompt
   … l'agent corrige le code …
@@ -254,6 +267,28 @@ Une **revue de suivi** est une nouvelle analyse, créée avec `create_analysis` 
 - `get_analysis`, `list_analyses` et `get_review_feedback` indiquent les liens dans les deux sens ; `get_review_feedback` propose de créer la revue de suivi, et `mark_feedback_processed` le rappelle.
 - Dans la GUI, une analyse suivie quitte les filtres d'étape de l'accueil et ne reste visible que dans « Toutes ».
 - Il n'y a pas d'outil pour lier deux analyses après coup.
+
+### Notifications
+
+L'agent appelle `enable_notifications` une fois par conversation et par projet, puis arme avec l'outil Monitor le veilleur qu'il lui renvoie, par exemple :
+
+```
+command:     node "C:/…/mcp-feature-analyzer/dist/src/index.js" --watch 3f1c9a0b7d2e4f60
+description: feature-analyzer project mon-projet
+timeout_ms:  1800000
+```
+
+Le veilleur écrit une ligne par événement, que l'hôte remet à l'agent :
+
+```
+[feature-analyzer] "Rafraîchissement OAuth" (rafraichissement-oauth-k2x9p1) — the reviewer asks you on src/auth/refresh.ts:54: Pourquoi http.post ici ? — answer with answer_question, analysis_id rafraichissement-oauth-k2x9p1, question_id n_a8f3k2
+[feature-analyzer] "Rafraîchissement OAuth" (rafraichissement-oauth-k2x9p1) — the reviewer submitted the review and requests changes (2 finding(s) and 1 note(s) selected) — read it with get_review_feedback, analysis_id rafraichissement-oauth-k2x9p1
+```
+
+- **En local**, le veilleur est le point d'entrée du paquet lancé avec `--watch <clé du projet>`. Lancé par Monitor dans le shell de la session, il n'hérite pas de l'environnement du MCP : `enable_notifications` lui laisse un relais, `~/.mcp-feature-analyzer/watch/<clé>.json`, qui donne le projet, le dossier de données et le curseur (aucun secret). Il relit les analyses chaque seconde ; une erreur de lecture est réessayée (jusqu'à 30 s d'attente), mais un relais absent le fait échouer dès le lancement.
+- **Derrière mcp-http-gateway**, le relais remplit `_gateway_watch` ; `enable_notifications` répond par la spécification de veille, et le veilleur du relais appelle `wait_for_notifications` en boucle.
+- **Reprise** — le curseur est la date du dernier événement annoncé, gardée dans le relais : un veilleur relancé après son expiration (30 minutes au plus côté hôte) annonce ce qui s'est passé entre-temps. Une question n'est plus annoncée une fois répondue.
+- **Présence** — un veilleur vivant écrit `<données>/watchers/<clé>.json` toutes les 5 s ; la GUI s'en sert pour afficher « Agent à l'écoute ».
 
 ---
 
@@ -278,9 +313,14 @@ Le plein écran passe par l'API Fullscreen du navigateur : le schéma occupe l'�
 
 L'ajustement à la fenêtre ne descend jamais sous l'échelle **0,85** : en dessous, les libellés deviennent illisibles. Un schéma plus grand s'ouvre sur son début, à cette échelle, et se parcourt en le faisant glisser (curseur main, indication « Glisser pour parcourir le schéma ») ; la vue reste bornée au schéma.
 
+### Échanges avec l'agent, dans la barre supérieure
+
+Dès qu'une analyse est ouverte, la barre supérieure indique « Agent à l'écoute » (point vert) quand un veilleur de notifications suit son projet, « Aucun agent à l'écoute » sinon. Quand la revue contient des questions, le bouton « Questions » les liste, avec leur fichier, leur ligne et leur statut : « Réponse reçue » (non lue, mise en avant), « Agent notifié » (en attente), « Lue ». Son compteur donne le nombre de réponses non lues. Choisir une question ouvre la revue sur sa ligne.
+
 ### Écran Revue (`#/<id>/review/<chemin>`)
 
 - **Progression** — dans la barre supérieure, à gauche de « Terminer la revue » : « 3/7 revus » et une barre étroite, visibles quel que soit le défilement et même panneau des fichiers masqué.
+- **Questions à l'agent** — la saisie d'une remarque porte, à côté d'« Enregistrer », le bouton « Envoyer à l'agent » (Ctrl + Maj + Entrée ; Ctrl + Entrée enregistre toujours la remarque). La question part tout de suite : l'agent à l'écoute en est notifié. Elle reste dans la revue, sous forme d'une carte « Question » alignée sur sa ligne, avec son statut, « Agent notifié » puis « Réponse reçue ». « Voir la réponse » déplie la réponse de l'agent sous la question et la marque lue ; « Masquer la réponse » la replie. Une question ne se modifie plus une fois envoyée, ne repasse pas une revue soumise en attente et ne fait pas partie des points à transmettre en fin de revue. Une réponse écrite par l'agent depuis une autre session s'affiche aussi d'elle-même.
 - **Panneau des fichiers** — nombre de fichiers, fichiers groupés par dossier, état revu, pastilles des constats ouverts par gravité et, en bout de ligne, la lettre du statut git à la manière de VS Code : `M` modifié, `A` ajouté, `D` supprimé, `R` renommé, `U` non suivi (libellé complet en infobulle). Un nom trop long est tronqué au milieu (`reminder-sch…uler.ts`), l'extension reste visible et le chemin complet est en infobulle. Chaque pastille est un lien : elle ouvre le fichier sur son premier constat ouvert de cette gravité (`?line=N`) ; son infobulle le dit (« 3 constats mineurs ouverts — aller au premier »). Après les pastilles de gravité, une pastille violette à marque carrée compte les remarques du relecteur sur le fichier, de ligne ou sur le fichier entier ; elle ouvre le fichier sur la première ligne portant une remarque, ou en tête du fichier quand toutes visent le fichier entier (« 2 remarques — aller à la première »). Sa largeur se règle en glissant son bord droit (entre 200 et 600 px ; flèches gauche et droite quand la poignée a le focus, double-clic pour revenir à 280 px) et se conserve dans le navigateur d'un rechargement à l'autre. Le bouton en tête de l'en-tête du fichier masque ou réaffiche le panneau, pour toute la session : le diff s'élargit vers la gauche, la colonne de droite garde sa largeur. Il reste affiché quand le chemin demandé ne fait pas partie de l'analyse.
 - **Niveaux de relecture** — quand l'agent a classé les fichiers, le panneau des fichiers porte un onglet par niveau, « Central », « À vérifier » et « Survol », chacun avec son nombre de fichiers, plus « Non classés » s'il en reste ; un seul niveau est listé à la fois, et l'onglet affiché suit le niveau du fichier ouvert. Sous la liste, l'encart « Ensuite » mène au premier fichier à revoir du niveau suivant. Les fichiers en survol qui portent un constat ouvert sont signalés par un point sur l'onglet « Survol » et, depuis les autres onglets, par un encart orange qui les liste. Sous l'en-tête du fichier, un bandeau donne son niveau et la raison écrite par l'agent ; « Reclasser » ouvre la liste des trois niveaux (celui de l'agent est indiqué) et enregistre le choix du relecteur, rappelé ensuite dans le bandeau (« Reclassé par vous · l'agent proposait Central »). Fichier précédent et suivant suivent l'ordre des niveaux, puis l'ordre du diff ; la revue s'ouvre sur le premier fichier à revoir du niveau le plus haut.
 - **En-tête du fichier** — bascule du panneau des fichiers, entrée dans le mode zen, chemin, `+`/`−`, statut, fichier précédent et suivant, « Remarque sur le fichier », « Marquer comme revu ».
@@ -299,7 +339,7 @@ Un fichier binaire, supprimé ou de plus de 1 Mo n'a pas de contenu conservé : 
 
 ### Écran Fin de revue (`#/<id>/finish`)
 
-Décision (Approuver, Demander des corrections, Rejeter ; « Demander des corrections » est proposée d'emblée dès qu'il y a des points), points à transmettre (constats ouverts et remarques, tous cochés pour une revue jamais soumise, la sélection enregistrée pour une revue déjà soumise ; pour une revue rouverte, la sélection de sa dernière version soumise, les points apparus depuis étant cochés), aperçu du prompt qui se met à jour, « Copier le prompt », « Retour à la revue » et « Enregistrer le retour », qui soumet la revue lue ensuite par `get_review_feedback`. Un bandeau rappelle le retour enregistré et s'il a été traité par l'agent, avec la note du traitement ; pour une revue modifiée depuis son retour, un bandeau ambre indique que l'agent ne le traite plus jusqu'au prochain enregistrement.
+Décision (Approuver, Demander des corrections, Rejeter ; « Demander des corrections » est proposée d'emblée dès qu'il y a des points), points à transmettre (constats ouverts et remarques, questions exclues, tous cochés pour une revue jamais soumise, la sélection enregistrée pour une revue déjà soumise ; pour une revue rouverte, la sélection de sa dernière version soumise, les points apparus depuis étant cochés), aperçu du prompt qui se met à jour, « Copier le prompt », « Retour à la revue » et « Enregistrer le retour », qui soumet la revue lue ensuite par `get_review_feedback`. Un bandeau rappelle le retour enregistré et s'il a été traité par l'agent, avec la note du traitement ; pour une revue modifiée depuis son retour, un bandeau ambre indique que l'agent ne le traite plus jusqu'au prochain enregistrement.
 
 Toute modification faite par l'agent pendant que la GUI est ouverte y apparaît en quelques secondes : la GUI interroge `api/changes` toutes les 3 s. Chaque action de la GUI porte la révision affichée : si l'analyse a changé entre-temps, l'action est refusée, l'analyse rechargée, et un message invite à refaire l'action.
 
@@ -312,13 +352,13 @@ Deux processus, conformément au standard de l'écosystème (`@imenam/mcp-gui-in
 - **Maître MCP** (`src/index.ts`) — JSON-RPC sur stdio, outils (`src/tools/`, une fonction pure par outil), logique métier (`src/core/`), stockage, cycle de vie du worker via `GuiLauncher`.
 - **Worker GUI** (`src/gui-worker.ts`) — serveur Hono, enregistrement auprès du proxy via `ProxyClient` ou écoute sur `APP_PORT`, API REST, journal des changements (`/api/changes`), fichiers de la SPA avec la balise `<base>` du chemin de montage.
 
-Le worker ne lit ni n'écrit aucune donnée : chaque requête REST est transmise au maître par IPC (messages `{type, correlationId, data, error, timestamp}` validés par zod) et le maître pousse les changements, que le worker range dans un journal en mémoire (les 200 derniers, numérotés). `GET /api/changes?since=<seq>&epoch=<epoch>` répond immédiatement : les évènements postérieurs à `since`, ou `reset: true` quand le client ne peut pas reprendre (premier appel, `epoch` d'une autre instance du worker, évènements sortis du journal) ; la GUI recharge alors tout. Un `since` qui n'est pas un entier positif est refusé (400). Aucune connexion ne reste ouverte : les GUI servies sur la même origine n'épuisent pas les connexions du navigateur. Le worker s'arrête quand le maître disparaît (canal IPC fermé, PID parent absent) ou quand une autre instance est déjà enregistrée, ce qui évite les GUI orphelines.
+Le worker n'écrit aucune donnée et ne lit les analyses que par le maître : chaque requête REST est transmise au maître par IPC (messages `{type, correlationId, data, error, timestamp}` validés par zod) et le maître pousse les changements, que le worker range dans un journal en mémoire (les 200 derniers, numérotés). `GET /api/changes?since=<seq>&epoch=<epoch>` répond immédiatement : les évènements postérieurs à `since`, ou `reset: true` quand le client ne peut pas reprendre (premier appel, `epoch` d'une autre instance du worker, évènements sortis du journal) ; la GUI recharge alors tout. Un `since` qui n'est pas un entier positif est refusé (400). Aucune connexion ne reste ouverte : les GUI servies sur la même origine n'épuisent pas les connexions du navigateur. Toutes les 2 s, le worker compare aussi la date et la taille des fichiers d'analyse : une analyse écrite par un autre processus (une autre session de l'agent, qui sert les mêmes données sans passer par ce worker) entre dans le journal comme un changement poussé par le maître. `GET /api/watchers` donne les projets suivis par un veilleur de notifications vivant, d'après `<données>/watchers/`. Le worker s'arrête quand le maître disparaît (canal IPC fermé, PID parent absent) ou quand une autre instance est déjà enregistrée, ce qui évite les GUI orphelines.
 
 `shared/` est importé à la fois par le serveur et par la GUI : schémas zod (`shared/schemas/`), prompt de retour (`prompt.ts`, utilisé par l'aperçu de la GUI et par `get_review_feedback`), placement des schémas (`diagram-layout.ts`, fonctions pures testées sous Node) et contrôle de leurs croisements (`diagram-quality.ts`), état de revue dérivé (`review-state.ts`), libellés et couleurs des gravités et statuts (`labels.ts`, `severity.ts`). Ce que l'utilisateur voit en aperçu est donc exactement ce que l'agent reçoit.
 
 ### Persistance
 
-Un fichier JSON par analyse dans `<données>/analyses/<id>.json`, et son diff figé dans `<données>/diffs/<id>.json`. Les écritures sont atomiques (fichier temporaire puis `rename`), sérialisées entre processus par un verrou `.lock`, et le cache mémoire est invalidé dès que la date ou la taille du fichier change. Tout document est validé par zod à la lecture et à l'écriture ; `src/core/migrate.ts` met à niveau les anciens formats à la lecture : une analyse sans projet reçoit le nom du dossier du dépôt (`basename(repoPath)`), une analyse sans vue d'ensemble reçoit `overview: null`, une analyse sans explications reçoit une liste vide.
+Un fichier JSON par analyse dans `<données>/analyses/<id>.json`, et son diff figé dans `<données>/diffs/<id>.json`. Les écritures sont atomiques (fichier temporaire puis `rename`), sérialisées entre processus par un verrou `.lock`, et le cache mémoire est invalidé dès que la date ou la taille du fichier change. Tout document est validé par zod à la lecture et à l'écriture ; `src/core/migrate.ts` met à niveau les anciens formats à la lecture : une analyse sans projet reçoit le nom du dossier du dépôt (`basename(repoPath)`), une analyse sans vue d'ensemble reçoit `overview: null`, une analyse sans explications reçoit une liste vide, une remarque sans état de question reçoit `question: null`.
 
 ### Invariants
 
@@ -378,6 +418,7 @@ cd gui && npm run lint   # oxlint
 La suite comprend des tests unitaires (parseur de diff, git sur de vrais dépôts temporaires, en local et à travers un relais agent simulé, store, invariants, emplacements, recalcul, prompt, placement des schémas), des tests de chaque outil, et deux suites qui lancent un vrai serveur sur stdio :
 
 - `test/gui-api.test.ts` — la GUI en mode standalone sur un port libre : API REST, journal `api/changes` et boucle agent → GUI → agent. Elle ne dépend de rien d'extérieur.
+- `test/notifications.test.ts` — questions et notifications : actions du store, événements annoncés, `enable_notifications`, `wait_for_notifications` et `answer_question` sur stdio, et le veilleur lancé avec `--watch`.
 - `test/e2e.test.ts` — l'enregistrement auprès du proxy (`E2E_PROXY_URL`, défaut `http://localhost:3000`), la balise `<base>`, `api/changes` et `reconnect_gui`. Sans proxy joignable, elle est ignorée plutôt qu'en échec.
 
 Pour inspecter le worker sans traverser le proxy, ajoutez `?__direct=1` à l'URL de son port local : les assets ne sont alors pas préfixés par le chemin de montage.

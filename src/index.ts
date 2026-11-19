@@ -20,6 +20,7 @@ import { resolveRole, type Role } from "./core/role.js";
 import {
   addNote,
   deleteNote,
+  markAnswerSeen,
   markProcessedByReviewer,
   setFileLevel,
   setFileReviewed,
@@ -32,6 +33,7 @@ import {
   AddNoteRequestSchema,
   AnalysisRequestSchema,
   DeleteNoteRequestSchema,
+  MarkAnswerSeenRequestSchema,
   SetFileLevelRequestSchema,
   SetFileReviewedRequestSchema,
   SetFindingStatusRequestSchema,
@@ -70,6 +72,16 @@ import { getReviewFeedback } from "./tools/get-review-feedback.js";
 import { markFeedbackProcessed } from "./tools/mark-feedback-processed.js";
 import { analysisLinks } from "./core/follow-ups.js";
 import { deleteAnalysis } from "./tools/delete-analysis.js";
+import { projectKey, removeOwnHandoffs } from "./core/notifications.js";
+import {
+  DEFAULT_NOTIFICATION_WAIT_SECONDS,
+  MAX_NOTIFICATION_WAIT_SECONDS,
+  WATCH_ARG,
+  answerQuestion,
+  enableNotifications,
+  waitForNotifications,
+  type NotificationContext,
+} from "./tools/notifications.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -85,6 +97,20 @@ if (process.argv.slice(2).includes("--claude-setup-mcp")) {
     process.exit(1);
   }
   process.exit(runSetupMcp({ cwd: process.cwd(), force: argv.includes("--force"), exposure: parsed.exposure }));
+}
+
+// Veilleur de notifications lancé par l'outil Monitor : il lit son relais, pas l'environnement du MCP.
+const watchIndex = process.argv.indexOf("--watch");
+if (watchIndex !== -1) {
+  const key = process.argv[watchIndex + 1];
+  const { runWatchMode } = await import("./core/notifications.js");
+  try {
+    await runWatchMode(key && !key.startsWith("-") ? key : null);
+  } catch (err: any) {
+    process.stderr.write(`[feature-analyzer] ${err.message}\n`);
+    process.exit(1);
+  }
+  process.exit(0);
 }
 
 function findProjectRoot(startDir: string): string {
@@ -123,6 +149,14 @@ try {
 
 const store = new AnalysisStore(dataDir);
 
+const entryScript = fileURLToPath(import.meta.url).replace(/\\/g, "/");
+const notificationContext: NotificationContext = {
+  store,
+  dataDir,
+  watchCommand: (project) => `node "${entryScript}" --watch ${projectKey(project)}`,
+};
+process.on("exit", removeOwnHandoffs);
+
 /** Présentation du serveur transmise au client MCP : concepts, déroulé et règles. */
 const INSTRUCTIONS = `mcp-feature-analyzer helps a human review a feature you developed. You write the analysis through these tools; the user reviews it in a web GUI and records feedback that you read back.
 
@@ -135,6 +169,8 @@ Concepts:
 - An **explanation** describes what a block of added or removed code does and how it works, so that the reviewer understands it before judging it. It is not a finding: it judges nothing and asks for nothing. It is anchored on new-side lines (added code) or old-side lines (removed code), and shown in the diff above the lines it describes.
 - A **diagram** is a flow, layers or mindmap picture of the feature. You give nodes and links only; the GUI lays them out.
 - The **review** belongs to the reviewer: files marked reviewed, findings ignored, notes, and a submitted decision with a prompt for you.
+- A **question** is a note the reviewer sends you right away instead of keeping it for the end of the review. It stays in the review with your answer, but is never part of the submitted feedback: answer it with answer_question as soon as it reaches you.
+- **Notifications**: enable_notifications hands you a watcher to arm with the Monitor tool; it announces the reviewer's questions and the submitted reviews of every analysis of a project.
 - A **follow-up review** is a new analysis created with follow_up_of: it reviews the fixes for the submitted feedback of an earlier analysis. Each analysis has at most one follow-up, so the rounds form a chain.
 
 Workflow:
@@ -145,7 +181,7 @@ Workflow:
 5. add_explanations for the long or complex blocks of added or removed code (see Explanation rules).
 6. add_findings for every problem, including requirement_gap findings for requested behaviour that is missing.
 7. set_diagram when a picture helps (impacted layers, process flow, concept tree).
-8. Tell the user to review the analysis in the GUI (the link is in the tool results).
+8. Tell the user to review the analysis in the GUI (the link is in the tool results), and call enable_notifications for its project, once per conversation, then arm the Monitor watcher it returns: the reviewer's questions and the submitted review then reach you on their own. Answer each question with answer_question.
 9. get_review_feedback to read the decision, the selected points and the prompt. list_analyses with review_state "to_process" lists the submitted reviews you have not handled yet; an approved review has nothing to process.
 10. Fix the code, then refresh_analysis to recompute the diff for a new review round; re-anchor or rewrite the outdated findings and explanations. When the fixes are in other commits (typically an analysis of one commit), create their follow-up review instead: create_analysis on the fix commits with follow_up_of set to the analysis you fixed; it marks that feedback processed and shows its points to the reviewer. When nothing needs a new review (answers given in the conversation), call mark_feedback_processed with a note saying how the feedback was handled.
 
@@ -283,6 +319,13 @@ function handleGuiRequest(msg: IPCMessage): unknown {
     case "DELETE_NOTE": {
       const request = parseRequest(DeleteNoteRequestSchema, msg.data);
       const analysis = deleteNote(store, request.analysisId, request.noteId, request.body);
+      afterUserMutation(analysis.id);
+      return { analysis };
+    }
+
+    case "MARK_ANSWER_SEEN": {
+      const request = parseRequest(MarkAnswerSeenRequestSchema, msg.data);
+      const analysis = markAnswerSeen(store, request.analysisId, request.noteId, request.body);
       afterUserMutation(analysis.id);
       return { analysis };
     }
@@ -868,6 +911,68 @@ const TOOLS = [
     },
   },
   {
+    name: "enable_notifications",
+    description:
+      "Get notified of what the reviewer does on every analysis of a project, including the ones created later (follow-up reviews among them): " +
+      "a question the reviewer sends you right away from the GUI, and a review the reviewer submits. " +
+      "Returns immediately and hands you the exact Monitor call to make right after: arming that watcher is what delivers the notifications. " +
+      "Call it once per conversation and project, after create_analysis — never once per analysis; the host stops the watcher after 30 minutes at most, " +
+      "re-arm it with the same Monitor call each time it expires. Works locally and behind mcp-http-gateway.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        project: { type: "string", description: "Project of the analyses to watch (exact name, as listed by list_analyses)." },
+        [WATCH_ARG]: {
+          type: "object",
+          description:
+            "Filled in by the mcp-http-gateway relay, never by the agent: the relay will run the watcher and needs a watch specification instead of a local command",
+        },
+      },
+      required: ["project"],
+    },
+  },
+  {
+    name: "wait_for_notifications",
+    description:
+      "Reserved for the notification watcher that the mcp-http-gateway relay runs on the agent's machine: do not call it yourself. " +
+      "To be notified, call enable_notifications. " +
+      "Blocks until an event of the project happens after the cursor (a question from the reviewer, a submitted review), or until the timeout, " +
+      "and returns one line per event with the next cursor.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        project: { type: "string", description: "Project of the analyses to watch (exact name)." },
+        cursor: {
+          type: "string",
+          pattern: "^[0-9]+$",
+          description: "Cursor returned by the previous call. Omit to wait for events from now on.",
+        },
+        timeout_seconds: {
+          type: "integer",
+          minimum: 1,
+          maximum: MAX_NOTIFICATION_WAIT_SECONDS,
+          description: `Maximum wait in seconds (default ${DEFAULT_NOTIFICATION_WAIT_SECONDS}).`,
+        },
+      },
+      required: ["project"],
+    },
+  },
+  {
+    name: "answer_question",
+    description:
+      "Answer a question the reviewer sent you right away from the GUI (announced by the notification watcher, listed by get_analysis among the reviewer notes). " +
+      "The reviewer reads the answer next to the question in the GUI. A question is answered once; it is never part of the submitted feedback.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        analysis_id: { type: "string", description: ANALYSIS_ID_DOC },
+        question_id: { type: "string", description: "Id of the question, as given by the notification or get_analysis." },
+        answer: { type: "string", description: "Your answer, in the reviewer's language. Plain text; line breaks are kept." },
+      },
+      required: ["analysis_id", "question_id", "answer"],
+    },
+  },
+  {
     name: "refresh_analysis",
     description:
       "Recompute the frozen diff with the same repository, mode and refs, after fixing the code. " +
@@ -912,7 +1017,7 @@ function withRepoAccess(
   return handleAgentExec(exec, (run) => fn((repoPath) => agentRepo(repoPath, run)));
 }
 
-server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
+server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
   const { name, arguments: args } = request.params;
   // L'argument réservé du relais agent accompagne tous les appels d'une route listée dans GATEWAY_EXEC_ROUTES.
   const { [EXEC_ARG]: exec, ...params } = (args ?? {}) as Record<string, unknown>;
@@ -957,6 +1062,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
         return afterMutation(deleteDiagram(store, params));
       case "mark_feedback_processed":
         return afterMutation(markFeedbackProcessed(store, params));
+      case "answer_question":
+        return afterMutation(answerQuestion(store, params));
+      case "enable_notifications":
+        return enableNotifications(notificationContext, params);
+      case "wait_for_notifications":
+        return await waitForNotifications(notificationContext, params, extra.signal);
       case "refresh_analysis":
         return await withRepoAccess(exec, async (repoFor) => afterMutation(await refreshAnalysis(store, params, repoFor)));
       case "delete_analysis": {

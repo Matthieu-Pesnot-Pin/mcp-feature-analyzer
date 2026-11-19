@@ -28,6 +28,7 @@ const note = (id: string, findingId: string | null = null): Note => ({
   findingId,
   text: "Note",
   createdAt: "2026-09-29T10:00:00.000Z",
+  question: null,
 });
 
 test("a consistent analysis has no violation", () => {

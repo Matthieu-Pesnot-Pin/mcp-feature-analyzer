@@ -38,7 +38,7 @@ test("review progress labels: a French label and colours for every state", () =>
 
 /** Analyse soumise : f_1 et n_1 retenus, f_2 et n_2 écartés, f_3 ignoré. */
 function submittedAnalysis() {
-  const note = (id: string, text: string) => ({ id, location: { path: "src/a.ts", line: 2 }, findingId: null, text, createdAt: "2026-09-29T10:00:00.000Z" });
+  const note = (id: string, text: string) => ({ id, location: { path: "src/a.ts", line: 2 }, findingId: null, text, createdAt: "2026-09-29T10:00:00.000Z", question: null });
   return sampleAnalysis({
     findings: [sampleFinding(), sampleFinding({ id: "f_2", title: "Second" }), sampleFinding({ id: "f_3", title: "Ignored", status: "ignored" })],
     notes: [note("n_1", "Rename"), note("n_2", "Later")],

@@ -20,7 +20,12 @@ import {
 import { rejectUnknownFields, requireString, textResult, type Args, type ToolResult } from "./types.js";
 
 function noteLine(note: Note): string {
-  return `${note.id} — ${noteLocationLabel(note)} — ${note.text.replace(/\n/g, " / ")}`;
+  const line = `${note.id} — ${noteLocationLabel(note)} — ${note.text.replace(/\n/g, " / ")}`;
+  if (note.question === null) return line;
+  const answer = note.question.answer;
+  return answer === null
+    ? `${line} — QUESTION sent at ${note.question.askedAt}, not answered yet: answer it with answer_question`
+    : `${line} — QUESTION answered at ${answer.at}: ${answer.text.replace(/\n/g, " / ")}`;
 }
 
 function reviewLines(analysis: Analysis): string[] {

@@ -400,9 +400,9 @@ test("delete_findings deletes the reviewer notes written on the deleted findings
   const createdAt = new Date().toISOString();
   store.mutate(id, "user", (draft) => {
     draft.notes.push(
-      { id: "n_f1", location: { path: "src/app.ts", line: 1 }, findingId: "f1", text: "About f1", createdAt },
-      { id: "n_f2", location: { path: "src/app.ts", line: 2 }, findingId: "f2", text: "About f2", createdAt },
-      { id: "n_free", location: { path: "src/app.ts", line: 1 }, findingId: null, text: "Free note", createdAt }
+      { id: "n_f1", location: { path: "src/app.ts", line: 1 }, findingId: "f1", text: "About f1", createdAt, question: null },
+      { id: "n_f2", location: { path: "src/app.ts", line: 2 }, findingId: "f2", text: "About f2", createdAt, question: null },
+      { id: "n_free", location: { path: "src/app.ts", line: 1 }, findingId: null, text: "Free note", createdAt, question: null }
     );
     draft.review.selectedNoteIds = ["n_f1", "n_free"];
   });
@@ -564,7 +564,7 @@ test("delete_diagram removes a diagram and reports unknown ids", async (t) => {
 /** Soumet une revue comme le ferait la GUI : remarque, sélection, décision et prompt. */
 function submitReview(store: AnalysisStore, id: string, findingIds: string[]) {
   store.mutate(id, "user", (draft) => {
-    draft.notes.push({ id: "n1", location: { path: "src/app.ts", line: 2 }, findingId: null, text: "Rename this", createdAt: new Date().toISOString() });
+    draft.notes.push({ id: "n1", location: { path: "src/app.ts", line: 2 }, findingId: null, text: "Rename this", createdAt: new Date().toISOString(), question: null });
     draft.review.state = "submitted";
     draft.review.decision = "request_changes";
     draft.review.selectedFindingIds = findingIds;

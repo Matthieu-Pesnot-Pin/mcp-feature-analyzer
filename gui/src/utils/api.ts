@@ -2,6 +2,7 @@ import type { DiffSnapshot } from '@shared/schemas/diff.schema'
 import type {
   AddNoteBody,
   DeleteNoteBody,
+  MarkAnswerSeenBody,
   MarkProcessedBody,
   SetFileLevelBody,
   SetFileReviewedBody,
@@ -84,6 +85,12 @@ export const api = {
 
   deleteNote: (id: string, noteId: string, body: DeleteNoteBody) =>
     send<AnalysisResponse>('DELETE', `${analysisPath(id)}/notes/${encodeURIComponent(noteId)}`, body),
+
+  markAnswerSeen: (id: string, noteId: string, body: MarkAnswerSeenBody) =>
+    send<AnalysisResponse>('POST', `${analysisPath(id)}/notes/${encodeURIComponent(noteId)}/answer-seen`, body),
+
+  /** Projets dont un veilleur de notifications de l'agent est vivant. */
+  getWatchers: () => request<{ projects: string[] }>('watchers'),
 
   submitReview: (id: string, body: SubmitReviewBody) => send<AnalysisResponse>('POST', `${analysisPath(id)}/review`, body),
 

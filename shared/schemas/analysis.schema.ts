@@ -112,6 +112,22 @@ export const NoteLocationSchema = z.object({
   line: LineSchema.nullable(),
 });
 
+/** Réponse de l'agent à une question du relecteur. */
+export const QuestionAnswerSchema = z.object({
+  text: z.string().min(1),
+  at: IsoDateSchema,
+});
+
+/**
+ * Question envoyée tout de suite à l'agent : date d'envoi, réponse de l'agent (null
+ * tant qu'il n'a pas répondu) et date à laquelle le relecteur a lu cette réponse.
+ */
+export const NoteQuestionSchema = z.object({
+  askedAt: IsoDateSchema,
+  answer: QuestionAnswerSchema.nullable(),
+  answerSeenAt: IsoDateSchema.nullable(),
+});
+
 export const NoteSchema = z.object({
   id: ItemIdSchema,
   location: NoteLocationSchema.nullable(),
@@ -119,6 +135,8 @@ export const NoteSchema = z.object({
   findingId: ItemIdSchema.nullable(),
   text: z.string().min(1),
   createdAt: IsoDateSchema,
+  /** Échange direct avec l'agent quand la remarque lui a été envoyée tout de suite ; null pour une remarque transmise en fin de revue. */
+  question: NoteQuestionSchema.nullable(),
 });
 
 export const DiagramNodeLocationSchema = z.object({
@@ -268,6 +286,7 @@ export type ExplanationLocation = z.infer<typeof ExplanationLocationSchema>;
 export type Explanation = z.infer<typeof ExplanationSchema>;
 export type NoteLocation = z.infer<typeof NoteLocationSchema>;
 export type Note = z.infer<typeof NoteSchema>;
+export type NoteQuestion = z.infer<typeof NoteQuestionSchema>;
 export type DiagramNodeLocation = z.infer<typeof DiagramNodeLocationSchema>;
 export type DiagramNode = z.infer<typeof DiagramNodeSchema>;
 export type DiagramLink = z.infer<typeof DiagramLinkSchema>;

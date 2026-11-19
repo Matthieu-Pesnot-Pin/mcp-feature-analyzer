@@ -27,6 +27,9 @@ export const SEVERITY_STYLES: Record<Severity, BadgeStyle> = {
 /** Pastille des remarques du relecteur. */
 export const NOTE_STYLE: BadgeStyle = { label: "Remarque", color: "#c4a8ff", background: "#241d3a" };
 
+/** Pastille des questions envoyées tout de suite à l'agent. */
+export const QUESTION_STYLE: BadgeStyle = { label: "Question", color: "#8b97ff", background: "#1f2540" };
+
 export const FINDING_STATUS_LABELS: Record<FindingStatus, string> = {
   open: "Ouvert",
   ignored: "Ignoré",

@@ -3,6 +3,7 @@ import { useAnalysisStore } from '../store/useAnalysisStore'
 import { refsLabel, relativeTime } from '../utils/format'
 import { hrefs, navigate } from '../utils/router'
 import { groupByProject } from '../screens/home-model'
+import { AgentQuestions } from './AgentQuestions'
 import { Icon } from './Icon'
 import { ReviewStateBadge } from './Pills'
 
@@ -95,8 +96,9 @@ function AnalysisSelector({ currentId }: { currentId: string | null }) {
   )
 }
 
-/** Barre supérieure : marque, sélecteur d'analyse et action contextuelle. */
+/** Barre supérieure : marque, sélecteur d'analyse, échanges avec l'agent et action contextuelle. */
 export function TopBar({ currentId, action }: { currentId: string | null; action?: ReactNode }) {
+  const analysis = useAnalysisStore((state) => state.current?.analysis ?? null)
   return (
     <header className="topbar">
       <a className="brand" href={hrefs.home()}>
@@ -107,6 +109,7 @@ export function TopBar({ currentId, action }: { currentId: string | null; action
       </a>
       <AnalysisSelector currentId={currentId} />
       <div className="topbar-spacer" />
+      {analysis !== null && analysis.id === currentId && <AgentQuestions analysis={analysis} />}
       {action}
     </header>
   )

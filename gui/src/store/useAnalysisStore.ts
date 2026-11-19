@@ -65,6 +65,8 @@ interface AnalysisState {
   findingsShown: boolean
   /** Explications de l'agent affichées sur l'écran Revue (marge et filets du diff), pour tous les fichiers. */
   explanationsShown: boolean
+  /** Projets dont un veilleur de notifications de l'agent est vivant ; null tant qu'ils n'ont pas été lus. */
+  listenedProjects: ReadonlySet<string> | null
 
   setHomeFilter: (filter: HomeFilter) => void
   toggleProject: (project: string) => void
@@ -89,9 +91,13 @@ interface AnalysisState {
   setFileReviewed: (path: string, reviewed: boolean) => Promise<boolean>
   setFileLevel: (path: string, level: FileLevel) => Promise<boolean>
   setFindingStatus: (findingId: string, status: FindingStatus) => Promise<boolean>
-  addNote: (path: string, line: number | null, text: string, findingId: string | null) => Promise<boolean>
+  /** Ajoute une remarque ; `askAgent` l'envoie tout de suite à l'agent comme une question. */
+  addNote: (path: string, line: number | null, text: string, findingId: string | null, askAgent: boolean) => Promise<boolean>
   updateNote: (noteId: string, text: string) => Promise<boolean>
   deleteNote: (noteId: string) => Promise<boolean>
+  /** Enregistre la lecture de la réponse de l'agent à une question. */
+  markAnswerSeen: (noteId: string) => Promise<boolean>
+  setListenedProjects: (projects: string[]) => void
   submitReview: (decision: ReviewDecision, findingIds: string[], noteIds: string[]) => Promise<boolean>
   /** Marque traité le retour soumis de l'analyse `summary`, depuis la liste, avec une note facultative. */
   markProcessed: (summary: AnalysisSummary, note: string | null) => Promise<boolean>
@@ -158,6 +164,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     zenMode: false,
     findingsShown: true,
     explanationsShown: true,
+    listenedProjects: null,
 
     setHomeFilter: (homeFilter) => set({ homeFilter }),
 
@@ -266,10 +273,17 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
         api.setFindingStatus(analysis.id, findingId, { status, baseRevision: analysis.revision }),
       ),
 
-    addNote: (path, line, text, findingId) =>
-      mutate('Remarque non enregistrée', (analysis) =>
-        api.addNote(analysis.id, { path, line, findingId, text, baseRevision: analysis.revision }),
+    addNote: (path, line, text, findingId, askAgent) =>
+      mutate(askAgent ? 'Question non envoyée' : 'Remarque non enregistrée', (analysis) =>
+        api.addNote(analysis.id, { path, line, findingId, text, askAgent, baseRevision: analysis.revision }),
       ),
+
+    markAnswerSeen: (noteId) =>
+      mutate('Lecture de la réponse non enregistrée', (analysis) =>
+        api.markAnswerSeen(analysis.id, noteId, { baseRevision: analysis.revision }),
+      ),
+
+    setListenedProjects: (projects) => set({ listenedProjects: new Set(projects) }),
 
     updateNote: (noteId, text) =>
       mutate('Remarque non modifiée', (analysis) =>

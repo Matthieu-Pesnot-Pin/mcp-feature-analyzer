@@ -11,6 +11,7 @@ import { IPCMessageSchema, PUSHED_EVENT_TYPES, type ChangesResponse, type IPCMes
 import {
   AddNoteBodySchema,
   DeleteNoteBodySchema,
+  MarkAnswerSeenBodySchema,
   MarkProcessedBodySchema,
   SetFileLevelBodySchema,
   SetFileReviewedBodySchema,
@@ -23,6 +24,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 import { resolveDataDir } from "./core/data-dir.js";
 import { resolveLogDir } from "./core/log-dir.js";
+import { listenedProjects } from "./core/notifications.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -78,7 +80,8 @@ function resolveGuiMode(): GuiMode {
 const guiMode = resolveGuiMode();
 const isStandalone = guiMode.kind === "standalone";
 
-setupLogging({ processLabel: "mcp-feature-analyzer:GUI", logDir: resolveLogDir(resolveDataDir()) });
+const dataDir = resolveDataDir();
+setupLogging({ processLabel: "mcp-feature-analyzer:GUI", logDir: resolveLogDir(dataDir) });
 const logger = createLogger("mcp-feature-analyzer:GUI");
 
 process.on("uncaughtException", (err) => {
@@ -198,7 +201,68 @@ function changesSince(since: number | undefined, clientEpoch: string | undefined
   };
 }
 
+/** Intervalle de la recherche des analyses écrites par un autre processus. */
+const EXTERNAL_SCAN_MS = 2000;
+
+/** Signature (date et taille) de chaque fichier d'analyse, à la recherche précédente. */
+let analysisStamps: Map<string, string> | null = null;
+
+function readAnalysisStamps(): Map<string, string> {
+  const stamps = new Map<string, string>();
+  const dir = path.join(dataDir, "analyses");
+  for (const file of fs.readdirSync(dir)) {
+    if (!file.endsWith(".json")) continue;
+    try {
+      const stat = fs.statSync(path.join(dir, file));
+      stamps.set(file.slice(0, -".json".length), `${stat.mtimeMs}:${stat.size}`);
+    } catch {
+      // Fichier supprimé entre la lecture du dossier et sa date : il compte comme absent.
+    }
+  }
+  return stamps;
+}
+
+/**
+ * Journalise un évènement pour chaque analyse créée, modifiée ou supprimée sur
+ * disque depuis la recherche précédente, quel que soit le processus qui l'a écrite :
+ * une autre session de l'agent sert les mêmes analyses sans passer par ce worker.
+ */
+function scanExternalChanges() {
+  let stamps: Map<string, string>;
+  try {
+    stamps = readAnalysisStamps();
+  } catch (err: any) {
+    logger.error(`Scanning the analyses folder failed: ${err.message}`);
+    return;
+  }
+  const previous = analysisStamps;
+  analysisStamps = stamps;
+  if (previous === null) return;
+  const changed = [...new Set([...stamps.keys(), ...previous.keys()])].filter((id) => stamps.get(id) !== previous.get(id));
+  if (changed.length === 0) return;
+  const timestamp = new Date().toISOString();
+  for (const analysisId of changed) recordChange({ type: "ANALYSIS_UPDATED", data: { analysisId }, timestamp });
+  recordChange({ type: "ANALYSES_UPDATED", data: {}, timestamp });
+}
+
+/**
+ * Prend l'état du disque de l'analyse annoncée par le master comme référence : ce
+ * changement n'est pas annoncé une seconde fois par la recherche suivante.
+ */
+function acknowledgeOnDisk(analysisId: string) {
+  if (analysisStamps === null) return;
+  try {
+    const stat = fs.statSync(path.join(dataDir, "analyses", `${analysisId}.json`));
+    analysisStamps.set(analysisId, `${stat.mtimeMs}:${stat.size}`);
+  } catch (err: any) {
+    if (err.code === "ENOENT") analysisStamps.delete(analysisId);
+    else logger.error(`Reading the analysis file of ${analysisId} failed: ${err.message}`);
+  }
+}
+
 function setupIpcHandlers() {
+  scanExternalChanges();
+  setInterval(scanExternalChanges, EXTERNAL_SCAN_MS);
   process.on("error", (err: any) => {
     if (err.code === "ERR_IPC_CHANNEL_CLOSED") return;
     logger.error(`Process error: ${err.message}`);
@@ -226,6 +290,7 @@ function setupIpcHandlers() {
 
     if (PUSHED_EVENTS.has(msg.type)) {
       recordChange(msg);
+      if (msg.type === "ANALYSIS_UPDATED" && typeof msg.data?.analysisId === "string") acknowledgeOnDisk(msg.data.analysisId);
       return;
     }
 
@@ -340,6 +405,15 @@ app.delete("/api/analyses/:id/notes/:noteId", async (c) => {
   if ("response" in read) return read.response;
   return forward(c, "DELETE_NOTE", { analysisId: c.req.param("id"), noteId: c.req.param("noteId"), body: read.body });
 });
+
+app.post("/api/analyses/:id/notes/:noteId/answer-seen", async (c) => {
+  const read = await readBody(c, MarkAnswerSeenBodySchema);
+  if ("response" in read) return read.response;
+  return forward(c, "MARK_ANSWER_SEEN", { analysisId: c.req.param("id"), noteId: c.req.param("noteId"), body: read.body });
+});
+
+/** Projets dont un veilleur de notifications est vivant. */
+app.get("/api/watchers", (c) => c.json({ projects: listenedProjects(dataDir) }));
 
 app.post("/api/analyses/:id/review", async (c) => {
   const read = await readBody(c, SubmitReviewBodySchema);

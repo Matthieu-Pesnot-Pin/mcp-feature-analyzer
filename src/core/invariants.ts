@@ -142,9 +142,16 @@ export function findInvariantViolations(analysis: Analysis): string[] {
   for (const id of review.selectedNoteIds) {
     if (!noteIds.has(id)) problems.push(`review selects unknown note "${id}"`);
   }
+  const selectedNotes = new Set(review.selectedNoteIds);
   for (const note of analysis.notes) {
     if (note.findingId !== null && !findingIds.has(note.findingId)) {
       problems.push(`note "${note.id}" answers unknown finding "${note.findingId}"`);
+    }
+    if (note.question !== null && selectedNotes.has(note.id)) {
+      problems.push(`review selects note "${note.id}", a question already sent to the agent`);
+    }
+    if (note.question !== null && note.question.answer === null && note.question.answerSeenAt !== null) {
+      problems.push(`question "${note.id}" has an answer read date but no answer`);
     }
   }
   if (review.state === "submitted" && (review.decision === null || review.submittedAt === null)) {

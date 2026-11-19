@@ -17,14 +17,17 @@ const DECISIONS: Record<ReviewDecision, { icon: IconName; color: string; descrip
   reject: { icon: 'circle-x', color: '#f0625a', description: 'La feature est abandonnée' },
 }
 
-/** Point transmissible à l'agent : un constat ouvert ou une remarque ; `key` est unique entre les deux. */
+/**
+ * Point transmissible à l'agent : un constat ouvert ou une remarque ; `key` est unique entre les deux.
+ * Les questions, déjà envoyées à l'agent, n'en font pas partie.
+ */
 type Point = { key: string; finding: Finding; note?: undefined } | { key: string; note: Note; finding?: undefined }
 
 function pointsOf(analysis: Analysis): Point[] {
   const findings = sortBySeverity(analysis.findings.filter((finding) => finding.status === 'open')).map(
     (finding): Point => ({ key: `f:${finding.id}`, finding }),
   )
-  const notes = analysis.notes.map((note): Point => ({ key: `n:${note.id}`, note }))
+  const notes = analysis.notes.filter((note) => note.question === null).map((note): Point => ({ key: `n:${note.id}`, note }))
   return [...findings, ...notes]
 }
 
@@ -50,6 +53,7 @@ export function FinishScreen({ analysis }: { analysis: Analysis }) {
   const submitReview = useAnalysisStore((state) => state.submitReview)
   const notify = useAnalysisStore((state) => state.notify)
   const saving = useAnalysisStore((state) => state.saving)
+  const listened = useAnalysisStore((state) => state.listenedProjects?.has(analysis.project) ?? false)
 
   const points = pointsOf(analysis)
   const [decision, setDecision] = useState<ReviewDecision>(
@@ -73,7 +77,12 @@ export function FinishScreen({ analysis }: { analysis: Analysis }) {
 
   const save = async () => {
     if (await submitReview(decision, findingIds, noteIds)) {
-      notify('info', "Retour enregistré : l'agent le lit avec l'outil get_review_feedback.")
+      notify(
+        'info',
+        listened
+          ? "Retour enregistré : l'agent à l'écoute vient d'en être notifié."
+          : "Retour enregistré : l'agent le lit avec l'outil get_review_feedback.",
+      )
     }
   }
 
