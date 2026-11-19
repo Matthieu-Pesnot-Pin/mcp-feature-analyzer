@@ -9,9 +9,8 @@ import { addNoteQuestions } from "../src/core/migrate.js";
 import {
   ReviewEventScanner,
   formatEvent,
-  listenedProjects,
   liveWatcherSince,
-  projectKey,
+  watchedAnalyses,
   writeHandoff,
   writeWatcherBeat,
 } from "../src/core/notifications.js";
@@ -71,12 +70,12 @@ test("a regular note is not a question, and a question cannot be selected in the
   );
 });
 
-test("the scanner announces unanswered questions and submitted reviews of one project after the cursor", (t) => {
+test("the scanner announces unanswered questions and submitted reviews of one analysis after the cursor", (t) => {
   const { store, cleanup } = makeStore();
   t.after(cleanup);
   const mine = createAnalysis(store, "demo", "Mine");
-  const other = createAnalysis(store, "other", "Other");
-  const scanner = new ReviewEventScanner(store, "demo");
+  const other = createAnalysis(store, "demo", "Other review of the same project");
+  const scanner = new ReviewEventScanner(store, mine.id);
   const start = Date.now() - 1;
 
   ask(store, mine.id, "First?");
@@ -95,13 +94,29 @@ test("the scanner announces unanswered questions and submitted reviews of one pr
   assert.deepEqual(scanner.since(submitted[0].eventMs), []);
 });
 
-test("watcher beats tell which projects are listened to", (t) => {
+test("the scanner follows the follow-up reviews of the watched analysis, created later", (t) => {
+  const { store, cleanup } = makeStore();
+  t.after(cleanup);
+  const first = createAnalysis(store, "demo", "Round 1");
+  const scanner = new ReviewEventScanner(store, first.id);
+  const start = Date.now() - 1;
+  const second = store.create({ project: "demo", title: "Round 2", followUpOf: first.id }, sampleSnapshot());
+  const third = store.create({ project: "demo", title: "Round 3", followUpOf: second.id }, sampleSnapshot());
+  ask(store, third.id, "Still there?");
+  const events = scanner.since(start);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].analysisId, third.id);
+  assert.equal(new ReviewEventScanner(store, second.id).since(start).length, 1);
+  assert.equal(new ReviewEventScanner(store, third.id).since(start).length, 1);
+});
+
+test("watcher beats tell which analyses are watched", (t) => {
   const temp = makeTempDir("mcp-feature-analyzer-beats-");
   t.after(temp.cleanup);
-  assert.equal(liveWatcherSince(temp.dir, "demo"), null);
-  writeWatcherBeat(temp.dir, "demo", "2026-11-19T10:00:00.000Z");
-  assert.equal(liveWatcherSince(temp.dir, "demo"), "2026-11-19T10:00:00.000Z");
-  assert.deepEqual(listenedProjects(temp.dir), ["demo"]);
+  assert.equal(liveWatcherSince(temp.dir, "demo-abc123"), null);
+  writeWatcherBeat(temp.dir, "demo-abc123", "2026-11-19T10:00:00.000Z");
+  assert.equal(liveWatcherSince(temp.dir, "demo-abc123"), "2026-11-19T10:00:00.000Z");
+  assert.deepEqual(watchedAnalyses(temp.dir), ["demo-abc123"]);
 });
 
 test("addNoteQuestions sets question to null on the notes that have none", () => {
@@ -152,31 +167,31 @@ function askFromGui(text: string): string {
   return analysis.notes[analysis.notes.length - 1].id;
 }
 
-test("enable_notifications refuses an unknown project and hands the Monitor call for a known one", async () => {
-  const unknown = await client.callTool("enable_notifications", { project: "nope" });
+test("enable_notifications refuses an unknown analysis and hands the Monitor call for a known one", async () => {
+  const unknown = await client.callTool("enable_notifications", { analysis_id: "nope-123456" });
   assert.equal(unknown.isError, true);
-  assert.match(unknown.text, /No analysis belongs to project "nope"\. Existing projects: "demo"\./);
+  assert.match(unknown.text, /Analysis "nope-123456" not found/);
 
-  const enabled = await client.callTool("enable_notifications", { project: "demo" });
+  const enabled = await client.callTool("enable_notifications", { analysis_id: analysisId });
   assert.equal(enabled.isError, false, enabled.text);
-  assert.match(enabled.text, new RegExp(`command: {5}node ".+index\\.js" --watch ${projectKey("demo")}`));
+  assert.match(enabled.text, new RegExp(`command: {5}node ".+index\\.js" --watch ${analysisId}`));
   assert.match(enabled.text, /timeout_ms: {2}1800000/);
-  assert.ok(fs.existsSync(path.join(home.dir, ".mcp-feature-analyzer", "watch", `${projectKey("demo")}.json`)), "the handoff is written in the home folder");
+  assert.ok(fs.existsSync(path.join(home.dir, ".mcp-feature-analyzer", "watch", `${analysisId}.json`)), "the handoff is written in the home folder");
 });
 
 test("behind the gateway, enable_notifications returns a watch specification and wait_for_notifications the lines", async () => {
-  const spec = await client.request("tools/call", { name: "enable_notifications", arguments: { project: "demo", _gateway_watch: { version: 1 } } });
+  const spec = await client.request("tools/call", { name: "enable_notifications", arguments: { analysis_id: analysisId, _gateway_watch: { version: 1 } } });
   const watch = spec._meta["gateway/watch"];
   assert.equal(watch.tool, "wait_for_notifications");
-  assert.deepEqual(watch.arguments, { project: "demo" });
+  assert.deepEqual(watch.arguments, { analysis_id: analysisId });
 
   const questionId = askFromGui("Why 60 seconds?");
-  const waited = await client.request("tools/call", { name: "wait_for_notifications", arguments: { project: "demo", cursor: watch.cursor, timeout_seconds: 5 } });
+  const waited = await client.request("tools/call", { name: "wait_for_notifications", arguments: { analysis_id: analysisId, cursor: watch.cursor, timeout_seconds: 5 } });
   const events = waited._meta["gateway/events"];
   assert.equal(events.lines.length, 1);
   assert.match(events.lines[0], new RegExp(`the reviewer asks you on src/app\\.ts:2: Why 60 seconds\\? — answer with answer_question, analysis_id ${analysisId}, question_id ${questionId}`));
   assert.ok(Number(events.cursor) > Number(watch.cursor));
-  assert.ok(liveWatcherSince(temp.dir, "demo"), "the relay's watcher beats on the server side");
+  assert.ok(liveWatcherSince(temp.dir, analysisId), "the relay's watcher beats on the server side");
 
   const answered = await client.callTool("answer_question", { analysis_id: analysisId, question_id: questionId, answer: "It matches the token margin." });
   assert.equal(answered.isError, false, answered.text);
@@ -185,9 +200,9 @@ test("behind the gateway, enable_notifications returns a watch specification and
 });
 
 test("the --watch watcher prints one line per event and resumes from its cursor", async (t) => {
-  writeHandoff("demo", temp.dir);
+  writeHandoff(analysisId, temp.dir);
   const env = { ...baseEnv(), HOME: home.dir, USERPROFILE: home.dir };
-  const watcher = spawn(process.execPath, [SERVER_ENTRY, "--watch", projectKey("demo")], { env, stdio: ["ignore", "pipe", "pipe"] });
+  const watcher = spawn(process.execPath, [SERVER_ENTRY, "--watch", analysisId], { env, stdio: ["ignore", "pipe", "pipe"] });
   t.after(() => watcher.kill());
   let output = "";
   watcher.stdout.setEncoding("utf-8");
@@ -201,7 +216,7 @@ test("the --watch watcher prints one line per event and resumes from its cursor"
     }
   };
 
-  await deadline(() => liveWatcherSince(temp.dir, "demo") !== null && listenedProjects(temp.dir).includes("demo"), "the watcher beat");
+  await deadline(() => liveWatcherSince(temp.dir, analysisId) !== null && watchedAnalyses(temp.dir).includes(analysisId), "the watcher beat");
   const questionId = askFromGui("Is the save idempotent?");
   await deadline(() => output.includes(questionId), "the question line");
   assert.match(output, /\[feature-analyzer\] "Notify" .+ Is the save idempotent\? — answer with answer_question/);
@@ -212,11 +227,11 @@ test("--watch without a handoff fails loudly", async (t) => {
   const empty = makeTempDir("mcp-feature-analyzer-nohome-");
   t.after(empty.cleanup);
   const env = { ...baseEnv(), HOME: empty.dir, USERPROFILE: empty.dir };
-  const child = spawn(process.execPath, [SERVER_ENTRY, "--watch", "0123456789abcdef"], { env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [SERVER_ENTRY, "--watch", "missing-abc123"], { env, stdio: ["ignore", "pipe", "pipe"] });
   let stderr = "";
   child.stderr.setEncoding("utf-8");
   child.stderr.on("data", (chunk: string) => (stderr += chunk));
   const code = await new Promise((resolve) => child.once("exit", resolve));
   assert.equal(code, 1);
-  assert.match(stderr, /No notification handoff for project key 0123456789abcdef: call enable_notifications/);
+  assert.match(stderr, /No notification handoff for analysis missing-abc123: call enable_notifications/);
 });

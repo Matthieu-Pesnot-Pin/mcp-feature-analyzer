@@ -217,8 +217,8 @@ Une revue soumise est **à traiter** jusqu'à `mark_feedback_processed` ou `refr
 
 | Outil | Effet |
 |---|---|
-| `enable_notifications` | Pour un `project` existant : dépose le relais du veilleur et renvoie l'appel Monitor exact à faire (commande, description, `timeout_ms: 1800000`). Le veilleur annonce, pour toutes les analyses du projet, y compris celles créées ensuite, chaque question envoyée par le relecteur et chaque revue enregistrée. Si un veilleur est déjà vivant pour ce projet, il le dit et ne propose pas d'en armer un second. Les questions envoyées avant le veilleur et restées sans réponse sont listées dans le résultat. Derrière mcp-http-gateway, renvoie la spécification de veille que le relais exécute (argument réservé `_gateway_watch`). |
-| `wait_for_notifications` | Réservé au veilleur du relais de mcp-http-gateway : attend un événement du projet postérieur à `cursor` (ou jusqu'à `timeout_seconds`, 50 s par défaut, 300 au plus) et renvoie une ligne par événement avec le curseur suivant. |
+| `enable_notifications` | Pour l'analyse `analysis_id` : dépose le relais du veilleur et renvoie l'appel Monitor exact à faire (commande, description, `timeout_ms: 1800000`). Le veilleur annonce, pour cette analyse et ses revues de suivi, y compris celles créées ensuite, chaque question envoyée par le relecteur et chaque revue enregistrée ; il n'annonce rien des autres analyses, même du même projet, qui reviennent à leurs propres agents. Si un veilleur est déjà vivant pour cette analyse, il le dit et ne propose pas d'en armer un second. Les questions envoyées avant le veilleur et restées sans réponse sont listées dans le résultat. Derrière mcp-http-gateway, renvoie la spécification de veille que le relais exécute (argument réservé `_gateway_watch`). |
+| `wait_for_notifications` | Réservé au veilleur du relais de mcp-http-gateway : attend un événement de l'analyse `analysis_id` ou de ses revues de suivi postérieur à `cursor` (ou jusqu'à `timeout_seconds`, 50 s par défaut, 300 au plus) et renvoie une ligne par événement avec le curseur suivant. |
 | `answer_question` | Répond à une question du relecteur (`analysis_id`, `question_id`, `answer`). La réponse s'affiche dans la GUI à côté de la question ; une question n'a qu'une réponse. |
 
 ### GUI
@@ -245,7 +245,7 @@ set_diagram     { analysis_id, kind: "flow", nodes: [...], links: [...] }
 
   … l'agent donne le lien à l'utilisateur, qui relit dans la GUI et enregistre son retour …
 
-enable_notifications { project: "mon-projet" }      ← puis l'appel Monitor qu'il renvoie
+enable_notifications { analysis_id }                ← puis l'appel Monitor qu'il renvoie
 answer_question { analysis_id, question_id, answer: "…" } ← à chaque question annoncée par le veilleur
 
 list_analyses       { review_state: "to_process" }  ← revues soumises restant à traiter
@@ -270,13 +270,15 @@ Une **revue de suivi** est une nouvelle analyse, créée avec `create_analysis` 
 
 ### Notifications
 
-L'agent appelle `enable_notifications` une fois par conversation et par projet, puis arme avec l'outil Monitor le veilleur qu'il lui renvoie, par exemple :
+L'agent choisit la revue dont il veut être notifié : il appelle `enable_notifications` avec l'`analysis_id` de l'analyse qu'il a créée, une fois par conversation, puis arme avec l'outil Monitor le veilleur qu'il lui renvoie, par exemple :
 
 ```
-command:     node "C:/…/mcp-feature-analyzer/dist/src/index.js" --watch 3f1c9a0b7d2e4f60
-description: feature-analyzer project mon-projet
+command:     node "C:/…/mcp-feature-analyzer/dist/src/index.js" --watch rafraichissement-oauth-k2x9p1
+description: feature-analyzer review rafraichissement-oauth-k2x9p1
 timeout_ms:  1800000
 ```
+
+Le veilleur couvre cette analyse et ses revues de suivi, y compris celles créées après lui, et rien d'autre : plusieurs agents qui travaillent sur des revues différentes, du même projet ou non, ne reçoivent chacun que les événements de la leur. Un agent qui suit deux revues sans lien arme un veilleur pour chacune.
 
 Le veilleur écrit une ligne par événement, que l'hôte remet à l'agent :
 
@@ -285,10 +287,10 @@ Le veilleur écrit une ligne par événement, que l'hôte remet à l'agent :
 [feature-analyzer] "Rafraîchissement OAuth" (rafraichissement-oauth-k2x9p1) — the reviewer submitted the review and requests changes (2 finding(s) and 1 note(s) selected) — read it with get_review_feedback, analysis_id rafraichissement-oauth-k2x9p1
 ```
 
-- **En local**, le veilleur est le point d'entrée du paquet lancé avec `--watch <clé du projet>`. Lancé par Monitor dans le shell de la session, il n'hérite pas de l'environnement du MCP : `enable_notifications` lui laisse un relais, `~/.mcp-feature-analyzer/watch/<clé>.json`, qui donne le projet, le dossier de données et le curseur (aucun secret). Il relit les analyses chaque seconde ; une erreur de lecture est réessayée (jusqu'à 30 s d'attente), mais un relais absent le fait échouer dès le lancement.
+- **En local**, le veilleur est le point d'entrée du paquet lancé avec `--watch <analysis_id>`. Lancé par Monitor dans le shell de la session, il n'hérite pas de l'environnement du MCP : `enable_notifications` lui laisse un relais, `~/.mcp-feature-analyzer/watch/<analysis_id>.json`, qui donne le dossier de données et le curseur (aucun secret). Il relit les analyses chaque seconde ; une erreur de lecture est réessayée (jusqu'à 30 s d'attente), mais un relais absent le fait échouer dès le lancement.
 - **Derrière mcp-http-gateway**, le relais remplit `_gateway_watch` ; `enable_notifications` répond par la spécification de veille, et le veilleur du relais appelle `wait_for_notifications` en boucle.
 - **Reprise** — le curseur est la date du dernier événement annoncé, gardée dans le relais : un veilleur relancé après son expiration (30 minutes au plus côté hôte) annonce ce qui s'est passé entre-temps. Une question n'est plus annoncée une fois répondue.
-- **Présence** — un veilleur vivant écrit `<données>/watchers/<clé>.json` toutes les 5 s ; la GUI s'en sert pour afficher « Agent à l'écoute ».
+- **Présence** — un veilleur vivant écrit `<données>/watchers/<analysis_id>.json` toutes les 5 s ; la GUI s'en sert pour afficher « Agent à l'écoute » sur cette analyse et ses revues de suivi.
 
 ---
 
@@ -315,7 +317,7 @@ L'ajustement à la fenêtre ne descend jamais sous l'échelle **0,85** : en dess
 
 ### Échanges avec l'agent, dans la barre supérieure
 
-Dès qu'une analyse est ouverte, la barre supérieure indique « Agent à l'écoute » (point vert) quand un veilleur de notifications suit son projet, « Aucun agent à l'écoute » sinon. Quand la revue contient des questions, le bouton « Questions » les liste, avec leur fichier, leur ligne et leur statut : « Réponse reçue » (non lue, mise en avant), « Agent notifié » (en attente), « Lue ». Son compteur donne le nombre de réponses non lues. Choisir une question ouvre la revue sur sa ligne.
+Dès qu'une analyse est ouverte, la barre supérieure indique « Agent à l'écoute » (point vert) quand un veilleur de notifications suit cette analyse, ou l'analyse dont elle est la revue de suivi, « Aucun agent à l'écoute » sinon. Quand la revue contient des questions, le bouton « Questions » les liste, avec leur fichier, leur ligne et leur statut : « Réponse reçue » (non lue, mise en avant), « Agent notifié » (en attente), « Lue ». Son compteur donne le nombre de réponses non lues. Choisir une question ouvre la revue sur sa ligne.
 
 ### Écran Revue (`#/<id>/review/<chemin>`)
 
@@ -352,7 +354,7 @@ Deux processus, conformément au standard de l'écosystème (`@imenam/mcp-gui-in
 - **Maître MCP** (`src/index.ts`) — JSON-RPC sur stdio, outils (`src/tools/`, une fonction pure par outil), logique métier (`src/core/`), stockage, cycle de vie du worker via `GuiLauncher`.
 - **Worker GUI** (`src/gui-worker.ts`) — serveur Hono, enregistrement auprès du proxy via `ProxyClient` ou écoute sur `APP_PORT`, API REST, journal des changements (`/api/changes`), fichiers de la SPA avec la balise `<base>` du chemin de montage.
 
-Le worker n'écrit aucune donnée et ne lit les analyses que par le maître : chaque requête REST est transmise au maître par IPC (messages `{type, correlationId, data, error, timestamp}` validés par zod) et le maître pousse les changements, que le worker range dans un journal en mémoire (les 200 derniers, numérotés). `GET /api/changes?since=<seq>&epoch=<epoch>` répond immédiatement : les évènements postérieurs à `since`, ou `reset: true` quand le client ne peut pas reprendre (premier appel, `epoch` d'une autre instance du worker, évènements sortis du journal) ; la GUI recharge alors tout. Un `since` qui n'est pas un entier positif est refusé (400). Aucune connexion ne reste ouverte : les GUI servies sur la même origine n'épuisent pas les connexions du navigateur. Toutes les 2 s, le worker compare aussi la date et la taille des fichiers d'analyse : une analyse écrite par un autre processus (une autre session de l'agent, qui sert les mêmes données sans passer par ce worker) entre dans le journal comme un changement poussé par le maître. `GET /api/watchers` donne les projets suivis par un veilleur de notifications vivant, d'après `<données>/watchers/`. Le worker s'arrête quand le maître disparaît (canal IPC fermé, PID parent absent) ou quand une autre instance est déjà enregistrée, ce qui évite les GUI orphelines.
+Le worker n'écrit aucune donnée et ne lit les analyses que par le maître : chaque requête REST est transmise au maître par IPC (messages `{type, correlationId, data, error, timestamp}` validés par zod) et le maître pousse les changements, que le worker range dans un journal en mémoire (les 200 derniers, numérotés). `GET /api/changes?since=<seq>&epoch=<epoch>` répond immédiatement : les évènements postérieurs à `since`, ou `reset: true` quand le client ne peut pas reprendre (premier appel, `epoch` d'une autre instance du worker, évènements sortis du journal) ; la GUI recharge alors tout. Un `since` qui n'est pas un entier positif est refusé (400). Aucune connexion ne reste ouverte : les GUI servies sur la même origine n'épuisent pas les connexions du navigateur. Toutes les 2 s, le worker compare aussi la date et la taille des fichiers d'analyse : une analyse écrite par un autre processus (une autre session de l'agent, qui sert les mêmes données sans passer par ce worker) entre dans le journal comme un changement poussé par le maître. `GET /api/watchers` donne les analyses suivies par un veilleur de notifications vivant, d'après `<données>/watchers/` ; la GUI en déduit les revues de suivi couvertes. Le worker s'arrête quand le maître disparaît (canal IPC fermé, PID parent absent) ou quand une autre instance est déjà enregistrée, ce qui évite les GUI orphelines.
 
 `shared/` est importé à la fois par le serveur et par la GUI : schémas zod (`shared/schemas/`), prompt de retour (`prompt.ts`, utilisé par l'aperçu de la GUI et par `get_review_feedback`), placement des schémas (`diagram-layout.ts`, fonctions pures testées sous Node) et contrôle de leurs croisements (`diagram-quality.ts`), état de revue dérivé (`review-state.ts`), libellés et couleurs des gravités et statuts (`labels.ts`, `severity.ts`). Ce que l'utilisateur voit en aperçu est donc exactement ce que l'agent reçoit.
 

@@ -65,8 +65,8 @@ interface AnalysisState {
   findingsShown: boolean
   /** Explications de l'agent affichées sur l'écran Revue (marge et filets du diff), pour tous les fichiers. */
   explanationsShown: boolean
-  /** Projets dont un veilleur de notifications de l'agent est vivant ; null tant qu'ils n'ont pas été lus. */
-  listenedProjects: ReadonlySet<string> | null
+  /** Analyses suivies par un veilleur de notifications de l'agent ; null tant qu'elles n'ont pas été lues. */
+  watchedAnalyses: ReadonlySet<string> | null
 
   setHomeFilter: (filter: HomeFilter) => void
   toggleProject: (project: string) => void
@@ -97,7 +97,7 @@ interface AnalysisState {
   deleteNote: (noteId: string) => Promise<boolean>
   /** Enregistre la lecture de la réponse de l'agent à une question. */
   markAnswerSeen: (noteId: string) => Promise<boolean>
-  setListenedProjects: (projects: string[]) => void
+  setWatchedAnalyses: (analysisIds: string[]) => void
   submitReview: (decision: ReviewDecision, findingIds: string[], noteIds: string[]) => Promise<boolean>
   /** Marque traité le retour soumis de l'analyse `summary`, depuis la liste, avec une note facultative. */
   markProcessed: (summary: AnalysisSummary, note: string | null) => Promise<boolean>
@@ -105,6 +105,24 @@ interface AnalysisState {
   copy: (text: string, successMessage: string) => Promise<void>
   notify: (kind: Notice['kind'], text: string) => void
   dismissNotice: () => void
+}
+
+/**
+ * Vrai si un veilleur de l'agent suit l'analyse `id` : elle-même, ou l'une des
+ * analyses qu'elle suit dans sa chaîne de revues de suivi. Null tant que les
+ * veilleurs n'ont pas été lus.
+ */
+export function isWatched(state: Pick<AnalysisState, 'watchedAnalyses' | 'analyses'>, id: string): boolean | null {
+  if (state.watchedAnalyses === null) return null
+  const byId = new Map((state.analyses ?? []).map((summary) => [summary.id, summary]))
+  const seen = new Set<string>()
+  let current: string | undefined = id
+  while (current !== undefined && !seen.has(current)) {
+    if (state.watchedAnalyses.has(current)) return true
+    seen.add(current)
+    current = byId.get(current)?.followUpOf?.id
+  }
+  return false
 }
 
 const NOTICE_DURATION_MS = 5000
@@ -164,7 +182,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     zenMode: false,
     findingsShown: true,
     explanationsShown: true,
-    listenedProjects: null,
+    watchedAnalyses: null,
 
     setHomeFilter: (homeFilter) => set({ homeFilter }),
 
@@ -283,7 +301,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
         api.markAnswerSeen(analysis.id, noteId, { baseRevision: analysis.revision }),
       ),
 
-    setListenedProjects: (projects) => set({ listenedProjects: new Set(projects) }),
+    setWatchedAnalyses: (analysisIds) => set({ watchedAnalyses: new Set(analysisIds) }),
 
     updateNote: (noteId, text) =>
       mutate('Remarque non modifiée', (analysis) =>

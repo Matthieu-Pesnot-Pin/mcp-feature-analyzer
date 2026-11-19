@@ -406,10 +406,10 @@ test("a question sent from the GUI is answered by the agent, and the answer read
   assert.ok(read.question.answerSeenAt);
 });
 
-test("GET /api/watchers lists the projects followed by a live notification watcher", async () => {
-  assert.deepEqual((await call("GET", "watchers")).json, { projects: [] });
-  writeWatcherBeat(temp.dir, "demo", new Date().toISOString());
-  assert.deepEqual((await call("GET", "watchers")).json, { projects: ["demo"] });
+test("GET /api/watchers lists the analyses followed by a live notification watcher", async () => {
+  assert.deepEqual((await call("GET", "watchers")).json, { analysisIds: [] });
+  writeWatcherBeat(temp.dir, analysisId, new Date().toISOString());
+  assert.deepEqual((await call("GET", "watchers")).json, { analysisIds: [analysisId] });
 });
 
 test("an analysis written by another process is announced by GET /api/changes", async () => {

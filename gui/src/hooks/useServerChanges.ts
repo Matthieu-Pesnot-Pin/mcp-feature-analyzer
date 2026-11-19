@@ -26,7 +26,7 @@ function applyEvent(message: IPCMessage) {
  * Canal descendant serveur -> GUI : interroge `api/changes` puis `api/watchers`
  * toutes les 3 s, sans requêtes simultanées. Un `reset` (premier appel,
  * redémarrage du worker, évènements perdus) recharge tout ; sinon chaque
- * évènement recharge ce qui est affiché. La liste des projets écoutés par un
+ * évènement recharge ce qui est affiché. La liste des analyses suivies par un
  * veilleur de l'agent est remplacée à chaque tour.
  */
 export function useServerChanges() {
@@ -50,7 +50,7 @@ export function useServerChanges() {
         cursor = { epoch: changes.epoch, seq: changes.seq }
         const watchers = await api.getWatchers()
         if (stopped) return
-        store.setListenedProjects(watchers.projects)
+        store.setWatchedAnalyses(watchers.analysisIds)
       } catch (err) {
         console.error(`${TAG} Polling api/changes failed, retrying in ${POLL_INTERVAL_MS} ms: ${(err as Error).message}`)
       }

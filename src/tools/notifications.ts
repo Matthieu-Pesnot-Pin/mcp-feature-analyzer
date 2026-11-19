@@ -1,4 +1,5 @@
 import type { AnalysisStore } from "../core/analysis-store.js";
+import type { Analysis } from "../../shared/schemas/analysis.schema.js";
 import { AnalysisError } from "../core/errors.js";
 import {
   MONITOR_TIMEOUT_MS,
@@ -28,19 +29,13 @@ const POLL_MS = 1_000;
 export interface NotificationContext {
   store: AnalysisStore;
   dataDir: string;
-  /** Commande du veilleur local d'un projet, à passer à l'outil Monitor. */
-  watchCommand: (project: string) => string;
+  /** Commande du veilleur local d'une analyse, à passer à l'outil Monitor. */
+  watchCommand: (analysisId: string) => string;
 }
 
-/** Nom de projet existant ; un nom inconnu liste les projets. */
-function requireProject(store: AnalysisStore, args: Args): string {
-  const project = requireString(args, "project");
-  const projects = [...new Set(store.list().analyses.map((analysis) => analysis.project))].sort();
-  if (!projects.includes(project)) {
-    const known = projects.length > 0 ? `Existing projects: ${projects.map((name) => `"${name}"`).join(", ")}.` : "No analysis exists yet: create one first.";
-    throw new AnalysisError(`No analysis belongs to project "${project}". ${known}`);
-  }
-  return project;
+/** Analyse existante désignée par `analysis_id`. */
+function requireAnalysis(store: AnalysisStore, args: Args): Analysis {
+  return store.get(requireString(args, "analysis_id"));
 }
 
 function pendingQuestionsNote(scanner: ReviewEventScanner, cursor: number): string[] {
@@ -58,15 +53,15 @@ function pendingQuestionsNote(scanner: ReviewEventScanner, cursor: number): stri
 }
 
 /**
- * `enable_notifications` : dépose le relais du projet et renvoie l'appel Monitor à
+ * `enable_notifications` : dépose le relais de l'analyse et renvoie l'appel Monitor à
  * faire. Derrière mcp-http-gateway, renvoie la spécification de veille que le relais
  * exécute avec `wait_for_notifications`.
  */
 export function enableNotifications(ctx: NotificationContext, args: Args): ToolResult {
-  rejectUnknownFields(args, ["project", WATCH_ARG]);
-  const project = requireProject(ctx.store, args);
-  const description = `feature-analyzer project ${project}`;
-  const scanner = new ReviewEventScanner(ctx.store, project);
+  rejectUnknownFields(args, ["analysis_id", WATCH_ARG]);
+  const analysis = requireAnalysis(ctx.store, args);
+  const description = `feature-analyzer review ${analysis.id}`;
+  const scanner = new ReviewEventScanner(ctx.store, analysis.id);
 
   if (args?.[WATCH_ARG] !== undefined) {
     const cursor = Date.now();
@@ -75,7 +70,7 @@ export function enableNotifications(ctx: NotificationContext, args: Args): ToolR
       _meta: {
         [WATCH_META]: {
           tool: "wait_for_notifications",
-          arguments: { project },
+          arguments: { analysis_id: analysis.id },
           cursor: String(cursor),
           description,
         },
@@ -83,13 +78,13 @@ export function enableNotifications(ctx: NotificationContext, args: Args): ToolR
     };
   }
 
-  const cursor = writeHandoff(project, ctx.dataDir);
-  const command = ctx.watchCommand(project);
-  const since = liveWatcherSince(ctx.dataDir, project);
+  const cursor = writeHandoff(analysis.id, ctx.dataDir);
+  const command = ctx.watchCommand(analysis.id);
+  const since = liveWatcherSince(ctx.dataDir, analysis.id);
   if (since) {
     return textResult(
       [
-        `Notifications are already live for project "${project}" (watcher armed since ${since}): it covers all its analyses, including new ones.`,
+        `Notifications are already live for the review "${analysis.title}" (${analysis.id}) since ${since}: they cover its follow-up reviews too.`,
         "Nothing to do: do not arm a second watcher, you would get every notification twice.",
         "Only if the host just told you your watcher expired or stopped, re-arm it with the same Monitor call:",
         `command \`${command}\`, timeout_ms ${MONITOR_TIMEOUT_MS}.`,
@@ -98,18 +93,18 @@ export function enableNotifications(ctx: NotificationContext, args: Args): ToolR
   }
   return textResult(
     [
-      `Notifications enabled for project "${project}".`,
+      `Notifications enabled for the review "${analysis.title}" (${analysis.id}).`,
       "",
       "Last step — call the Monitor tool now, with exactly these arguments:",
       `  command:     ${command}`,
       `  description: ${description}`,
       `  timeout_ms:  ${MONITOR_TIMEOUT_MS}`,
       "",
-      "Until that watcher is armed, nothing will reach you. Once it is, keep working: it covers every analysis of the project,",
-      "including the ones created later (follow-up reviews among them) — never arm one watcher per analysis.",
-      "When the reviewer sends you a question from the GUI, a line gives the analysis, the location, the question and its",
+      "Until that watcher is armed, nothing will reach you. Once it is, keep working: it covers this review and its follow-up",
+      "reviews, including the ones created later — and nothing else: the other reviews are left to their own agents.",
+      "When the reviewer sends you a question from the GUI, a line gives the review, the location, the question and its",
       "question_id: answer it right away with answer_question; the reviewer reads the answer in the GUI.",
-      "When the reviewer submits a review, a line gives the decision: read the feedback with get_review_feedback.",
+      "When the reviewer submits the review, a line gives the decision: read the feedback with get_review_feedback.",
       "",
       "The host stops every monitor after 30 minutes at most. Each time it tells you this watcher expired, call",
       "Monitor again right away with the same arguments — do not call enable_notifications again. An event that",
@@ -122,22 +117,22 @@ export function enableNotifications(ctx: NotificationContext, args: Args): ToolR
 const gatewayBeats = new Map<string, { since: string; at: number }>();
 
 /** Battement du veilleur exécuté par le relais : il n'a pas de processus local qui écrive le sien. */
-function beatGatewayWatcher(dataDir: string, project: string): void {
-  const last = gatewayBeats.get(project);
+function beatGatewayWatcher(dataDir: string, analysisId: string): void {
+  const last = gatewayBeats.get(analysisId);
   if (last && Date.now() - last.at < WATCHER_BEAT_MS) return;
   const since = last?.since ?? new Date().toISOString();
-  writeWatcherBeat(dataDir, project, since);
-  gatewayBeats.set(project, { since, at: Date.now() });
+  writeWatcherBeat(dataDir, analysisId, since);
+  gatewayBeats.set(analysisId, { since, at: Date.now() });
 }
 
 /**
- * `wait_for_notifications` : attend un événement du projet postérieur au curseur, ou
+ * `wait_for_notifications` : attend un événement de l'analyse ou de ses revues de suivi postérieur au curseur, ou
  * l'échéance, et renvoie une ligne par événement avec le curseur suivant. Réservé au
  * veilleur du relais de mcp-http-gateway.
  */
 export async function waitForNotifications(ctx: NotificationContext, args: Args, signal?: AbortSignal): Promise<ToolResult> {
-  rejectUnknownFields(args, ["project", "cursor", "timeout_seconds"]);
-  const project = requireProject(ctx.store, args);
+  rejectUnknownFields(args, ["analysis_id", "cursor", "timeout_seconds"]);
+  const analysisId = requireAnalysis(ctx.store, args).id;
   const rawCursor = args?.cursor;
   if (rawCursor !== undefined && (typeof rawCursor !== "string" || !/^\d+$/.test(rawCursor))) {
     throw new AnalysisError(`"cursor" must be the cursor returned by the previous call, a string of digits (got ${JSON.stringify(rawCursor)}).`);
@@ -147,11 +142,11 @@ export async function waitForNotifications(ctx: NotificationContext, args: Args,
     throw new AnalysisError(`"timeout_seconds" must be at most ${MAX_NOTIFICATION_WAIT_SECONDS} (got ${timeout}).`);
   }
 
-  const scanner = new ReviewEventScanner(ctx.store, project);
+  const scanner = new ReviewEventScanner(ctx.store, analysisId);
   let cursor = rawCursor === undefined ? Date.now() : Number(rawCursor);
   const deadline = Date.now() + timeout * 1000;
   for (;;) {
-    beatGatewayWatcher(ctx.dataDir, project);
+    beatGatewayWatcher(ctx.dataDir, analysisId);
     const events = scanner.since(cursor);
     if (events.length > 0 || Date.now() >= deadline || signal?.aborted) {
       cursor = advanceCursor(cursor, events);

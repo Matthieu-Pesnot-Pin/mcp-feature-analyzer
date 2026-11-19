@@ -24,7 +24,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 import { resolveDataDir } from "./core/data-dir.js";
 import { resolveLogDir } from "./core/log-dir.js";
-import { listenedProjects } from "./core/notifications.js";
+import { watchedAnalyses } from "./core/notifications.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -412,8 +412,8 @@ app.post("/api/analyses/:id/notes/:noteId/answer-seen", async (c) => {
   return forward(c, "MARK_ANSWER_SEEN", { analysisId: c.req.param("id"), noteId: c.req.param("noteId"), body: read.body });
 });
 
-/** Projets dont un veilleur de notifications est vivant. */
-app.get("/api/watchers", (c) => c.json({ projects: listenedProjects(dataDir) }));
+/** Analyses suivies par un veilleur de notifications vivant ; chacune couvre aussi ses revues de suivi. */
+app.get("/api/watchers", (c) => c.json({ analysisIds: watchedAnalyses(dataDir) }));
 
 app.post("/api/analyses/:id/review", async (c) => {
   const read = await readBody(c, SubmitReviewBodySchema);

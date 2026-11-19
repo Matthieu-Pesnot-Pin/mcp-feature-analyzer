@@ -89,8 +89,8 @@ export const api = {
   markAnswerSeen: (id: string, noteId: string, body: MarkAnswerSeenBody) =>
     send<AnalysisResponse>('POST', `${analysisPath(id)}/notes/${encodeURIComponent(noteId)}/answer-seen`, body),
 
-  /** Projets dont un veilleur de notifications de l'agent est vivant. */
-  getWatchers: () => request<{ projects: string[] }>('watchers'),
+  /** Analyses suivies par un veilleur de notifications de l'agent ; chacune couvre aussi ses revues de suivi. */
+  getWatchers: () => request<{ analysisIds: string[] }>('watchers'),
 
   submitReview: (id: string, body: SubmitReviewBody) => send<AnalysisResponse>('POST', `${analysisPath(id)}/review`, body),
 

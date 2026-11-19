@@ -72,7 +72,7 @@ import { getReviewFeedback } from "./tools/get-review-feedback.js";
 import { markFeedbackProcessed } from "./tools/mark-feedback-processed.js";
 import { analysisLinks } from "./core/follow-ups.js";
 import { deleteAnalysis } from "./tools/delete-analysis.js";
-import { projectKey, removeOwnHandoffs } from "./core/notifications.js";
+import { removeOwnHandoffs } from "./core/notifications.js";
 import {
   DEFAULT_NOTIFICATION_WAIT_SECONDS,
   MAX_NOTIFICATION_WAIT_SECONDS,
@@ -153,7 +153,7 @@ const entryScript = fileURLToPath(import.meta.url).replace(/\\/g, "/");
 const notificationContext: NotificationContext = {
   store,
   dataDir,
-  watchCommand: (project) => `node "${entryScript}" --watch ${projectKey(project)}`,
+  watchCommand: (analysisId) => `node "${entryScript}" --watch ${analysisId}`,
 };
 process.on("exit", removeOwnHandoffs);
 
@@ -170,7 +170,7 @@ Concepts:
 - A **diagram** is a flow, layers or mindmap picture of the feature. You give nodes and links only; the GUI lays them out.
 - The **review** belongs to the reviewer: files marked reviewed, findings ignored, notes, and a submitted decision with a prompt for you.
 - A **question** is a note the reviewer sends you right away instead of keeping it for the end of the review. It stays in the review with your answer, but is never part of the submitted feedback: answer it with answer_question as soon as it reaches you.
-- **Notifications**: enable_notifications hands you a watcher to arm with the Monitor tool; it announces the reviewer's questions and the submitted reviews of every analysis of a project.
+- **Notifications**: enable_notifications hands you a watcher to arm with the Monitor tool; it announces the reviewer's questions and the submitted review of one analysis and of its follow-up reviews, and nothing of the other analyses.
 - A **follow-up review** is a new analysis created with follow_up_of: it reviews the fixes for the submitted feedback of an earlier analysis. Each analysis has at most one follow-up, so the rounds form a chain.
 
 Workflow:
@@ -181,7 +181,7 @@ Workflow:
 5. add_explanations for the long or complex blocks of added or removed code (see Explanation rules).
 6. add_findings for every problem, including requirement_gap findings for requested behaviour that is missing.
 7. set_diagram when a picture helps (impacted layers, process flow, concept tree).
-8. Tell the user to review the analysis in the GUI (the link is in the tool results), and call enable_notifications for its project, once per conversation, then arm the Monitor watcher it returns: the reviewer's questions and the submitted review then reach you on their own. Answer each question with answer_question.
+8. Tell the user to review the analysis in the GUI (the link is in the tool results), and call enable_notifications for that analysis, once per conversation, then arm the Monitor watcher it returns: the reviewer's questions and the submitted review then reach you on their own. Answer each question with answer_question.
 9. get_review_feedback to read the decision, the selected points and the prompt. list_analyses with review_state "to_process" lists the submitted reviews you have not handled yet; an approved review has nothing to process.
 10. Fix the code, then refresh_analysis to recompute the diff for a new review round; re-anchor or rewrite the outdated findings and explanations. When the fixes are in other commits (typically an analysis of one commit), create their follow-up review instead: create_analysis on the fix commits with follow_up_of set to the analysis you fixed; it marks that feedback processed and shows its points to the reviewer. When nothing needs a new review (answers given in the conversation), call mark_feedback_processed with a note saying how the feedback was handled.
 
@@ -913,22 +913,22 @@ const TOOLS = [
   {
     name: "enable_notifications",
     description:
-      "Get notified of what the reviewer does on every analysis of a project, including the ones created later (follow-up reviews among them): " +
+      "Get notified of what the reviewer does on one analysis and on its follow-up reviews, including the ones created later, and on nothing else: " +
       "a question the reviewer sends you right away from the GUI, and a review the reviewer submits. " +
       "Returns immediately and hands you the exact Monitor call to make right after: arming that watcher is what delivers the notifications. " +
-      "Call it once per conversation and project, after create_analysis — never once per analysis; the host stops the watcher after 30 minutes at most, " +
+      "Call it once per conversation, after create_analysis, for the analysis you are working on: its follow-up reviews are covered, never arm a second watcher for them; the host stops the watcher after 30 minutes at most, " +
       "re-arm it with the same Monitor call each time it expires. Works locally and behind mcp-http-gateway.",
     inputSchema: {
       type: "object" as const,
       properties: {
-        project: { type: "string", description: "Project of the analyses to watch (exact name, as listed by list_analyses)." },
+        analysis_id: { type: "string", description: `${ANALYSIS_ID_DOC} Its follow-up reviews are watched too.` },
         [WATCH_ARG]: {
           type: "object",
           description:
             "Filled in by the mcp-http-gateway relay, never by the agent: the relay will run the watcher and needs a watch specification instead of a local command",
         },
       },
-      required: ["project"],
+      required: ["analysis_id"],
     },
   },
   {
@@ -936,12 +936,12 @@ const TOOLS = [
     description:
       "Reserved for the notification watcher that the mcp-http-gateway relay runs on the agent's machine: do not call it yourself. " +
       "To be notified, call enable_notifications. " +
-      "Blocks until an event of the project happens after the cursor (a question from the reviewer, a submitted review), or until the timeout, " +
+      "Blocks until an event of the analysis or of its follow-up reviews happens after the cursor (a question from the reviewer, a submitted review), or until the timeout, " +
       "and returns one line per event with the next cursor.",
     inputSchema: {
       type: "object" as const,
       properties: {
-        project: { type: "string", description: "Project of the analyses to watch (exact name)." },
+        analysis_id: { type: "string", description: ANALYSIS_ID_DOC },
         cursor: {
           type: "string",
           pattern: "^[0-9]+$",
@@ -954,7 +954,7 @@ const TOOLS = [
           description: `Maximum wait in seconds (default ${DEFAULT_NOTIFICATION_WAIT_SECONDS}).`,
         },
       },
-      required: ["project"],
+      required: ["analysis_id"],
     },
   },
   {

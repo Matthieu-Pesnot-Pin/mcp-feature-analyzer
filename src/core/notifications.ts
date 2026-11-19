@@ -1,4 +1,3 @@
-import { createHash } from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -44,11 +43,6 @@ export interface ReviewSubmitted {
 
 export type ReviewEvent = QuestionAsked | ReviewSubmitted;
 
-/** Clé d'un projet, utilisable telle quelle dans une ligne de commande et un nom de fichier. */
-export function projectKey(project: string): string {
-  return createHash("sha256").update(project).digest("hex").slice(0, 16);
-}
-
 function eventsOf(analysis: Analysis): ReviewEvent[] {
   const events: ReviewEvent[] = [];
   for (const note of analysis.notes) {
@@ -78,29 +72,47 @@ function eventsOf(analysis: Analysis): ReviewEvent[] {
   return events;
 }
 
+/** Vrai si `id` est `root` ou l'une de ses revues de suivi, d'après les liens `followUpOf`. */
+function inChain(id: string, root: string, followUpOf: ReadonlyMap<string, string>): boolean {
+  const seen = new Set<string>();
+  let current: string | undefined = id;
+  while (current !== undefined && !seen.has(current)) {
+    if (current === root) return true;
+    seen.add(current);
+    current = followUpOf.get(current);
+  }
+  return false;
+}
+
 /**
- * Lit les événements à annoncer pour les analyses d'un projet : questions du
- * relecteur sans réponse et revues soumises. Le curseur est l'instant, en
- * millisecondes, du dernier événement déjà annoncé. Une analyse illisible est
- * ignorée ; le store ne relit que les fichiers modifiés.
+ * Lit les événements à annoncer pour une analyse et ses revues de suivi, y
+ * compris celles créées après le lancement : questions du relecteur sans réponse
+ * et revues soumises. Le curseur est l'instant, en millisecondes, du dernier
+ * événement déjà annoncé. Une analyse illisible est ignorée ; le store ne relit
+ * que les fichiers modifiés.
  */
 export class ReviewEventScanner {
   constructor(
     private readonly store: AnalysisStore,
-    private readonly project: string
+    private readonly analysisId: string
   ) {}
 
   /** Événements postérieurs à `cursor`, dans l'ordre chronologique. */
   since(cursor: number): ReviewEvent[] {
-    const found: ReviewEvent[] = [];
+    const analyses: Analysis[] = [];
+    const followUpOf = new Map<string, string>();
     for (const id of this.store.ids()) {
-      let analysis: Analysis;
       try {
-        analysis = this.store.get(id);
+        const analysis = this.store.get(id);
+        analyses.push(analysis);
+        if (analysis.followUpOf !== null) followUpOf.set(analysis.id, analysis.followUpOf);
       } catch {
         continue;
       }
-      if (analysis.project !== this.project) continue;
+    }
+    const found: ReviewEvent[] = [];
+    for (const analysis of analyses) {
+      if (!inChain(analysis.id, this.analysisId, followUpOf)) continue;
       for (const event of eventsOf(analysis)) if (event.eventMs > cursor) found.push(event);
     }
     return found.sort((a, b) => a.eventMs - b.eventMs || orderKey(a).localeCompare(orderKey(b)));
@@ -152,13 +164,13 @@ export function formatEvent(event: ReviewEvent): string {
 // --- Veilleur local ----------------------------------------------------------------
 //
 // Le veilleur est lancé par l'outil Monitor de l'hôte, dans le shell de la session : il
-// n'hérite pas du bloc `env` du MCP. Le relais lui indique le projet, le dossier de
-// données et garde le curseur, pour qu'un veilleur relancé reprenne là où le précédent
-// s'est arrêté. Il ne contient aucun secret.
+// n'hérite pas du bloc `env` du MCP. Le relais lui indique le dossier de données et
+// garde le curseur, pour qu'un veilleur relancé reprenne là où le précédent s'est
+// arrêté. Il ne contient aucun secret. L'identifiant d'analyse, un slug, sert de nom
+// de fichier et d'argument de la commande.
 
 interface Handoff {
-  key: string;
-  project: string;
+  analysisId: string;
   dataDir: string;
   cursor: number;
   written_at: string;
@@ -168,16 +180,16 @@ function handoffDir(): string {
   return path.join(os.homedir(), ".mcp-feature-analyzer", "watch");
 }
 
-function handoffPath(key: string): string {
-  return path.join(handoffDir(), `${key}.json`);
+function handoffPath(analysisId: string): string {
+  return path.join(handoffDir(), `${analysisId}.json`);
 }
 
 const written = new Set<string>();
 
-function readHandoff(key: string): Handoff | null {
+function readHandoff(analysisId: string): Handoff | null {
   try {
-    const handoff = JSON.parse(fs.readFileSync(handoffPath(key), "utf-8")) as Handoff;
-    return handoff.key === key ? handoff : null;
+    const handoff = JSON.parse(fs.readFileSync(handoffPath(analysisId), "utf-8")) as Handoff;
+    return handoff.analysisId === analysisId ? handoff : null;
   } catch {
     return null;
   }
@@ -185,23 +197,22 @@ function readHandoff(key: string): Handoff | null {
 
 function saveHandoff(handoff: Omit<Handoff, "written_at">): void {
   fs.mkdirSync(handoffDir(), { recursive: true });
-  writeJsonAtomic(handoffPath(handoff.key), { ...handoff, written_at: new Date().toISOString() } satisfies Handoff);
+  writeJsonAtomic(handoffPath(handoff.analysisId), { ...handoff, written_at: new Date().toISOString() } satisfies Handoff);
 }
 
-/** Dépose le relais du projet et renvoie son curseur ; un relais existant garde le sien. */
-export function writeHandoff(project: string, dataDir: string): number {
-  const key = projectKey(project);
-  written.add(key);
-  const existing = readHandoff(key);
+/** Dépose le relais de l'analyse et renvoie son curseur ; un relais existant garde le sien. */
+export function writeHandoff(analysisId: string, dataDir: string): number {
+  written.add(analysisId);
+  const existing = readHandoff(analysisId);
   const cursor = existing?.cursor ?? Date.now();
-  saveHandoff({ key, project, dataDir, cursor });
+  saveHandoff({ analysisId, dataDir, cursor });
   pruneStaleHandoffs();
   return cursor;
 }
 
 /** Retire les relais écrits par ce processus. Synchrone : appelable sur `exit`. */
 export function removeOwnHandoffs(): void {
-  for (const key of written) fs.rmSync(handoffPath(key), { force: true });
+  for (const analysisId of written) fs.rmSync(handoffPath(analysisId), { force: true });
   written.clear();
 }
 
@@ -225,7 +236,7 @@ function pruneStaleHandoffs(): void {
 // --- Battement des veilleurs -----------------------------------------------------------
 
 interface WatcherBeat {
-  project: string;
+  analysisId: string;
   since: string;
   updatedAt: number;
 }
@@ -234,10 +245,10 @@ function watchersDir(dataDir: string): string {
   return path.join(dataDir, "watchers");
 }
 
-/** Signale qu'un veilleur suit le projet depuis `since`. */
-export function writeWatcherBeat(dataDir: string, project: string, since: string): void {
+/** Signale qu'un veilleur suit l'analyse (et ses revues de suivi) depuis `since`. */
+export function writeWatcherBeat(dataDir: string, analysisId: string, since: string): void {
   fs.mkdirSync(watchersDir(dataDir), { recursive: true });
-  writeJsonAtomic(path.join(watchersDir(dataDir), `${projectKey(project)}.json`), { project, since, updatedAt: Date.now() } satisfies WatcherBeat);
+  writeJsonAtomic(path.join(watchersDir(dataDir), `${analysisId}.json`), { analysisId, since, updatedAt: Date.now() } satisfies WatcherBeat);
 }
 
 function readBeat(file: string): WatcherBeat | null {
@@ -249,60 +260,61 @@ function readBeat(file: string): WatcherBeat | null {
   }
 }
 
-/** Date depuis laquelle un veilleur vivant suit ce projet, ou null. */
-export function liveWatcherSince(dataDir: string, project: string): string | null {
-  const beat = readBeat(path.join(watchersDir(dataDir), `${projectKey(project)}.json`));
-  return beat?.project === project ? beat.since : null;
+/** Date depuis laquelle un veilleur vivant suit cette analyse, ou null. */
+export function liveWatcherSince(dataDir: string, analysisId: string): string | null {
+  const beat = readBeat(path.join(watchersDir(dataDir), `${analysisId}.json`));
+  return beat?.analysisId === analysisId ? beat.since : null;
 }
 
-/** Projets suivis par un veilleur vivant. */
-export function listenedProjects(dataDir: string): string[] {
+/** Analyses suivies par un veilleur vivant ; chacune couvre aussi ses revues de suivi. */
+export function watchedAnalyses(dataDir: string): string[] {
   let entries: string[];
   try {
     entries = fs.readdirSync(watchersDir(dataDir));
   } catch {
     return [];
   }
-  const projects: string[] = [];
+  const ids: string[] = [];
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
     const beat = readBeat(path.join(watchersDir(dataDir), entry));
-    if (beat) projects.push(beat.project);
+    if (beat) ids.push(beat.analysisId);
   }
-  return projects;
+  return ids;
 }
 
 /**
- * Mode veilleur local (`--watch <clé de projet>`). Une ligne sur stdout par
- * événement des analyses du projet, y compris celles créées après le lancement du
- * veilleur : l'outil Monitor de l'hôte réveille l'agent à chaque ligne. Le journal
- * et les erreurs partent sur stderr. Une erreur de lecture se traduit par un réessai.
+ * Mode veilleur local (`--watch <analysis_id>`). Une ligne sur stdout par
+ * événement de l'analyse ou de ses revues de suivi, y compris celles créées après
+ * le lancement du veilleur : l'outil Monitor de l'hôte réveille l'agent à chaque
+ * ligne. Le journal et les erreurs partent sur stderr. Une erreur de lecture se
+ * traduit par un réessai.
  */
-export async function runWatchMode(key: string | null): Promise<void> {
-  if (!key) throw new AnalysisError("--watch needs a project key: call enable_notifications to get the exact command.");
-  const handoff = readHandoff(key);
+export async function runWatchMode(analysisId: string | null): Promise<void> {
+  if (!analysisId) throw new AnalysisError("--watch needs an analysis id: call enable_notifications to get the exact command.");
+  const handoff = readHandoff(analysisId);
   if (!handoff) {
-    throw new AnalysisError(`No notification handoff for project key ${key}: call enable_notifications in that MCP session first.`);
+    throw new AnalysisError(`No notification handoff for analysis ${analysisId}: call enable_notifications in that MCP session first.`);
   }
 
-  const scanner = new ReviewEventScanner(new AnalysisStore(handoff.dataDir), handoff.project);
+  const scanner = new ReviewEventScanner(new AnalysisStore(handoff.dataDir), analysisId);
   const since = new Date().toISOString();
   let cursor = handoff.cursor;
   let lastBeat = 0;
   let backoff = SCAN_INTERVAL_MS;
-  process.stderr.write(`[feature-analyzer] watching the analyses of project "${handoff.project}" in ${handoff.dataDir}\n`);
+  process.stderr.write(`[feature-analyzer] watching analysis ${analysisId} and its follow-up reviews in ${handoff.dataDir}\n`);
 
   for (;;) {
     try {
       if (Date.now() - lastBeat >= WATCHER_BEAT_MS) {
-        writeWatcherBeat(handoff.dataDir, handoff.project, since);
+        writeWatcherBeat(handoff.dataDir, analysisId, since);
         lastBeat = Date.now();
       }
       const events = scanner.since(cursor);
       if (events.length > 0) {
         for (const event of events) process.stdout.write(`${formatEvent(event)}\n`);
         cursor = advanceCursor(cursor, events);
-        saveHandoff({ key, project: handoff.project, dataDir: handoff.dataDir, cursor });
+        saveHandoff({ analysisId, dataDir: handoff.dataDir, cursor });
       }
       backoff = SCAN_INTERVAL_MS;
       await sleep(SCAN_INTERVAL_MS);

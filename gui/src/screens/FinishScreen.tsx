@@ -6,7 +6,7 @@ import { buildAgentPrompt } from '@shared/prompt'
 import { sortBySeverity } from '@shared/severity'
 import { Icon, type IconName } from '../components/Icon'
 import { NotePill, SeverityPill } from '../components/Pills'
-import { useAnalysisStore } from '../store/useAnalysisStore'
+import { isWatched, useAnalysisStore } from '../store/useAnalysisStore'
 import { findingLocationLabel, formatDateTime, noteLocationLabel, plural, processedTitle } from '../utils/format'
 import { hrefs, navigate } from '../utils/router'
 import { firstFileToReview } from './review-model'
@@ -53,7 +53,7 @@ export function FinishScreen({ analysis }: { analysis: Analysis }) {
   const submitReview = useAnalysisStore((state) => state.submitReview)
   const notify = useAnalysisStore((state) => state.notify)
   const saving = useAnalysisStore((state) => state.saving)
-  const listened = useAnalysisStore((state) => state.listenedProjects?.has(analysis.project) ?? false)
+  const listened = useAnalysisStore((state) => isWatched(state, analysis.id) === true)
 
   const points = pointsOf(analysis)
   const [decision, setDecision] = useState<ReviewDecision>(

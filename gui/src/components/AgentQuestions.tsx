@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Analysis, Note, NoteQuestion } from '@shared/schemas/analysis.schema'
-import { useAnalysisStore } from '../store/useAnalysisStore'
+import { isWatched, useAnalysisStore } from '../store/useAnalysisStore'
 import { plural } from '../utils/format'
 import { hrefs, navigate } from '../utils/router'
 import { Icon } from './Icon'
@@ -31,15 +31,15 @@ function StatusLabel({ question }: { question: NoteQuestion }) {
   return <span className="questions-row-status is-read">Lue</span>
 }
 
-/** Indique si un veilleur de notifications de l'agent suit le projet de l'analyse. */
+/** Indique si un veilleur de notifications de l'agent suit l'analyse, directement ou par la revue qu'elle suit. */
 function AgentPresence({ listened }: { listened: boolean }) {
   return (
     <span
       className={`agent-presence${listened ? ' is-live' : ''}`}
       title={
         listened
-          ? "Un agent a activé les notifications de ce projet : il reçoit vos questions et la fin de revue dès qu'elles sont envoyées."
-          : "Aucun agent n'a activé les notifications de ce projet : vos questions l'attendront jusqu'à ce qu'il le fasse."
+          ? "Un agent a activé les notifications de cette revue : il reçoit vos questions et la fin de revue dès qu'elles sont envoyées."
+          : "Aucun agent n'a activé les notifications de cette revue : vos questions l'attendront jusqu'à ce qu'il le fasse."
       }
     >
       <span className="agent-presence-dot" aria-hidden="true" />
@@ -55,7 +55,7 @@ function AgentPresence({ listened }: { listened: boolean }) {
  * ouvre la revue sur sa ligne.
  */
 export function AgentQuestions({ analysis }: { analysis: Analysis }) {
-  const listenedProjects = useAnalysisStore((state) => state.listenedProjects)
+  const watched = useAnalysisStore((state) => isWatched(state, analysis.id))
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -75,8 +75,8 @@ export function AgentQuestions({ analysis }: { analysis: Analysis }) {
     }
   }, [open])
 
-  if (listenedProjects === null) return null
-  const listened = listenedProjects.has(analysis.project)
+  if (watched === null) return null
+  const listened = watched
   const questions = questionsOf(analysis)
   const unread = questions.filter((note) => note.question.answer !== null && note.question.answerSeenAt === null).length
 
