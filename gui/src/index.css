@@ -4065,6 +4065,11 @@ button.diff-fold.is-folded {
   color: var(--ok);
 }
 
+.question-delete {
+  height: 20px;
+  margin-left: -4px;
+}
+
 .question-status-dot {
   width: 6px;
   height: 6px;

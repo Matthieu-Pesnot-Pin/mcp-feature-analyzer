@@ -76,12 +76,14 @@ function QuestionStatus({ question }: { question: NoteQuestion }) {
 }
 
 /**
- * Question envoyée tout de suite à l'agent : son texte, son statut et, une fois
- * l'agent répondu, sa réponse dépliée par « Voir la réponse ». La première
- * ouverture enregistre la lecture de la réponse.
+ * Question envoyée tout de suite à l'agent : son texte, son statut, sa suppression
+ * et, une fois l'agent répondu, sa réponse dépliée par « Voir la réponse ». La
+ * première ouverture enregistre la lecture de la réponse.
  */
 function QuestionCard({ note, question }: { note: Note; question: NoteQuestion }) {
   const markAnswerSeen = useAnalysisStore((state) => state.markAnswerSeen)
+  const deleteNote = useAnalysisStore((state) => state.deleteNote)
+  const saving = useAnalysisStore((state) => state.saving)
   const [open, setOpen] = useState(false)
   const where = whereOf(note)
   const answer = question.answer
@@ -99,6 +101,16 @@ function QuestionCard({ note, question }: { note: Note; question: NoteQuestion }
           {where} · {formatShortDateTime(question.askedAt)}
         </span>
         <QuestionStatus question={question} />
+        <button
+          type="button"
+          className="link-button muted question-delete"
+          disabled={saving}
+          title="Supprimer la question et sa réponse"
+          aria-label="Supprimer la question et sa réponse"
+          onClick={() => void deleteNote(note.id)}
+        >
+          <Icon name="trash" size={13} />
+        </button>
       </div>
       <p className="note-text">{note.text}</p>
       {answer !== null && !open && (

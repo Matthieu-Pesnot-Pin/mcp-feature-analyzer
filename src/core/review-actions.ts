@@ -183,7 +183,10 @@ export function updateNote(store: AnalysisStore, analysisId: string, noteId: str
   );
 }
 
-/** Supprime une remarque et la retire de la sélection de la revue. */
+/**
+ * Supprime une remarque et la retire de la sélection de la revue. Supprimer une
+ * question, qui ne fait pas partie du retour, laisse une revue soumise en l'état.
+ */
 export function deleteNote(store: AnalysisStore, analysisId: string, noteId: string, body: DeleteNoteBody): Analysis {
   return store.mutate(
     analysisId,
@@ -191,7 +194,7 @@ export function deleteNote(store: AnalysisStore, analysisId: string, noteId: str
     (draft) => {
       const index = draft.notes.findIndex((note) => note.id === noteId);
       if (index === -1) throw new NotFoundError(`Note "${noteId}" not found in analysis "${analysisId}".`);
-      reopenSubmittedReview(draft);
+      if (draft.notes[index].question === null) reopenSubmittedReview(draft);
       draft.notes.splice(index, 1);
       draft.review.selectedNoteIds = draft.review.selectedNoteIds.filter((id) => id !== noteId);
     },

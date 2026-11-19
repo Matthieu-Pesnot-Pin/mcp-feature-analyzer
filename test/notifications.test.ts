@@ -14,7 +14,7 @@ import {
   writeHandoff,
   writeWatcherBeat,
 } from "../src/core/notifications.js";
-import { addNote, answerQuestion, markAnswerSeen, submitReview, updateNote } from "../src/core/review-actions.js";
+import { addNote, answerQuestion, deleteNote, markAnswerSeen, submitReview, updateNote } from "../src/core/review-actions.js";
 import { McpClient, SERVER_ENTRY, baseEnv, makeGitRepo, makeStore, makeTempDir, sampleSnapshot } from "./helpers.js";
 
 /**
@@ -52,6 +52,10 @@ test("a question is a note sent to the agent: no reopening, no edit, one answer,
 
   const seen = markAnswerSeen(store, analysis.id, question.id, { baseRevision: store.get(analysis.id).revision });
   assert.ok(seen.notes[0].question?.answerSeenAt);
+
+  const deleted = deleteNote(store, analysis.id, question.id, { baseRevision: seen.revision });
+  assert.deepEqual(deleted.notes, []);
+  assert.equal(deleted.review.state, "submitted", "deleting a question keeps the submitted review as it is");
 });
 
 test("a regular note is not a question, and a question cannot be selected in the review", (t) => {
