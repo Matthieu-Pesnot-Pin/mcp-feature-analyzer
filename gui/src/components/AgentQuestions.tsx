@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { awaitsAgent, hasUnreadAnswer, lastExchange } from '@shared/question-thread'
 import type { Analysis, Note, NoteQuestion } from '@shared/schemas/analysis.schema'
 import { isWatched, useAnalysisStore } from '../store/useAnalysisStore'
 import { plural } from '../utils/format'
@@ -8,15 +9,15 @@ import { Icon } from './Icon'
 type Question = Note & { question: NoteQuestion }
 
 /** Rang d'affichage : réponses non lues, puis questions en attente, puis réponses lues. */
-function rank(question: NoteQuestion): number {
-  if (question.answer === null) return 1
-  return question.answerSeenAt === null ? 0 : 2
+function rank(note: Question): number {
+  if (awaitsAgent(note)) return 1
+  return hasUnreadAnswer(note) ? 0 : 2
 }
 
 function questionsOf(analysis: Analysis): Question[] {
   return analysis.notes
     .filter((note): note is Question => note.question !== null)
-    .sort((a, b) => rank(a.question) - rank(b.question) || b.question.askedAt.localeCompare(a.question.askedAt))
+    .sort((a, b) => rank(a) - rank(b) || lastExchange(b).askedAt.localeCompare(lastExchange(a).askedAt))
 }
 
 function locationLabel(note: Note): string {
@@ -25,9 +26,9 @@ function locationLabel(note: Note): string {
   return note.location.line === null ? name : `${name} · l. ${note.location.line}`
 }
 
-function StatusLabel({ question }: { question: NoteQuestion }) {
-  if (question.answer === null) return <span className="questions-row-status is-waiting">Agent notifié</span>
-  if (question.answerSeenAt === null) return <span className="questions-row-status is-answered">Réponse reçue</span>
+function StatusLabel({ note }: { note: Question }) {
+  if (awaitsAgent(note)) return <span className="questions-row-status is-waiting">Agent notifié</span>
+  if (hasUnreadAnswer(note)) return <span className="questions-row-status is-answered">Réponse reçue</span>
   return <span className="questions-row-status is-read">Lue</span>
 }
 
@@ -78,7 +79,7 @@ export function AgentQuestions({ analysis }: { analysis: Analysis }) {
   if (watched === null) return null
   const listened = watched
   const questions = questionsOf(analysis)
-  const unread = questions.filter((note) => note.question.answer !== null && note.question.answerSeenAt === null).length
+  const unread = questions.filter(hasUnreadAnswer).length
 
   return (
     <div className="agent-questions" ref={rootRef}>
@@ -111,7 +112,7 @@ export function AgentQuestions({ analysis }: { analysis: Analysis }) {
               type="button"
               role="menuitem"
               key={note.id}
-              className={`questions-row${note.question.answer !== null && note.question.answerSeenAt === null ? ' is-unread' : ''}`}
+              className={`questions-row${hasUnreadAnswer(note) ? ' is-unread' : ''}`}
               onClick={() => {
                 setOpen(false)
                 navigate(hrefs.review(analysis.id, note.location?.path ?? null, note.location?.line ?? null))
@@ -120,7 +121,7 @@ export function AgentQuestions({ analysis }: { analysis: Analysis }) {
               <span className="questions-row-text">{note.text}</span>
               <span className="questions-row-meta">
                 <span className="mono">{locationLabel(note)}</span>
-                <StatusLabel question={note.question} />
+                <StatusLabel note={note} />
               </span>
             </button>
           ))}

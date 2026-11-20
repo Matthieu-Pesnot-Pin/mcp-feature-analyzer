@@ -21,6 +21,7 @@ import {
   addNote,
   deleteNote,
   markAnswerSeen,
+  replyToQuestion,
   markProcessedByReviewer,
   setFileLevel,
   setFileReviewed,
@@ -34,6 +35,7 @@ import {
   AnalysisRequestSchema,
   DeleteNoteRequestSchema,
   MarkAnswerSeenRequestSchema,
+  ReplyToQuestionRequestSchema,
   SetFileLevelRequestSchema,
   SetFileReviewedRequestSchema,
   SetFindingStatusRequestSchema,
@@ -169,7 +171,7 @@ Concepts:
 - An **explanation** describes what a block of added or removed code does and how it works, so that the reviewer understands it before judging it. It is not a finding: it judges nothing and asks for nothing. It is anchored on new-side lines (added code) or old-side lines (removed code), and shown in the diff above the lines it describes.
 - A **diagram** is a flow, layers or mindmap picture of the feature. You give nodes and links only; the GUI lays them out.
 - The **review** belongs to the reviewer: files marked reviewed, findings ignored, notes, and a submitted decision with a prompt for you.
-- A **question** is a note the reviewer sends you right away instead of keeping it for the end of the review. It stays in the review with your answer, but is never part of the submitted feedback: answer it with answer_question as soon as it reaches you.
+- A **question** is a note the reviewer sends you right away instead of keeping it for the end of the review. It stays in the review with your answer, but is never part of the submitted feedback: answer it with answer_question as soon as it reaches you. After your answer, the reviewer may follow up on the same question: each follow-up reaches you the same way, with the question and your last answer, and you answer it with answer_question and the same question_id.
 - **Notifications**: enable_notifications hands you a watcher to arm with the Monitor tool; it announces the reviewer's questions and the submitted review of one analysis and of its follow-up reviews, and nothing of the other analyses.
 - A **follow-up review** is a new analysis created with follow_up_of: it reviews the fixes for the submitted feedback of an earlier analysis. Each analysis has at most one follow-up, so the rounds form a chain.
 
@@ -326,6 +328,13 @@ function handleGuiRequest(msg: IPCMessage): unknown {
     case "MARK_ANSWER_SEEN": {
       const request = parseRequest(MarkAnswerSeenRequestSchema, msg.data);
       const analysis = markAnswerSeen(store, request.analysisId, request.noteId, request.body);
+      afterUserMutation(analysis.id);
+      return { analysis };
+    }
+
+    case "REPLY_TO_QUESTION": {
+      const request = parseRequest(ReplyToQuestionRequestSchema, msg.data);
+      const analysis = replyToQuestion(store, request.analysisId, request.noteId, request.body);
       afterUserMutation(analysis.id);
       return { analysis };
     }
@@ -961,7 +970,8 @@ const TOOLS = [
     name: "answer_question",
     description:
       "Answer a question the reviewer sent you right away from the GUI (announced by the notification watcher, listed by get_analysis among the reviewer notes). " +
-      "The reviewer reads the answer next to the question in the GUI. A question is answered once; it is never part of the submitted feedback.",
+      "The reviewer reads the answer next to the question in the GUI and may follow up on it: answer_question always answers the reviewer's last message on the question, the question itself or its latest follow-up. " +
+      "Each message gets one answer; a question is never part of the submitted feedback.",
     inputSchema: {
       type: "object" as const,
       properties: {

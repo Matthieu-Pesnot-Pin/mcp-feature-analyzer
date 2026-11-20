@@ -4133,6 +4133,47 @@ button.diff-fold.is-folded {
   white-space: pre-wrap;
 }
 
+.answer-block.is-reviewer {
+  background: #1a1e2b;
+  border-color: var(--border-strong);
+}
+
+.answer-block.is-reviewer .answer-text {
+  color: var(--text-soft);
+}
+
+.reply-form {
+  margin-top: 12px;
+}
+
+.reply-form textarea {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--text);
+  resize: vertical;
+}
+
+.reply-form textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.reply-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
 .answer-hide {
   margin-top: 4px;
   font-size: 12px;

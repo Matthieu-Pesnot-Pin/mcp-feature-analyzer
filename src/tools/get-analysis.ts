@@ -2,6 +2,7 @@ import { summarize, type AnalysisStore } from "../core/analysis-store.js";
 import { analysisLinks } from "../core/follow-ups.js";
 import type { Analysis, Diagram, Note } from "../../shared/schemas/analysis.schema.js";
 import { diagramQuality } from "../../shared/diagram-quality.js";
+import { questionExchanges } from "../../shared/question-thread.js";
 import { reviewProgress } from "../../shared/review-state.js";
 import { sortBySeverity } from "../../shared/severity.js";
 import {
@@ -22,10 +23,14 @@ import { rejectUnknownFields, requireString, textResult, type Args, type ToolRes
 function noteLine(note: Note): string {
   const line = `${note.id} — ${noteLocationLabel(note)} — ${note.text.replace(/\n/g, " / ")}`;
   if (note.question === null) return line;
-  const answer = note.question.answer;
-  return answer === null
-    ? `${line} — QUESTION sent at ${note.question.askedAt}, not answered yet: answer it with answer_question`
-    : `${line} — QUESTION answered at ${answer.at}: ${answer.text.replace(/\n/g, " / ")}`;
+  const flat = (text: string) => text.replace(/\n/g, " / ");
+  const parts = questionExchanges({ ...note, question: note.question }).map((exchange, index) => {
+    const asked = index === 0 ? `QUESTION sent at ${exchange.askedAt}` : `FOLLOW-UP sent at ${exchange.askedAt}: ${flat(exchange.text)}`;
+    return exchange.answer === null
+      ? `${asked}, not answered yet: answer it with answer_question`
+      : `${asked}, answered at ${exchange.answer.at}: ${flat(exchange.answer.text)}`;
+  });
+  return `${line} — ${parts.join(" — ")}`;
 }
 
 function reviewLines(analysis: Analysis): string[] {

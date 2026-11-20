@@ -109,6 +109,25 @@ export const addNoteQuestions: MigrationStep = (doc) => {
   return { ...doc, notes: notes.map((note) => (missing(note) ? { ...(note as RawDocument), question: null } : note)) };
 };
 
+/** Ajoute une liste de relances vide aux questions qui n'en ont pas. */
+export const addQuestionFollowUps: MigrationStep = (doc) => {
+  if (!Array.isArray(doc.notes)) return null;
+  const notes = doc.notes as unknown[];
+  const missing = (note: unknown) => {
+    const question = !!note && typeof note === "object" ? (note as RawDocument).question : null;
+    return !!question && typeof question === "object" && (question as RawDocument).followUps === undefined;
+  };
+  if (!notes.some(missing)) return null;
+  return {
+    ...doc,
+    notes: notes.map((note) => {
+      if (!missing(note)) return note;
+      const raw = note as RawDocument;
+      return { ...raw, question: { ...(raw.question as RawDocument), followUps: [] } };
+    }),
+  };
+};
+
 /** Étapes appliquées aux analyses (`analyses/<id>.json`), dans l'ordre. */
 export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [
   addProject,
@@ -120,6 +139,7 @@ export const ANALYSIS_MIGRATIONS: readonly MigrationStep[] = [
   addFollowUpOf,
   addFileClassifications,
   addNoteQuestions,
+  addQuestionFollowUps,
 ];
 
 /** Étapes appliquées aux snapshots de diff (`diffs/<id>.json`), dans l'ordre. */

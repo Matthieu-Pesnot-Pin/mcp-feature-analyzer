@@ -12,6 +12,7 @@ import {
   AddNoteBodySchema,
   DeleteNoteBodySchema,
   MarkAnswerSeenBodySchema,
+  ReplyToQuestionBodySchema,
   MarkProcessedBodySchema,
   SetFileLevelBodySchema,
   SetFileReviewedBodySchema,
@@ -410,6 +411,12 @@ app.post("/api/analyses/:id/notes/:noteId/answer-seen", async (c) => {
   const read = await readBody(c, MarkAnswerSeenBodySchema);
   if ("response" in read) return read.response;
   return forward(c, "MARK_ANSWER_SEEN", { analysisId: c.req.param("id"), noteId: c.req.param("noteId"), body: read.body });
+});
+
+app.post("/api/analyses/:id/notes/:noteId/replies", async (c) => {
+  const read = await readBody(c, ReplyToQuestionBodySchema);
+  if ("response" in read) return read.response;
+  return forward(c, "REPLY_TO_QUESTION", { analysisId: c.req.param("id"), noteId: c.req.param("noteId"), body: read.body });
 });
 
 /** Analyses suivies par un veilleur de notifications vivant ; chacune couvre aussi ses revues de suivi. */

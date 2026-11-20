@@ -404,6 +404,22 @@ test("a question sent from the GUI is answered by the agent, and the answer read
   const read = seen.json.analysis.notes.find((note: { id: string }) => note.id === question.id);
   assert.equal(read.question.answer.text, "It is the protocol default.");
   assert.ok(read.question.answerSeenAt);
+
+  const empty = await call("POST", `analyses/${analysisId}/notes/${question.id}/replies`, { text: "  ", baseRevision: await revision() });
+  assert.equal(empty.status, 400);
+  const replied = await call("POST", `analyses/${analysisId}/notes/${question.id}/replies`, { text: "Which protocol?", baseRevision: await revision() });
+  assert.equal(replied.status, 200, replied.json.error);
+  const again = await call("POST", `analyses/${analysisId}/notes/${question.id}/replies`, { text: "Hello?", baseRevision: await revision() });
+  assert.equal(again.status, 400);
+  assert.match(again.json.error, /not answered the last message/);
+
+  const details = await client.callTool("get_analysis", { analysis_id: analysisId });
+  assert.match(details.text, /FOLLOW-UP sent at .+: Which protocol\?, not answered yet: answer it with answer_question/);
+  const second = await client.callTool("answer_question", { analysis_id: analysisId, question_id: question.id, answer: "OAuth 2.0." });
+  assert.equal(second.isError, false, second.text);
+  const followUp = (await call("GET", `analyses/${analysisId}`)).json.analysis.notes.find((note: { id: string }) => note.id === question.id).question.followUps[0];
+  assert.equal(followUp.text, "Which protocol?");
+  assert.equal(followUp.answer.text, "OAuth 2.0.");
 });
 
 test("GET /api/watchers lists the analyses followed by a live notification watcher", async () => {

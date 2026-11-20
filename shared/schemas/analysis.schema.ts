@@ -119,13 +119,26 @@ export const QuestionAnswerSchema = z.object({
 });
 
 /**
+ * Relance du relecteur après une réponse de l'agent : son texte, sa date d'envoi, la
+ * réponse de l'agent (null tant qu'il n'a pas répondu) et la date de lecture de cette réponse.
+ */
+export const QuestionFollowUpSchema = z.object({
+  text: z.string().min(1),
+  askedAt: IsoDateSchema,
+  answer: QuestionAnswerSchema.nullable(),
+  answerSeenAt: IsoDateSchema.nullable(),
+});
+
+/**
  * Question envoyée tout de suite à l'agent : date d'envoi, réponse de l'agent (null
- * tant qu'il n'a pas répondu) et date à laquelle le relecteur a lu cette réponse.
+ * tant qu'il n'a pas répondu), date à laquelle le relecteur a lu cette réponse, et
+ * relances du relecteur dans l'ordre. Chaque relance suit un échange déjà répondu.
  */
 export const NoteQuestionSchema = z.object({
   askedAt: IsoDateSchema,
   answer: QuestionAnswerSchema.nullable(),
   answerSeenAt: IsoDateSchema.nullable(),
+  followUps: z.array(QuestionFollowUpSchema),
 });
 
 export const NoteSchema = z.object({
@@ -287,6 +300,7 @@ export type Explanation = z.infer<typeof ExplanationSchema>;
 export type NoteLocation = z.infer<typeof NoteLocationSchema>;
 export type Note = z.infer<typeof NoteSchema>;
 export type NoteQuestion = z.infer<typeof NoteQuestionSchema>;
+export type QuestionFollowUp = z.infer<typeof QuestionFollowUpSchema>;
 export type DiagramNodeLocation = z.infer<typeof DiagramNodeLocationSchema>;
 export type DiagramNode = z.infer<typeof DiagramNodeSchema>;
 export type DiagramLink = z.infer<typeof DiagramLinkSchema>;

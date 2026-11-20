@@ -45,6 +45,12 @@ export const MarkAnswerSeenBodySchema = z.strictObject({
   baseRevision: BaseRevisionSchema,
 });
 
+/** Relance du relecteur sur une question à laquelle l'agent a répondu. */
+export const ReplyToQuestionBodySchema = z.strictObject({
+  text: z.string().trim().min(1, "the reply is empty"),
+  baseRevision: BaseRevisionSchema,
+});
+
 export const UpdateNoteBodySchema = z.strictObject({
   text: z.string().trim().min(1, "the note text is empty"),
   baseRevision: BaseRevisionSchema,
@@ -75,6 +81,7 @@ export type AddNoteBody = z.infer<typeof AddNoteBodySchema>;
 export type UpdateNoteBody = z.infer<typeof UpdateNoteBodySchema>;
 export type DeleteNoteBody = z.infer<typeof DeleteNoteBodySchema>;
 export type MarkAnswerSeenBody = z.infer<typeof MarkAnswerSeenBodySchema>;
+export type ReplyToQuestionBody = z.infer<typeof ReplyToQuestionBodySchema>;
 export type SubmitReviewBody = z.infer<typeof SubmitReviewBodySchema>;
 
 /** Données IPC des requêtes de la GUI qui visent une analyse. */
@@ -94,6 +101,10 @@ export const UpdateNoteRequestSchema = AnalysisRequestSchema.extend({
 export const DeleteNoteRequestSchema = AnalysisRequestSchema.extend({
   noteId: z.string().min(1),
   body: DeleteNoteBodySchema,
+});
+export const ReplyToQuestionRequestSchema = AnalysisRequestSchema.extend({
+  noteId: z.string().min(1),
+  body: ReplyToQuestionBodySchema,
 });
 export const MarkAnswerSeenRequestSchema = AnalysisRequestSchema.extend({
   noteId: z.string().min(1),

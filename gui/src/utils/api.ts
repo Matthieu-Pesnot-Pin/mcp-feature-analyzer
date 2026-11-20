@@ -3,6 +3,7 @@ import type {
   AddNoteBody,
   DeleteNoteBody,
   MarkAnswerSeenBody,
+  ReplyToQuestionBody,
   MarkProcessedBody,
   SetFileLevelBody,
   SetFileReviewedBody,
@@ -88,6 +89,9 @@ export const api = {
 
   markAnswerSeen: (id: string, noteId: string, body: MarkAnswerSeenBody) =>
     send<AnalysisResponse>('POST', `${analysisPath(id)}/notes/${encodeURIComponent(noteId)}/answer-seen`, body),
+
+  replyToQuestion: (id: string, noteId: string, body: ReplyToQuestionBody) =>
+    send<AnalysisResponse>('POST', `${analysisPath(id)}/notes/${encodeURIComponent(noteId)}/replies`, body),
 
   /** Analyses suivies par un veilleur de notifications de l'agent ; chacune couvre aussi ses revues de suivi. */
   getWatchers: () => request<{ analysisIds: string[] }>('watchers'),

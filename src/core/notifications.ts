@@ -2,6 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import type { Analysis, NoteLocation, ReviewDecision } from "../../shared/schemas/analysis.schema.js";
+import { questionExchanges } from "../../shared/question-thread.js";
 import { noteLocationText } from "../../shared/text.js";
 import { AnalysisStore, writeJsonAtomic } from "./analysis-store.js";
 import { AnalysisError } from "./errors.js";
@@ -17,7 +18,16 @@ const BACKOFF_MAX_MS = 30_000;
 
 // --- Événements à annoncer -----------------------------------------------------------
 
-/** Question envoyée tout de suite à l'agent par le relecteur, pas encore répondue. */
+/** Échange précédent d'une relance : la question d'origine et la dernière réponse de l'agent. */
+export interface FollowUpContext {
+  question: string;
+  lastAnswer: string;
+}
+
+/**
+ * Dernier message du relecteur sur une question, pas encore répondu : la question
+ * elle-même, ou une relance après une réponse de l'agent (`followUp`).
+ */
 export interface QuestionAsked {
   kind: "question";
   analysisId: string;
@@ -25,7 +35,8 @@ export interface QuestionAsked {
   questionId: string;
   location: NoteLocation | null;
   text: string;
-  /** Instant où la question a été envoyée. */
+  followUp: FollowUpContext | null;
+  /** Instant où ce message a été envoyé. */
   eventMs: number;
 }
 
@@ -46,15 +57,20 @@ export type ReviewEvent = QuestionAsked | ReviewSubmitted;
 function eventsOf(analysis: Analysis): ReviewEvent[] {
   const events: ReviewEvent[] = [];
   for (const note of analysis.notes) {
-    if (note.question === null || note.question.answer !== null) continue;
+    if (note.question === null) continue;
+    const exchanges = questionExchanges({ ...note, question: note.question });
+    const last = exchanges[exchanges.length - 1];
+    if (last.answer !== null) continue;
+    const previous = exchanges[exchanges.length - 2];
     events.push({
       kind: "question",
       analysisId: analysis.id,
       title: analysis.title,
       questionId: note.id,
       location: note.location,
-      text: note.text,
-      eventMs: Date.parse(note.question.askedAt),
+      text: last.text,
+      followUp: previous?.answer ? { question: note.text, lastAnswer: previous.answer.text } : null,
+      eventMs: Date.parse(last.askedAt),
     });
   }
   const review = analysis.review;
@@ -149,10 +165,15 @@ export function formatEvent(event: ReviewEvent): string {
   const origin = `[feature-analyzer] "${oneLine(event.title, 80)}" (${event.analysisId})`;
   if (event.kind === "question") {
     const where = event.location ? ` on ${noteLocationText(event.location)}` : "";
-    return (
-      `${origin} — the reviewer asks you${where}: ${oneLine(event.text, 1000)} — ` +
-      `answer with answer_question, analysis_id ${event.analysisId}, question_id ${event.questionId}`
-    );
+    const answerWith = `answer with answer_question, analysis_id ${event.analysisId}, question_id ${event.questionId}`;
+    if (event.followUp) {
+      return (
+        `${origin} — the reviewer follows up on question ${event.questionId}${where} ` +
+        `(question: "${oneLine(event.followUp.question, 300)}"; your last answer: "${oneLine(event.followUp.lastAnswer, 300)}"): ` +
+        `${oneLine(event.text, 1000)} — ${answerWith}`
+      );
+    }
+    return `${origin} — the reviewer asks you${where}: ${oneLine(event.text, 1000)} — ${answerWith}`;
   }
   return (
     `${origin} — the reviewer submitted the review and ${DECISION_TEXT[event.decision]} ` +

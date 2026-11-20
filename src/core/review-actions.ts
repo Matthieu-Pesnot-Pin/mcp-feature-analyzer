@@ -4,6 +4,7 @@ import type {
   DeleteNoteBody,
   MarkAnswerSeenBody,
   MarkProcessedBody,
+  ReplyToQuestionBody,
   SetFileLevelBody,
   SetFileReviewedBody,
   SetFindingStatusBody,
@@ -11,6 +12,7 @@ import type {
   UpdateNoteBody,
 } from "../../shared/schemas/api.schema.js";
 import { buildAgentPrompt } from "../../shared/prompt.js";
+import { lastExchange, questionExchanges } from "../../shared/question-thread.js";
 import { recordSubmission, reopenSubmittedReview } from "../../shared/review-state.js";
 import type { AnalysisStore, MutateOptions } from "./analysis-store.js";
 import { AnalysisError, NotFoundError } from "./errors.js";
@@ -112,7 +114,7 @@ export function addNote(store: AnalysisStore, analysisId: string, body: AddNoteB
         throw new NotFoundError(`Finding "${findingId}" not found in analysis "${analysisId}".`);
       }
       const now = new Date().toISOString();
-      const question = body.askAgent ? { askedAt: now, answer: null, answerSeenAt: null } : null;
+      const question = body.askAgent ? { askedAt: now, answer: null, answerSeenAt: null, followUps: [] } : null;
       if (question === null) reopenSubmittedReview(draft);
       draft.notes.push({
         id: itemId("note", new Set(draft.notes.map((note) => note.id))),
@@ -127,7 +129,7 @@ export function addNote(store: AnalysisStore, analysisId: string, body: AddNoteB
   );
 }
 
-/** Enregistre que le relecteur a lu la réponse de l'agent à une question. */
+/** Enregistre que le relecteur a lu les réponses de l'agent à une question, relances comprises. */
 export function markAnswerSeen(store: AnalysisStore, analysisId: string, noteId: string, body: MarkAnswerSeenBody): Analysis {
   return store.mutate(
     analysisId,
@@ -137,16 +139,41 @@ export function markAnswerSeen(store: AnalysisStore, analysisId: string, noteId:
       if (!note) throw new NotFoundError(`Note "${noteId}" not found in analysis "${analysisId}".`);
       if (note.question === null) throw new AnalysisError(`Note "${noteId}" is not a question sent to the agent.`);
       if (note.question.answer === null) throw new AnalysisError(`The agent has not answered question "${noteId}" yet.`);
-      if (note.question.answerSeenAt !== null) return;
-      note.question.answerSeenAt = new Date().toISOString();
+      const now = new Date().toISOString();
+      if (note.question.answerSeenAt === null) note.question.answerSeenAt = now;
+      for (const followUp of note.question.followUps) {
+        if (followUp.answer !== null && followUp.answerSeenAt === null) followUp.answerSeenAt = now;
+      }
     },
     { baseRevision: body.baseRevision }
   );
 }
 
 /**
- * Enregistre la réponse de l'agent à une question du relecteur. Refusé pour une
- * remarque qui n'est pas une question ou une question déjà répondue.
+ * Ajoute une relance du relecteur à une question : refusé tant que l'agent n'a pas
+ * répondu au dernier message. Comme la question, la relance laisse une revue soumise en l'état.
+ */
+export function replyToQuestion(store: AnalysisStore, analysisId: string, noteId: string, body: ReplyToQuestionBody): Analysis {
+  return store.mutate(
+    analysisId,
+    "user",
+    (draft) => {
+      const note = draft.notes.find((entry) => entry.id === noteId);
+      if (!note) throw new NotFoundError(`Note "${noteId}" not found in analysis "${analysisId}".`);
+      if (note.question === null) throw new AnalysisError(`Note "${noteId}" is not a question sent to the agent.`);
+      if (lastExchange({ ...note, question: note.question }).answer === null) {
+        throw new AnalysisError(`The agent has not answered the last message of question "${noteId}" yet.`);
+      }
+      note.question.followUps.push({ text: body.text, askedAt: new Date().toISOString(), answer: null, answerSeenAt: null });
+    },
+    { baseRevision: body.baseRevision }
+  );
+}
+
+/**
+ * Enregistre la réponse de l'agent au dernier message du relecteur sur une question :
+ * la question elle-même, ou sa dernière relance. Refusé pour une remarque qui n'est pas
+ * une question, ou quand ce dernier message a déjà sa réponse.
  */
 export function answerQuestion(store: AnalysisStore, analysisId: string, noteId: string, answer: string): Analysis {
   return store.mutate(analysisId, "agent", (draft) => {
@@ -159,10 +186,17 @@ export function answerQuestion(store: AnalysisStore, analysisId: string, noteId:
         `Note "${noteId}" is not a question: the reviewer keeps it for the end of the review, and get_review_feedback hands it to you once the review is submitted.`
       );
     }
-    if (note.question.answer !== null) {
-      throw new AnalysisError(`Question "${noteId}" was already answered at ${note.question.answer.at}.`);
+    const exchanges = questionExchanges({ ...note, question: note.question });
+    const last = exchanges[exchanges.length - 1];
+    if (last.answer !== null) {
+      throw new AnalysisError(
+        `The last message of question "${noteId}" was already answered at ${last.answer.at}: wait for the reviewer to follow up.`
+      );
     }
-    note.question.answer = { text: answer, at: new Date().toISOString() };
+    const reply = { text: answer, at: new Date().toISOString() };
+    const followUp = note.question.followUps[note.question.followUps.length - 1];
+    if (followUp) followUp.answer = reply;
+    else note.question.answer = reply;
   });
 }
 

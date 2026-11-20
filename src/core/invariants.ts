@@ -1,4 +1,5 @@
 import type { Analysis, FileEntry } from "../../shared/schemas/analysis.schema.js";
+import { questionExchanges } from "../../shared/question-thread.js";
 import { AnalysisError } from "./errors.js";
 
 /** Identifiants présents plusieurs fois dans `ids`. */
@@ -150,8 +151,16 @@ export function findInvariantViolations(analysis: Analysis): string[] {
     if (note.question !== null && selectedNotes.has(note.id)) {
       problems.push(`review selects note "${note.id}", a question already sent to the agent`);
     }
-    if (note.question !== null && note.question.answer === null && note.question.answerSeenAt !== null) {
-      problems.push(`question "${note.id}" has an answer read date but no answer`);
+    if (note.question !== null) {
+      const exchanges = questionExchanges({ ...note, question: note.question });
+      exchanges.forEach((exchange, index) => {
+        if (exchange.answer === null && exchange.answerSeenAt !== null) {
+          problems.push(`question "${note.id}" has an answer read date but no answer (message ${index + 1})`);
+        }
+        if (exchange.answer === null && index < exchanges.length - 1) {
+          problems.push(`question "${note.id}" has a follow-up after an unanswered message (message ${index + 1})`);
+        }
+      });
     }
   }
   if (review.state === "submitted" && (review.decision === null || review.submittedAt === null)) {

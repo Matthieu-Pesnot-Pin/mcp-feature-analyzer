@@ -104,6 +104,8 @@ export function enableNotifications(ctx: NotificationContext, args: Args): ToolR
       "reviews, including the ones created later — and nothing else: the other reviews are left to their own agents.",
       "When the reviewer sends you a question from the GUI, a line gives the review, the location, the question and its",
       "question_id: answer it right away with answer_question; the reviewer reads the answer in the GUI.",
+      "The reviewer may then follow up on the same question: the line recalls the question and your last answer;",
+      "answer the follow-up with answer_question and the same question_id.",
       "When the reviewer submits the review, a line gives the decision: read the feedback with get_review_feedback.",
       "",
       "The host stops every monitor after 30 minutes at most. Each time it tells you this watcher expired, call",

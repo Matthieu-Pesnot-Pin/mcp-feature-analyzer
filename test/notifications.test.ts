@@ -5,7 +5,7 @@ import path from "node:path";
 import test, { after, before } from "node:test";
 
 import { AnalysisStore } from "../src/core/analysis-store.js";
-import { addNoteQuestions } from "../src/core/migrate.js";
+import { addNoteQuestions, addQuestionFollowUps } from "../src/core/migrate.js";
 import {
   ReviewEventScanner,
   formatEvent,
@@ -14,7 +14,7 @@ import {
   writeHandoff,
   writeWatcherBeat,
 } from "../src/core/notifications.js";
-import { addNote, answerQuestion, deleteNote, markAnswerSeen, submitReview, updateNote } from "../src/core/review-actions.js";
+import { addNote, answerQuestion, deleteNote, markAnswerSeen, replyToQuestion, submitReview, updateNote } from "../src/core/review-actions.js";
 import { McpClient, SERVER_ENTRY, baseEnv, makeGitRepo, makeStore, makeTempDir, sampleSnapshot } from "./helpers.js";
 
 /**
@@ -58,6 +58,37 @@ test("a question is a note sent to the agent: no reopening, no edit, one answer,
   assert.equal(deleted.review.state, "submitted", "deleting a question keeps the submitted review as it is");
 });
 
+test("the reviewer follows up on an answered question, and the agent answers the last message", (t) => {
+  const { store, cleanup } = makeStore();
+  t.after(cleanup);
+  const analysis = createAnalysis(store);
+  submitReview(store, analysis.id, { decision: "approve", findingIds: [], noteIds: [], baseRevision: store.get(analysis.id).revision });
+  const questionId = ask(store, analysis.id, "Can save fail?").notes[0].id;
+  const reply = (text: string) => replyToQuestion(store, analysis.id, questionId, { text, baseRevision: store.get(analysis.id).revision });
+
+  assert.throws(() => reply("Hello?"), /not answered the last message/);
+  answerQuestion(store, analysis.id, questionId, "Yes, when the storage is full.");
+  markAnswerSeen(store, analysis.id, questionId, { baseRevision: store.get(analysis.id).revision });
+
+  const followed = reply("Has the token expired by then?");
+  assert.equal(followed.review.state, "submitted", "a follow-up keeps the submitted review as it is");
+  assert.deepEqual(
+    followed.notes[0].question?.followUps.map((followUp) => [followUp.text, followUp.answer]),
+    [["Has the token expired by then?", null]]
+  );
+  assert.throws(() => reply("And?"), /not answered the last message/);
+
+  answerQuestion(store, analysis.id, questionId, "No, the refresh token lasts 30 days.");
+  const answered = store.get(analysis.id).notes[0].question!;
+  assert.equal(answered.answer?.text, "Yes, when the storage is full.", "the first answer stays as it was");
+  assert.equal(answered.followUps[0].answer?.text, "No, the refresh token lasts 30 days.");
+  assert.equal(answered.followUps[0].answerSeenAt, null);
+  assert.throws(() => answerQuestion(store, analysis.id, questionId, "Again"), /already answered/);
+
+  const seen = markAnswerSeen(store, analysis.id, questionId, { baseRevision: store.get(analysis.id).revision });
+  assert.ok(seen.notes[0].question?.followUps[0].answerSeenAt);
+});
+
 test("a regular note is not a question, and a question cannot be selected in the review", (t) => {
   const { store, cleanup } = makeStore();
   t.after(cleanup);
@@ -90,6 +121,18 @@ test("the scanner announces unanswered questions and submitted reviews of one an
 
   answerQuestion(store, mine.id, events[0].kind === "question" ? events[0].questionId : "", "Yes.");
   assert.deepEqual(scanner.since(start), [], "an answered question is not announced any more");
+
+  const answeredAt = Date.now();
+  const questionId = events[0].kind === "question" ? events[0].questionId : "";
+  replyToQuestion(store, mine.id, questionId, { text: "And the retry?", baseRevision: store.get(mine.id).revision });
+  const followUps = scanner.since(answeredAt - 1);
+  assert.equal(followUps.length, 1);
+  assert.match(
+    formatEvent(followUps[0]),
+    /— the reviewer follows up on question n_[a-z0-9]+ on src\/a\.ts:2 \(question: "First\?"; your last answer: "Yes\."\): And the retry\? — answer with answer_question, analysis_id .+, question_id n_[a-z0-9]+$/
+  );
+  answerQuestion(store, mine.id, questionId, "It waits one second.");
+  assert.deepEqual(scanner.since(start), [], "an answered follow-up is not announced any more");
 
   submitReview(store, mine.id, { decision: "request_changes", findingIds: [], noteIds: [], baseRevision: store.get(mine.id).revision });
   const submitted = scanner.since(start);
@@ -130,6 +173,16 @@ test("addNoteQuestions sets question to null on the notes that have none", () =>
     { id: "n2", question: null },
   ]);
   assert.equal(addNoteQuestions({ notes: [{ id: "n1", question: null }] }), null);
+});
+
+test("addQuestionFollowUps gives the questions that have none an empty follow-up list", () => {
+  const question = { askedAt: "2026-11-19T10:00:00.000Z", answer: null, answerSeenAt: null };
+  const migrated = addQuestionFollowUps({ notes: [{ id: "n1", question }, { id: "n2", question: null }] });
+  assert.deepEqual(migrated?.notes, [
+    { id: "n1", question: { ...question, followUps: [] } },
+    { id: "n2", question: null },
+  ]);
+  assert.equal(addQuestionFollowUps({ notes: [{ id: "n1", question: { ...question, followUps: [] } }] }), null);
 });
 
 // --- Outils MCP et veilleur -------------------------------------------------------------
@@ -200,7 +253,7 @@ test("behind the gateway, enable_notifications returns a watch specification and
   const answered = await client.callTool("answer_question", { analysis_id: analysisId, question_id: questionId, answer: "It matches the token margin." });
   assert.equal(answered.isError, false, answered.text);
   const view = await client.callTool("get_analysis", { analysis_id: analysisId });
-  assert.match(view.text, new RegExp(`${questionId} — src/app\\.ts:2 — Why 60 seconds\\? — QUESTION answered at .+: It matches the token margin\\.`));
+  assert.match(view.text, new RegExp(`${questionId} — src/app\\.ts:2 — Why 60 seconds\\? — QUESTION sent at .+, answered at .+: It matches the token margin\\.`));
 });
 
 test("the --watch watcher prints one line per event and resumes from its cursor", async (t) => {

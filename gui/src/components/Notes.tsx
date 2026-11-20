@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import { hasUnreadAnswer, questionExchanges, type QuestionExchange } from '@shared/question-thread'
 import type { Note, NoteQuestion } from '@shared/schemas/analysis.schema'
 import { useAnalysisStore } from '../store/useAnalysisStore'
 import { formatDateTime, formatShortDateTime } from '../utils/format'
@@ -57,28 +58,87 @@ function RemarkCard({ note }: { note: Note }) {
   )
 }
 
-/** Statut d'une question : en attente de l'agent, ou réponse reçue. */
-function QuestionStatus({ question }: { question: NoteQuestion }) {
-  if (question.answer === null) {
+/** Statut d'une question d'après son dernier échange : en attente de l'agent, ou réponse reçue. */
+function QuestionStatus({ last }: { last: QuestionExchange }) {
+  if (last.answer === null) {
     return (
-      <span className="question-status is-waiting" title={`Envoyée le ${formatDateTime(question.askedAt)}`}>
+      <span className="question-status is-waiting" title={`Envoyée le ${formatDateTime(last.askedAt)}`}>
         <Icon name="loader-circle" size={13} />
         Agent notifié
       </span>
     )
   }
   return (
-    <span className="question-status is-answered" title={`Réponse reçue le ${formatDateTime(question.answer.at)}`}>
+    <span className="question-status is-answered" title={`Réponse reçue le ${formatDateTime(last.answer.at)}`}>
       <span className="question-status-dot" aria-hidden="true" />
       Réponse reçue
     </span>
   )
 }
 
+/** Message d'une discussion : réponse de l'agent, ou relance du relecteur. */
+function ThreadMessage({ author, at, text }: { author: 'agent' | 'reviewer'; at: string; text: string }) {
+  return (
+    <div className={`answer-block${author === 'reviewer' ? ' is-reviewer' : ''}`}>
+      <div className="answer-head" title={formatDateTime(at)}>
+        {author === 'agent' ? <Icon name="bot" size={14} color="#b18cff" /> : <Icon name="user" size={14} color="#8b97ff" />}
+        {author === 'agent' ? 'Agent' : 'Vous'} · {formatShortDateTime(at)}
+      </div>
+      <p className="answer-text">{text}</p>
+    </div>
+  )
+}
+
+/** Saisie d'une relance à l'agent, sous la dernière réponse d'une question. */
+function ReplyForm({ noteId }: { noteId: string }) {
+  const replyToQuestion = useAnalysisStore((state) => state.replyToQuestion)
+  const saving = useAnalysisStore((state) => state.saving)
+  const [text, setText] = useState('')
+  const empty = text.trim() === ''
+
+  const send = async () => {
+    if (empty) return
+    if (await replyToQuestion(noteId, text.trim())) setText('')
+  }
+
+  return (
+    <form
+      className="reply-form"
+      onSubmit={(event) => {
+        event.preventDefault()
+        void send()
+      }}
+    >
+      <textarea
+        rows={2}
+        value={text}
+        placeholder="Répondre à l'agent…"
+        aria-label="Répondre à l'agent"
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault()
+            void send()
+          }
+        }}
+      />
+      <div className="reply-form-actions">
+        <span className="hint">Ctrl + Entrée : envoyer</span>
+        <button type="submit" className="button button-ask button-small" disabled={saving || empty}>
+          <Icon name="send" size={13} />
+          Envoyer
+        </button>
+      </div>
+    </form>
+  )
+}
+
 /**
  * Question envoyée tout de suite à l'agent : son texte, son statut, sa suppression
- * et, une fois l'agent répondu, sa réponse dépliée par « Voir la réponse ». La
- * première ouverture enregistre la lecture de la réponse.
+ * et, dès la première réponse, la discussion dépliée par « Voir la réponse » ou
+ * « Voir la discussion » : réponses de l'agent et relances du relecteur dans l'ordre,
+ * puis la saisie d'une relance quand l'agent a répondu au dernier message. Une
+ * réponse non lue est marquée lue dès que la discussion est dépliée.
  */
 function QuestionCard({ note, question }: { note: Note; question: NoteQuestion }) {
   const markAnswerSeen = useAnalysisStore((state) => state.markAnswerSeen)
@@ -86,12 +146,22 @@ function QuestionCard({ note, question }: { note: Note; question: NoteQuestion }
   const saving = useAnalysisStore((state) => state.saving)
   const [open, setOpen] = useState(false)
   const where = whereOf(note)
-  const answer = question.answer
+  const thread = { ...note, question }
+  const exchanges = questionExchanges(thread)
+  const last = exchanges[exchanges.length - 1]
+  const answered = question.answer !== null
+  const unread = hasUnreadAnswer(thread)
+  const messageCount = exchanges.length + exchanges.filter((exchange) => exchange.answer !== null).length
+  const single = exchanges.length === 1
 
-  const show = () => {
-    setOpen(true)
-    if (question.answerSeenAt === null) void markAnswerSeen(note.id)
-  }
+  // Une seule demande de lecture par réponse, même si elle échoue.
+  const markedAnswer = useRef<string | null>(null)
+  const lastAnswerAt = last.answer?.at ?? null
+  useEffect(() => {
+    if (!open || !unread || lastAnswerAt === null || markedAnswer.current === lastAnswerAt) return
+    markedAnswer.current = lastAnswerAt
+    void markAnswerSeen(note.id)
+  }, [open, unread, lastAnswerAt, markAnswerSeen, note.id])
 
   return (
     <div className={`note-card is-question${open ? ' is-open' : ''}`}>
@@ -100,37 +170,37 @@ function QuestionCard({ note, question }: { note: Note; question: NoteQuestion }
         <span className="note-meta" title={`${where} · ${formatDateTime(question.askedAt)}`}>
           {where} · {formatShortDateTime(question.askedAt)}
         </span>
-        <QuestionStatus question={question} />
+        <QuestionStatus last={last} />
         <button
           type="button"
           className="link-button muted question-delete"
           disabled={saving}
-          title="Supprimer la question et sa réponse"
-          aria-label="Supprimer la question et sa réponse"
+          title="Supprimer la question et la discussion"
+          aria-label="Supprimer la question et la discussion"
           onClick={() => void deleteNote(note.id)}
         >
           <Icon name="trash" size={13} />
         </button>
       </div>
       <p className="note-text">{note.text}</p>
-      {answer !== null && !open && (
-        <button type="button" className="answer-toggle" onClick={show}>
+      {answered && !open && (
+        <button type="button" className="answer-toggle" onClick={() => setOpen(true)}>
           <Icon name="messages-square" size={14} />
-          Voir la réponse
+          {single ? 'Voir la réponse' : `Voir la discussion · ${messageCount} messages`}
         </button>
       )}
-      {answer !== null && open && (
+      {answered && open && (
         <>
-          <div className="answer-block">
-            <div className="answer-head">
-              <Icon name="bot" size={14} color="#b18cff" />
-              Agent · {formatShortDateTime(answer.at)}
-            </div>
-            <p className="answer-text">{answer.text}</p>
-          </div>
+          {exchanges.map((exchange, index) => (
+            <Fragment key={exchange.askedAt}>
+              {index > 0 && <ThreadMessage author="reviewer" at={exchange.askedAt} text={exchange.text} />}
+              {exchange.answer !== null && <ThreadMessage author="agent" at={exchange.answer.at} text={exchange.answer.text} />}
+            </Fragment>
+          ))}
+          {last.answer !== null && <ReplyForm noteId={note.id} />}
           <button type="button" className="link-button accent answer-hide" onClick={() => setOpen(false)}>
             <Icon name="chevron-up" size={14} />
-            Masquer la réponse
+            {single ? 'Masquer la réponse' : 'Masquer la discussion'}
           </button>
         </>
       )}

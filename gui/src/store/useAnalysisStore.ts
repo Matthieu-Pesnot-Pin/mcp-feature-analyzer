@@ -95,8 +95,10 @@ interface AnalysisState {
   addNote: (path: string, line: number | null, text: string, findingId: string | null, askAgent: boolean) => Promise<boolean>
   updateNote: (noteId: string, text: string) => Promise<boolean>
   deleteNote: (noteId: string) => Promise<boolean>
-  /** Enregistre la lecture de la réponse de l'agent à une question. */
+  /** Enregistre la lecture des réponses de l'agent à une question. */
   markAnswerSeen: (noteId: string) => Promise<boolean>
+  /** Envoie une relance à l'agent sur une question à laquelle il a répondu. */
+  replyToQuestion: (noteId: string, text: string) => Promise<boolean>
   setWatchedAnalyses: (analysisIds: string[]) => void
   submitReview: (decision: ReviewDecision, findingIds: string[], noteIds: string[]) => Promise<boolean>
   /** Marque traité le retour soumis de l'analyse `summary`, depuis la liste, avec une note facultative. */
@@ -299,6 +301,11 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     markAnswerSeen: (noteId) =>
       mutate('Lecture de la réponse non enregistrée', (analysis) =>
         api.markAnswerSeen(analysis.id, noteId, { baseRevision: analysis.revision }),
+      ),
+
+    replyToQuestion: (noteId, text) =>
+      mutate('Relance non envoyée', (analysis) =>
+        api.replyToQuestion(analysis.id, noteId, { text, baseRevision: analysis.revision }),
       ),
 
     setWatchedAnalyses: (analysisIds) => set({ watchedAnalyses: new Set(analysisIds) }),
