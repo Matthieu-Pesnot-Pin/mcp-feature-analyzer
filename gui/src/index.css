@@ -1828,19 +1828,26 @@ a.round-chain-item:hover {
   height: 100%;
 }
 
-/* Poignée de largeur du panneau des fichiers, à cheval sur sa bordure droite. */
-.files-panel-resizer {
+/* Poignée de largeur d'un panneau latéral, à cheval sur sa bordure intérieure. */
+.panel-resizer {
   position: absolute;
   top: 0;
   bottom: 0;
   z-index: 5;
   width: 8px;
-  margin-left: -4px;
   cursor: col-resize;
   touch-action: none;
 }
 
-.files-panel-resizer::after {
+.panel-resizer.is-left {
+  margin-left: -4px;
+}
+
+.panel-resizer.is-right {
+  margin-right: -4px;
+}
+
+.panel-resizer::after {
   content: '';
   position: absolute;
   top: 0;
@@ -1851,13 +1858,13 @@ a.round-chain-item:hover {
   transition: background 120ms;
 }
 
-.files-panel-resizer:hover::after,
-.files-panel-resizer:focus-visible::after,
-.files-panel-resizer.is-dragging::after {
+.panel-resizer:hover::after,
+.panel-resizer:focus-visible::after,
+.panel-resizer.is-dragging::after {
   background: var(--accent);
 }
 
-.files-panel-resizer:focus-visible {
+.panel-resizer:focus-visible {
   outline: none;
 }
 
@@ -2274,8 +2281,9 @@ a.round-chain-item:hover {
 }
 
 .review-columns {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 400px;
+  grid-template-columns: minmax(0, 1fr) var(--findings-panel-width, 400px);
   min-height: 100%;
 }
 
@@ -3779,6 +3787,10 @@ button.diff-fold.is-folded {
   .margin-column {
     border-left: none;
     border-top: 1px solid var(--divider);
+  }
+
+  .review-columns > .panel-resizer {
+    display: none;
   }
 
   .margin-track {

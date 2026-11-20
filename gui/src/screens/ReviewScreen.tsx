@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { Analysis, FileEntry } from '@shared/schemas/analysis.schema'
 import { expandContext, stepContext } from '@shared/context-expansion'
 import { buildExplanationRequestPrompt } from '@shared/explanation-request'
@@ -30,65 +30,10 @@ import {
 } from './review-diff-model'
 import { ClassificationBar } from './ClassificationBar'
 import { FilesPanel } from './FilesPanel'
+import { PanelResizer } from './PanelResizer'
 import { firstFileToReview, unlocatedFindings, zenApplies } from './review-model'
-import { clampFilesPanelWidth, FILES_PANEL_WIDTH, useFilesPanelWidth, type WidthUpdate } from './useFilesPanelWidth'
+import { FILES_PANEL_WIDTH, FINDINGS_PANEL_WIDTH, usePanelWidth } from './usePanelWidth'
 import { ZenRail } from './ZenRail'
-
-/**
- * Poignée sur le bord droit du panneau des fichiers : un glissé règle sa largeur,
- * les flèches gauche et droite la changent de 16 px, un double-clic la remet
- * par défaut. Pendant le glissé, seule la grille de l'écran change ; la largeur
- * est enregistrée au relâchement.
- */
-function FilesPanelResizer({
-  width,
-  setWidth,
-  containerRef,
-}: {
-  width: number
-  setWidth: (update: WidthUpdate) => void
-  containerRef: RefObject<HTMLElement | null>
-}) {
-  const [dragging, setDragging] = useState(false)
-  const widthAt = (clientX: number) => clampFilesPanelWidth(clientX - (containerRef.current?.getBoundingClientRect().left ?? 0))
-
-  return (
-    <div
-      className={`files-panel-resizer${dragging ? ' is-dragging' : ''}`}
-      style={{ left: width }}
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Largeur de la liste des fichiers"
-      aria-valuenow={width}
-      aria-valuemin={FILES_PANEL_WIDTH.min}
-      aria-valuemax={FILES_PANEL_WIDTH.max}
-      tabIndex={0}
-      title="Glisser pour régler la largeur · double-clic pour la largeur par défaut"
-      onPointerDown={(event) => {
-        event.preventDefault()
-        event.currentTarget.setPointerCapture(event.pointerId)
-        setDragging(true)
-      }}
-      onPointerMove={(event) => {
-        const container = containerRef.current
-        if (!dragging || !container) return
-        const next = widthAt(event.clientX)
-        container.style.gridTemplateColumns = `${next}px minmax(0, 1fr)`
-        event.currentTarget.style.left = `${next}px`
-      }}
-      onPointerUp={(event) => {
-        if (!dragging) return
-        setDragging(false)
-        setWidth(widthAt(event.clientX))
-      }}
-      onDoubleClick={() => setWidth(FILES_PANEL_WIDTH.default)}
-      onKeyDown={(event) => {
-        if (event.key === 'ArrowLeft') setWidth((current) => current - 16)
-        if (event.key === 'ArrowRight') setWidth((current) => current + 16)
-      }}
-    />
-  )
-}
 
 /** Bandeau repliable des exigences manquantes et constats sans emplacement, au-dessus du diff. */
 function GapBanner({ analysis }: { analysis: Analysis }) {
@@ -278,8 +223,10 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const setExplanationsShown = useAnalysisStore((state) => state.setExplanationsShown)
   const filesPanelCollapsed = useAnalysisStore((state) => state.filesPanelCollapsed)
   const zenMode = useAnalysisStore((state) => state.zenMode)
-  const filesPanel = useFilesPanelWidth()
+  const filesPanel = usePanelWidth(FILES_PANEL_WIDTH)
+  const findingsPanel = usePanelWidth(FINDINGS_PANEL_WIDTH)
   const reviewRef = useRef<HTMLDivElement>(null)
+  const columnsRef = useRef<HTMLDivElement>(null)
   // La saisie d'une remarque est liée au fichier où elle a été ouverte.
   const [composerState, setComposerState] = useState<{ path: string; line: number | null; findingId: string | null } | null>(null)
   const composer: ComposerTarget =
@@ -496,7 +443,17 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
       style={filesHidden ? undefined : { gridTemplateColumns: `${filesPanel.width}px minmax(0, 1fr)` }}
     >
       {!filesHidden && <FilesPanel analysis={analysis} currentPath={path} />}
-      {!filesHidden && <FilesPanelResizer width={filesPanel.width} setWidth={filesPanel.setWidth} containerRef={reviewRef} />}
+      {!filesHidden && (
+        <PanelResizer
+          setting={FILES_PANEL_WIDTH}
+          side="left"
+          label="Largeur de la liste des fichiers"
+          width={filesPanel.width}
+          setWidth={filesPanel.setWidth}
+          containerRef={reviewRef}
+          preview={(container, width) => (container.style.gridTemplateColumns = `${width}px minmax(0, 1fr)`)}
+        />
+      )}
       <section className="review-main">
         {file === null ? (
           <div className="review-body review-body-padded">
@@ -509,8 +466,21 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
             <FileHeader analysis={analysis} file={file} onFileNote={openFileNote} />
             <ClassificationBar file={file} />
             <div className="review-body" ref={bodyRef}>
-              <div className="review-columns">
+              <div
+                className="review-columns"
+                ref={columnsRef}
+                style={{ '--findings-panel-width': `${findingsPanel.width}px` } as CSSProperties}
+              >
                 {center(file, false)}
+                <PanelResizer
+                  setting={FINDINGS_PANEL_WIDTH}
+                  side="right"
+                  label="Largeur de la colonne des constats"
+                  width={findingsPanel.width}
+                  setWidth={findingsPanel.setWidth}
+                  containerRef={columnsRef}
+                  preview={(container, width) => container.style.setProperty('--findings-panel-width', `${width}px`)}
+                />
                 <FindingsMargin
                   analysis={analysis}
                   file={file}
