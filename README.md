@@ -130,6 +130,22 @@ Côté agent, la route doit figurer dans la liste blanche d'exécution du relais
 
 ---
 
+### Passage au MCP Gateway Manager
+
+Lancer dans le dossier du projet dont le `.mcp.json` déclare le Feature Analyzer :
+
+```bash
+npx -y @imenam/mcp-feature-analyzer@latest --migrate-to-manager --name feature-analyzer
+```
+
+La commande écrit `feature-analyzer.mcp-import.zip` dans le dossier courant, à importer depuis l'onglet **MCP** de la gateway (« Importer un MCP »). `--name` désigne l'entrée de `.mcp.json` ; il est obligatoire quand le Feature Analyzer y est déclaré plusieurs fois, et la commande échoue sinon en listant les entrées.
+
+- **Repris :** les analyses (`analyses/`) et leurs diffs figés (`diffs/`), chaque paire copiée sous le verrou de l'analyse, donc cohérente même serveur lancé, et les variables d'environnement (`MCP_FEATURE_ANALYZER_ROLE`). Aucune n'est secrète.
+- **Écarté :** les logs, les battements des veilleurs (`watchers/`), les verrous et les fichiers temporaires.
+- **Fixé par le hub :** `DATA_DIR` (un ancien `MCP_FEATURE_ANALYZER_DATA_DIR` ou `MCP_DATA_DIR` est lu comme dossier de stockage), `PROXY_URL`, `APP_PORT`, `APP_PATH`, `APP_NAME`, `APP_GROUP`, `MCP_LOG_DIR`.
+
+L'archive contient la configuration complète du MCP : la supprimer une fois importée.
+
 ## Les outils
 
 Quatorze outils. Les noms, descriptions et textes de résultat sont en anglais ; chaque résultat de modification se termine par le lien vers l'analyse dans la GUI (`Open the review: <url>#/<id>`) quand la GUI est active.

@@ -470,6 +470,29 @@ export class AnalysisStore {
       this.snapshotCache.delete(id);
     });
   }
+
+  /**
+   * Copie chaque analyse et son snapshot de diff dans `<targetDir>/analyses` et
+   * `<targetDir>/diffs`, fichiers tels quels. Chaque paire est copiée sous le
+   * verrou de l'analyse : elle est cohérente même pendant qu'un autre processus
+   * écrit. Renvoie le nombre d'analyses copiées.
+   */
+  copyTo(targetDir: string): number {
+    const analysesDir = path.join(targetDir, "analyses");
+    const diffsDir = path.join(targetDir, "diffs");
+    fs.mkdirSync(analysesDir, { recursive: true });
+    fs.mkdirSync(diffsDir, { recursive: true });
+    let count = 0;
+    for (const id of this.ids()) {
+      this.withLock(id, () => {
+        if (!fs.existsSync(this.analysisPath(id))) return;
+        fs.copyFileSync(this.analysisPath(id), path.join(analysesDir, `${id}.json`));
+        if (fs.existsSync(this.snapshotPath(id))) fs.copyFileSync(this.snapshotPath(id), path.join(diffsDir, `${id}.json`));
+        count++;
+      });
+    }
+    return count;
+  }
 }
 
 /**
