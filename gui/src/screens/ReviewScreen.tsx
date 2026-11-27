@@ -216,6 +216,8 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
   const setCodeView = useAnalysisStore((state) => state.setCodeView)
   const diffScope = useAnalysisStore((state) => state.diffScope)
   const setDiffScope = useAnalysisStore((state) => state.setDiffScope)
+  const codeFontSize = useAnalysisStore((state) => state.codeFontSize)
+  const setCodeFontSize = useAnalysisStore((state) => state.setCodeFontSize)
   const copy = useAnalysisStore((state) => state.copy)
   const findingsShown = useAnalysisStore((state) => state.findingsShown)
   const setFindingsShown = useAnalysisStore((state) => state.setFindingsShown)
@@ -353,6 +355,8 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
           scope={scope}
           onScopeChange={setDiffScope}
           wholeFileAvailable={wholeFileAvailable}
+          codeFontSize={codeFontSize}
+          onCodeFontSizeChange={setCodeFontSize}
           explained={shownExplanations.length > 0}
           target={target}
           onLineNote={(lineNo) => setComposer({ line: lineNo, findingId: null })}
@@ -404,6 +408,8 @@ export function ReviewScreen({ analysis, path, line }: { analysis: Analysis; pat
               onCodeViewChange={setCodeView}
               mode={fixMode}
               onModeChange={setFixMode}
+              codeFontSize={codeFontSize}
+              onCodeFontSizeChange={setCodeFontSize}
             />
           }
         />

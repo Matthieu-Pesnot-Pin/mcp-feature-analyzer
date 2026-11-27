@@ -6,6 +6,7 @@ import type { DiffLine, FileDiff, Hunk } from '@shared/schemas/diff.schema'
 import { SEVERITY_STYLES } from '@shared/labels'
 import { indentChange } from '@shared/reindent'
 import { splitLines } from '@shared/text'
+import { CodeFontSizeStepper } from '../components/CodeFontSizeStepper'
 import { Icon } from '../components/Icon'
 import { FindingNumber } from '../components/MarginFindingCard'
 import { OptionMenu } from '../components/OptionMenu'
@@ -64,6 +65,9 @@ interface DiffViewProps {
   onScopeChange: (scope: DiffScope) => void
   /** Le snapshot conserve le contenu du fichier : il peut s'afficher en entier. */
   wholeFileAvailable: boolean
+  /** Taille du texte du code, en pixels. */
+  codeFontSize: number
+  onCodeFontSizeChange: (size: number) => void
   /** Des lignes sont marquées comme décrites par une explication : la légende l'indique. */
   explained: boolean
   /** Élément mis en évidence (paramètre `?line=N`). */
@@ -85,9 +89,11 @@ interface DiffOptionMenusProps {
   onCodeViewChange: (view: CodeView) => void
   mode: FixMode
   onModeChange: (mode: FixMode) => void
+  codeFontSize: number
+  onCodeFontSizeChange: (size: number) => void
 }
 
-/** Réglages du diff : étendue affichée, code affiché et affichage des correctifs. */
+/** Réglages du diff : étendue affichée, code affiché, affichage des correctifs et taille du code. */
 export function DiffOptionMenus({
   scope,
   onScopeChange,
@@ -96,6 +102,8 @@ export function DiffOptionMenus({
   onCodeViewChange,
   mode,
   onModeChange,
+  codeFontSize,
+  onCodeFontSizeChange,
 }: DiffOptionMenusProps) {
   return (
     <>
@@ -108,6 +116,7 @@ export function DiffOptionMenus({
       />
       <OptionMenu label="Code" options={CODE_VIEW_OPTIONS} value={codeView} onChange={onCodeViewChange} />
       <OptionMenu label="Correctifs" options={FIX_MODE_OPTIONS} value={mode} onChange={onModeChange} />
+      <CodeFontSizeStepper size={codeFontSize} onChange={onCodeFontSizeChange} />
     </>
   )
 }
@@ -489,6 +498,8 @@ export function DiffView({
   scope,
   onScopeChange,
   wholeFileAvailable,
+  codeFontSize,
+  onCodeFontSizeChange,
   explained,
   target,
   onLineNote,
@@ -653,7 +664,7 @@ export function DiffView({
   }
 
   return (
-    <div className="diff">
+    <div className="diff" style={{ '--code-font-size': `${codeFontSize}px` } as CSSProperties}>
       {toolbarShown && (
         <div className="diff-toolbar" ref={toolbarRef}>
           {syntax.status === 'error' && <span className="diff-toolbar-error">Coloration syntaxique indisponible : {syntax.message}</span>}
@@ -666,6 +677,8 @@ export function DiffView({
               onCodeViewChange={onCodeViewChange}
               mode={mode}
               onModeChange={onModeChange}
+              codeFontSize={codeFontSize}
+              onCodeFontSizeChange={onCodeFontSizeChange}
             />
           )}
         </div>

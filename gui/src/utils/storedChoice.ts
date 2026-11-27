@@ -21,3 +21,14 @@ export function storeChoice(key: string, value: string): void {
     // Stockage du navigateur indisponible : le choix vaut pour la page ouverte.
   }
 }
+
+/** Nombre enregistré dans le navigateur sous `key` ; `fallback` quand rien n'est enregistré ou que la valeur n'est pas un nombre. */
+export function readStoredNumber(key: string, fallback: number): number {
+  try {
+    const value = window.localStorage.getItem(STORAGE_PREFIX + key)
+    const parsed = value === null ? Number.NaN : Number(value)
+    return Number.isFinite(parsed) ? parsed : fallback
+  } catch {
+    return fallback
+  }
+}

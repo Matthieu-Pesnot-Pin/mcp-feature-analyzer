@@ -681,3 +681,11 @@ export function buildMinimap(
 export function replacedLinesLabel(startLine: number, endLine: number): string {
   return startLine === endLine ? `la ligne ${startLine}` : `les lignes ${startLine} à ${endLine}`
 }
+
+/** Taille du texte du code dans le diff de l'écran Revue, en pixels : valeur par défaut, bornes et pas des boutons. */
+export const CODE_FONT_SIZE = { default: 12.5, min: 8, max: 28, step: 1 } as const
+
+/** Taille du code bornée entre le minimum et le maximum, arrondie au demi-pixel. */
+export function clampCodeFontSize(size: number): number {
+  return Math.min(Math.max(Math.round(size * 2) / 2, CODE_FONT_SIZE.min), CODE_FONT_SIZE.max)
+}

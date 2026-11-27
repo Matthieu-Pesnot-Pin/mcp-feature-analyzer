@@ -6,9 +6,15 @@ import { ApiError, api } from '../utils/api'
 import { copyText } from '../utils/clipboard'
 import type { AppConfig, AnalysisListing } from '../types'
 import type { HomeFilter } from '../screens/home-model'
-import { CODE_VIEW_OPTIONS, DIFF_SCOPE_OPTIONS, FIX_MODE_OPTIONS } from '../screens/review-diff-model'
+import {
+  CODE_FONT_SIZE,
+  CODE_VIEW_OPTIONS,
+  DIFF_SCOPE_OPTIONS,
+  FIX_MODE_OPTIONS,
+  clampCodeFontSize,
+} from '../screens/review-diff-model'
 import type { CodeView, DiffScope, FixMode } from '../screens/review-diff-model'
-import { readStoredChoice, storeChoice } from '../utils/storedChoice'
+import { readStoredChoice, readStoredNumber, storeChoice } from '../utils/storedChoice'
 
 /** Message bref affiché en bas de l'écran. */
 export interface Notice {
@@ -55,6 +61,8 @@ interface AnalysisState {
   codeView: CodeView
   /** Étendue du code affiché dans le diff de l'écran Revue, commune à tous les fichiers. */
   diffScope: DiffScope
+  /** Taille du texte du code dans le diff de l'écran Revue, en pixels, commune à tous les fichiers. */
+  codeFontSize: number
   /** Bandeau des exigences manquantes replié sur l'écran Revue, pour tous les fichiers. */
   gapsCollapsed: boolean
   /** Panneau des fichiers masqué sur l'écran Revue, le diff occupant sa place. */
@@ -73,6 +81,7 @@ interface AnalysisState {
   setFixMode: (mode: FixMode) => void
   setCodeView: (view: CodeView) => void
   setDiffScope: (scope: DiffScope) => void
+  setCodeFontSize: (size: number) => void
   setGapsCollapsed: (collapsed: boolean) => void
   setFilesPanelCollapsed: (collapsed: boolean) => void
   setZenMode: (zen: boolean) => void
@@ -179,6 +188,7 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     fixMode: readStoredChoice('fix-mode', FIX_MODE_OPTIONS, 'before-after'),
     codeView: readStoredChoice('code-view', CODE_VIEW_OPTIONS, 'diff'),
     diffScope: readStoredChoice('diff-scope', DIFF_SCOPE_OPTIONS, 'changes'),
+    codeFontSize: clampCodeFontSize(readStoredNumber('code-font-size', CODE_FONT_SIZE.default)),
     gapsCollapsed: false,
     filesPanelCollapsed: false,
     zenMode: false,
@@ -208,6 +218,12 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
     setDiffScope: (diffScope) => {
       storeChoice('diff-scope', diffScope)
       set({ diffScope })
+    },
+
+    setCodeFontSize: (size) => {
+      const codeFontSize = clampCodeFontSize(size)
+      storeChoice('code-font-size', String(codeFontSize))
+      set({ codeFontSize })
     },
 
     setGapsCollapsed: (gapsCollapsed) => set({ gapsCollapsed }),
