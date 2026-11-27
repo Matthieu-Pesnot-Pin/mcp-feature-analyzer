@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { DiffLine } from "../shared/schemas/diff.schema.js";
-import { inlineChanges, inlineChangesOfLines, type CharRange } from "../shared/inline-diff.js";
+import { inlineChanges, inlineChangesOfLines, pairSimilarLines, type CharRange } from "../shared/inline-diff.js";
 import { mergeReindentedLines } from "../shared/reindent.js";
 
 const del = (oldNo: number, text: string): DiffLine => ({ type: "del", oldNo, newNo: null, text });
@@ -40,7 +40,31 @@ test("inlineChanges: identical, too different or empty lines are not compared", 
   assert.equal(inlineChanges("   ", "\t"), null);
 });
 
-test("inlineChangesOfLines: pairs the i-th removed line with the i-th added line, outside reindented lines", () => {
+test("pairSimilarLines: an inserted line does not shift the pairing of a modified line", () => {
+  const removed = ["$allocation['packs'][$item->id] = $this->makeAllocationLine($product, $product->complete_reference, $product->allocable_pack_quantity, $requested);"];
+  const added = [
+    "$allocablePackQuantity = $quantities->pack_allocable_quantity ?? $quantities->allocable_quantity;",
+    "$allocation['packs'][$item->id] = $this->makeAllocationLine($product, $product->complete_reference, $allocablePackQuantity, $requested);",
+  ];
+  const pairs = pairSimilarLines(removed, added);
+  assert.deepEqual(
+    pairs.map((pair) => [pair.removed, pair.added]),
+    [[0, 1]],
+  );
+  assert.deepEqual(parts(removed[0], pairs[0].changes.removed), ["$product->allocable_pack_quantity"]);
+  assert.deepEqual(parts(added[1], pairs[0].changes.added), ["$allocablePackQuantity"]);
+});
+
+test("pairSimilarLines: lines without a close counterpart stay unpaired, pairs keep the order of both runs", () => {
+  const pairs = pairSimilarLines(["  let count = 0;", "  run(count);", "  done();"], ["  log('start');", "  let total = 0;", "  done(true, false, 1);", "  run(total);"]);
+  const pairsAsIndices = pairs.map((pair) => [pair.removed, pair.added]);
+  assert.deepEqual(pairsAsIndices, [
+    [0, 1],
+    [1, 3],
+  ]);
+});
+
+test("inlineChangesOfLines: pairs similar removed and added lines, outside reindented lines", () => {
   const lines = [
     context(1, 1, "function f() {"),
     del(2, "  let count = 0;"),
@@ -53,10 +77,12 @@ test("inlineChangesOfLines: pairs the i-th removed line with the i-th added line
     context(5, 6, "}"),
   ];
   const result = inlineChangesOfLines(mergeReindentedLines(lines));
-  assert.deepEqual(parts(lines[1].text, result.get(lines[1])!), ["count"]);
-  assert.deepEqual(parts(lines[3].text, result.get(lines[3])!), ["total"]);
-  assert.deepEqual(parts(lines[2].text, result.get(lines[2])!), ["count"]);
-  assert.deepEqual(parts(lines[4].text, result.get(lines[4])!), ["total"]);
+  assert.deepEqual(parts(lines[1].text, result.get(lines[1])!.ranges), ["count"]);
+  assert.deepEqual(parts(lines[3].text, result.get(lines[3])!.ranges), ["total"]);
+  assert.deepEqual(parts(lines[2].text, result.get(lines[2])!.ranges), ["count"]);
+  assert.deepEqual(parts(lines[4].text, result.get(lines[4])!.ranges), ["total"]);
+  assert.equal(result.get(lines[1])!.counterpart, lines[3]);
+  assert.equal(result.get(lines[4])!.counterpart, lines[2]);
   assert.equal(result.has(lines[5]), false, "an added line without counterpart keeps its full highlight");
   assert.equal(result.has(lines[6]), false, "a reindented line is not compared word by word");
   assert.equal(result.has(lines[7]), false);

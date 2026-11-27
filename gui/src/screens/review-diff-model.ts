@@ -155,6 +155,8 @@ export type DiffRow =
        * correspond ; null quand la ligne n'a pas de correspondante proche.
        */
       inline: CharRange[] | null
+      /** Ligne de l'autre côté à laquelle la ligne est comparée ; null quand `inline` l'est. */
+      counterpart: DiffLine | null
       /** Ligne visée par un correctif affiché avant / après : barrée. */
       replaced: boolean
       /** Ligne couverte par au moins une explication affichée. */
@@ -398,7 +400,8 @@ export function buildDiffRows(
         kind: 'line',
         line,
         oldLine,
-        inline: inline.get(line) ?? null,
+        inline: inline.get(line)?.ranges ?? null,
+        counterpart: inline.get(line)?.counterpart ?? null,
         replaced: fix !== undefined && line.type !== 'del',
         explained: explanations.some((explanation) => coversLine(explanation, line) || (oldLine !== null && coversLine(explanation, oldLine))),
         bar: fix ? barOf(fix.finding) : lineNo === null ? null : lineBar(numbered, lineNo),
@@ -452,9 +455,11 @@ function isLineOfType(row: DiffRow | undefined, type: DiffLine['type']): row is 
 /**
  * Rangées côte à côte d'un bloc : une ligne de contexte, ou dont seule
  * l'indentation change, figure des deux côtés ;
- * une suite de lignes supprimées suivie de lignes ajoutées est appariée ligne à
- * ligne, le côté le plus court complété par des cases vides ; les lignes
- * proposées par un correctif sont à droite.
+ * dans une suite de lignes supprimées suivie de lignes ajoutées, une ligne et sa
+ * `counterpart` sont sur la même rangée, et les lignes sans correspondante
+ * situées entre deux telles rangées sont mises en vis-à-vis dans l'ordre, le
+ * côté le plus court complété par des cases vides ; les lignes proposées par un
+ * correctif sont à droite.
  */
 export function splitRows(rows: DiffRow[]): SplitRow[] {
   const result: SplitRow[] = []
@@ -478,9 +483,24 @@ export function splitRows(rows: DiffRow[]): SplitRow[] {
       const added: LineRow[] = []
       for (let next = rows[index]; isLineOfType(next, 'del'); next = rows[++index]) removed.push(next)
       for (let next = rows[index]; isLineOfType(next, 'add'); next = rows[++index]) added.push(next)
-      for (let pair = 0; pair < Math.max(removed.length, added.length); pair++) {
-        result.push({ kind: 'pair', left: removed[pair] ?? null, right: added[pair] ?? null })
+      const facing = (fromRemoved: number, toRemoved: number, fromAdded: number, toAdded: number) => {
+        for (let offset = 0; offset < Math.max(toRemoved - fromRemoved, toAdded - fromAdded); offset++) {
+          const left = fromRemoved + offset < toRemoved ? removed[fromRemoved + offset] : null
+          const right = fromAdded + offset < toAdded ? added[fromAdded + offset] : null
+          result.push({ kind: 'pair', left, right })
+        }
       }
+      let nextRemoved = 0
+      let nextAdded = 0
+      removed.forEach((row, removedIndex) => {
+        const addedIndex = added.findIndex((candidate, index) => index >= nextAdded && candidate.line === row.counterpart)
+        if (addedIndex === -1) return
+        facing(nextRemoved, removedIndex, nextAdded, addedIndex)
+        result.push({ kind: 'pair', left: row, right: added[addedIndex] })
+        nextRemoved = removedIndex + 1
+        nextAdded = addedIndex + 1
+      })
+      facing(nextRemoved, removed.length, nextAdded, added.length)
     }
   }
   return result
